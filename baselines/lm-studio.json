@@ -1,0 +1,815 @@
+{
+  "version": 1,
+  "target": {
+    "baseUrl": "http://localhost:1234/v1",
+    "model": "mlx-community/gemma-4-e2b-it",
+    "engine": "full-surface engine"
+  },
+  "coverage": {
+    "byTier": [
+      {
+        "tier": "core",
+        "supported": 5,
+        "total": 6,
+        "pct": 83.3,
+        "missing": ["tool calling"],
+        "unprobed": ["JSON mode", "usage tokens", "stop + max_tokens"]
+      },
+      {
+        "tier": "extended",
+        "supported": 4,
+        "total": 4,
+        "pct": 100,
+        "missing": [],
+        "unprobed": [
+          "structured outputs",
+          "parallel tool calls",
+          "vision",
+          "logprobs",
+          "reasoning items",
+          "streamed usage",
+          "seed determinism"
+        ]
+      },
+      {
+        "tier": "frontier",
+        "supported": 0,
+        "total": 3,
+        "pct": 0,
+        "missing": [
+          "images/generations",
+          "audio/speech",
+          "audio/transcriptions"
+        ],
+        "unprobed": [
+          "MCP tools",
+          "rate limiting",
+          "prompt caching",
+          "previous_response_id chaining",
+          "background responses"
+        ]
+      }
+    ],
+    "credits": [],
+    "entries": [
+      {
+        "id": "models",
+        "tier": "core",
+        "supported": true
+      },
+      {
+        "id": "chat",
+        "tier": "core",
+        "supported": true
+      },
+      {
+        "id": "responses",
+        "tier": "extended",
+        "supported": true
+      },
+      {
+        "id": "messages",
+        "tier": "extended",
+        "supported": true
+      },
+      {
+        "id": "embeddings",
+        "tier": "extended",
+        "supported": true
+      },
+      {
+        "id": "completions",
+        "tier": "extended",
+        "supported": true
+      },
+      {
+        "id": "images",
+        "tier": "frontier",
+        "supported": false,
+        "detail": "not implemented"
+      },
+      {
+        "id": "audio-speech",
+        "tier": "frontier",
+        "supported": false,
+        "detail": "not implemented"
+      },
+      {
+        "id": "audio-transcriptions",
+        "tier": "frontier",
+        "supported": false,
+        "detail": "not implemented"
+      },
+      {
+        "id": "streaming",
+        "tier": "core",
+        "supported": true
+      },
+      {
+        "id": "tools",
+        "tier": "core",
+        "supported": false,
+        "detail": "rejects tools with HTTP 400"
+      },
+      {
+        "id": "json-mode",
+        "tier": "core",
+        "supported": false,
+        "detail": "not detected"
+      },
+      {
+        "id": "usage",
+        "tier": "core",
+        "supported": false,
+        "detail": "not detected"
+      },
+      {
+        "id": "finish-reasons",
+        "tier": "core",
+        "supported": true
+      },
+      {
+        "id": "errors",
+        "tier": "core",
+        "supported": true
+      },
+      {
+        "id": "limits",
+        "tier": "core",
+        "supported": false,
+        "detail": "not detected"
+      },
+      {
+        "id": "structured-outputs",
+        "tier": "extended",
+        "supported": false,
+        "detail": "not detected"
+      },
+      {
+        "id": "parallel-tools",
+        "tier": "extended",
+        "supported": false,
+        "detail": "not detected"
+      },
+      {
+        "id": "vision",
+        "tier": "extended",
+        "supported": false,
+        "detail": "not detected"
+      },
+      {
+        "id": "logprobs",
+        "tier": "extended",
+        "supported": false,
+        "detail": "not detected"
+      },
+      {
+        "id": "reasoning",
+        "tier": "extended",
+        "supported": false,
+        "detail": "not detected"
+      },
+      {
+        "id": "stream-usage",
+        "tier": "extended",
+        "supported": false,
+        "detail": "not detected"
+      },
+      {
+        "id": "seed",
+        "tier": "extended",
+        "supported": false,
+        "detail": "not detected"
+      },
+      {
+        "id": "mcp-tools",
+        "tier": "frontier",
+        "supported": false,
+        "detail": "not detected"
+      },
+      {
+        "id": "rate-limiting",
+        "tier": "frontier",
+        "supported": false,
+        "detail": "not detected"
+      },
+      {
+        "id": "prompt-caching",
+        "tier": "frontier",
+        "supported": false,
+        "detail": "not detected"
+      },
+      {
+        "id": "previous-response-id",
+        "tier": "frontier",
+        "supported": false,
+        "detail": "not detected"
+      },
+      {
+        "id": "background",
+        "tier": "frontier",
+        "supported": false,
+        "detail": "not detected"
+      }
+    ]
+  },
+  "conformance": {
+    "pct": 93.5,
+    "passed": 72,
+    "total": 77,
+    "bySurface": [
+      {
+        "surface": "models",
+        "passed": 4,
+        "total": 4,
+        "pct": 100
+      },
+      {
+        "surface": "chat",
+        "passed": 24,
+        "total": 24,
+        "pct": 100
+      },
+      {
+        "surface": "responses",
+        "passed": 20,
+        "total": 25,
+        "pct": 80
+      },
+      {
+        "surface": "messages",
+        "passed": 24,
+        "total": 24,
+        "pct": 100
+      }
+    ],
+    "results": [
+      {
+        "id": "models-list",
+        "surface": "models",
+        "outcome": "pass",
+        "failures": []
+      },
+      {
+        "id": "chat-basic",
+        "surface": "chat",
+        "outcome": "pass",
+        "failures": []
+      },
+      {
+        "id": "chat-streaming",
+        "surface": "chat",
+        "outcome": "pass",
+        "failures": []
+      },
+      {
+        "id": "chat-parity",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "chat-usage",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "chat-stream-usage",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "chat-finish-length",
+        "surface": "chat",
+        "outcome": "pass",
+        "failures": []
+      },
+      {
+        "id": "chat-limits-max-tokens",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "chat-limits-stop",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "chat-unicode",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "chat-errors",
+        "surface": "chat",
+        "outcome": "pass",
+        "failures": []
+      },
+      {
+        "id": "chat-tool-serialization",
+        "surface": "chat",
+        "outcome": "unsupported",
+        "reason": "rejects tools with HTTP 400",
+        "failures": []
+      },
+      {
+        "id": "chat-tool-stream-reassembly",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "chat-tool-result-turn",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "chat-parallel-tools",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "chat-tool-arg-types",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "chat-json-mode",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "chat-structured-outputs",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "chat-vision",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "chat-logprobs",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "chat-seed",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "chat-reasoning",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "chat-prompt-caching",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "chat-rate-limit-headers",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "chat-concurrency",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "responses-basic",
+        "surface": "responses",
+        "outcome": "fail",
+        "failures": [
+          {
+            "id": "responses-schema",
+            "severity": "MUST",
+            "message": "top_p: Expected number, received boolean"
+          }
+        ]
+      },
+      {
+        "id": "responses-streaming",
+        "surface": "responses",
+        "outcome": "fail",
+        "failures": [
+          {
+            "id": "responses-sse-missing-done",
+            "severity": "MUST",
+            "message": "stream never sent the terminal `data: [DONE]` sentinel"
+          },
+          {
+            "id": "responses-stream-chunk-schema",
+            "severity": "MUST",
+            "message": "<root>: Invalid input"
+          },
+          {
+            "id": "responses-stream-chunk-schema",
+            "severity": "MUST",
+            "message": "<root>: Invalid input"
+          }
+        ]
+      },
+      {
+        "id": "responses-parity",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "responses-usage",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "responses-stream-usage",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "responses-finish-length",
+        "surface": "responses",
+        "outcome": "fail",
+        "failures": [
+          {
+            "id": "responses-finish-is-length",
+            "severity": "MUST",
+            "message": "expected length/max_tokens, got \"completed\""
+          }
+        ]
+      },
+      {
+        "id": "responses-limits-max-tokens",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "responses-unicode",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "responses-errors",
+        "surface": "responses",
+        "outcome": "pass",
+        "failures": []
+      },
+      {
+        "id": "responses-tool-serialization",
+        "surface": "responses",
+        "outcome": "unsupported",
+        "reason": "rejects tools with HTTP 500",
+        "failures": []
+      },
+      {
+        "id": "responses-tool-stream-reassembly",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "responses-tool-result-turn",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "responses-parallel-tools",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "responses-tool-arg-types",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "responses-json-mode",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "responses-structured-outputs",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "responses-vision",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "responses-reasoning",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "responses-prompt-caching",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "responses-rate-limit-headers",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "responses-concurrency",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "messages-basic",
+        "surface": "messages",
+        "outcome": "pass",
+        "failures": []
+      },
+      {
+        "id": "messages-streaming",
+        "surface": "messages",
+        "outcome": "pass",
+        "failures": []
+      },
+      {
+        "id": "messages-parity",
+        "surface": "messages",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "messages-usage",
+        "surface": "messages",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "messages-stream-usage",
+        "surface": "messages",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "messages-finish-length",
+        "surface": "messages",
+        "outcome": "pass",
+        "failures": []
+      },
+      {
+        "id": "messages-limits-max-tokens",
+        "surface": "messages",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "messages-limits-stop",
+        "surface": "messages",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "messages-unicode",
+        "surface": "messages",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "messages-errors",
+        "surface": "messages",
+        "outcome": "pass",
+        "failures": []
+      },
+      {
+        "id": "messages-tool-serialization",
+        "surface": "messages",
+        "outcome": "unsupported",
+        "reason": "rejects tools with HTTP 500",
+        "failures": []
+      },
+      {
+        "id": "messages-tool-stream-reassembly",
+        "surface": "messages",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "messages-tool-result-turn",
+        "surface": "messages",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "messages-parallel-tools",
+        "surface": "messages",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "messages-tool-arg-types",
+        "surface": "messages",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "messages-vision",
+        "surface": "messages",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "messages-reasoning",
+        "surface": "messages",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "messages-prompt-caching",
+        "surface": "messages",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "messages-rate-limit-headers",
+        "surface": "messages",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "messages-concurrency",
+        "surface": "messages",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "responses-event-order",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "responses-previous-response-id",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "responses-background",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "responses-mcp-tools",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "messages-event-order",
+        "surface": "messages",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "messages-max-tokens-required",
+        "surface": "messages",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "embeddings-basic",
+        "surface": "embeddings",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "embeddings-dimensions",
+        "surface": "embeddings",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "completions-basic",
+        "surface": "completions",
+        "outcome": "skipped",
+        "reason": "not run at depth \"quick\"",
+        "failures": []
+      },
+      {
+        "id": "images-generate",
+        "surface": "images",
+        "outcome": "unsupported",
+        "reason": "images not implemented",
+        "failures": []
+      },
+      {
+        "id": "audio-speech",
+        "surface": "audio-speech",
+        "outcome": "unsupported",
+        "reason": "audio-speech not implemented",
+        "failures": []
+      }
+    ]
+  },
+  "capability": {
+    "pct": 0,
+    "semiCapable": false,
+    "categories": [],
+    "weakCategories": [],
+    "evals": []
+  },
+  "usage": {
+    "inputTokens": 152,
+    "outputTokens": 34
+  },
+  "durationMs": 756
+}

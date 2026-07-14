@@ -1,0 +1,59 @@
+{
+  "name": "llmprobe",
+  "version": "0.1.1",
+  "description": "Conformance and capability test suite for LLM inference engines. Scores surface coverage, spec conformance, and whether the model is semi-capable.",
+  "keywords": [
+    "llm",
+    "conformance",
+    "openai",
+    "inference",
+    "benchmark",
+    "mlx",
+    "llama.cpp",
+    "ollama"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ddalcu/llmprobe.git"
+  },
+  "homepage": "https://github.com/ddalcu/llmprobe#readme",
+  "bugs": {
+    "url": "https://github.com/ddalcu/llmprobe/issues"
+  },
+  "bin": {
+    "llmprobe": "bin/dist/llmprobe.mjs"
+  },
+  "files": [
+    "bin/dist/llmprobe.mjs",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "prettier": "prettier",
+    "build:cli": "esbuild bin/llmprobe.ts --bundle --platform=node --format=esm --target=node20 --outfile=bin/dist/llmprobe.mjs && chmod +x bin/dist/llmprobe.mjs",
+    "prepare": "husky && npm run build:cli",
+    "prepublishOnly": "npm run build:cli",
+    "probe": "bun run bin/llmprobe.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "test:unit": "bun test"
+  },
+  "author": "David Dalcu <david.dalcu@gmail.com>",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/bun": "^1.3.0",
+    "esbuild": "^0.28.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.3",
+    "zod": "^3.25.76"
+  },
+  "lint-staged": {
+    "*": "prettier --write --ignore-unknown"
+  }
+}

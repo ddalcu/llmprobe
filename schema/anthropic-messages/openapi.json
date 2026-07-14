@@ -1,0 +1,555 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Anthropic Messages API",
+    "version": "2023-06-01",
+    "description": "Hand-rolled minimal OpenAPI 3.1 description of the Anthropic Messages API (`POST /v1/messages`) covering the subset of fields required by the llmprobe compliance suite. This is not the official Anthropic spec; it is a wire-shape contract derived from https://docs.anthropic.com/en/api/messages and https://docs.anthropic.com/en/api/messages-streaming and is intentionally narrow."
+  },
+  "servers": [
+    {
+      "url": "https://api.anthropic.com",
+      "description": "Anthropic public API"
+    }
+  ],
+  "paths": {
+    "/v1/messages": {
+      "post": {
+        "operationId": "createMessage",
+        "summary": "Create a Message",
+        "description": "Send a structured list of input messages with text and/or image content, and the model will generate the next message in the conversation.",
+        "parameters": [
+          {
+            "name": "anthropic-version",
+            "in": "header",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "API version pin, e.g. `2023-06-01`."
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Anthropic API key."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateMessageBody" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Either a complete `Message` or a `text/event-stream` of typed streaming events.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Message" }
+              },
+              "text/event-stream": {
+                "schema": { "$ref": "#/components/schemas/StreamEvent" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CreateMessageBody": {
+        "type": "object",
+        "required": ["model", "messages", "max_tokens"],
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Model identifier, e.g. `claude-sonnet-4-5`."
+          },
+          "messages": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/InputMessage" }
+          },
+          "max_tokens": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "system": {
+            "description": "System prompt as a plain string or an array of text blocks.",
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/InputTextBlock" }
+              }
+            ]
+          },
+          "stream": { "type": "boolean" },
+          "temperature": { "type": "number" },
+          "top_p": { "type": "number" },
+          "top_k": { "type": "integer" },
+          "stop_sequences": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "tools": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Tool" }
+          },
+          "tool_choice": {
+            "$ref": "#/components/schemas/ToolChoice"
+          }
+        },
+        "additionalProperties": true
+      },
+      "InputMessage": {
+        "type": "object",
+        "required": ["role", "content"],
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": ["user", "assistant"]
+          },
+          "content": {
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/InputContentBlock" }
+              }
+            ]
+          }
+        },
+        "additionalProperties": true
+      },
+      "InputContentBlock": {
+        "oneOf": [
+          { "$ref": "#/components/schemas/InputTextBlock" },
+          { "$ref": "#/components/schemas/InputImageBlock" },
+          { "$ref": "#/components/schemas/InputToolUseBlock" },
+          { "$ref": "#/components/schemas/InputToolResultBlock" }
+        ]
+      },
+      "InputTextBlock": {
+        "type": "object",
+        "required": ["type", "text"],
+        "properties": {
+          "type": { "const": "text" },
+          "text": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "InputImageBlock": {
+        "type": "object",
+        "required": ["type", "source"],
+        "properties": {
+          "type": { "const": "image" },
+          "source": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["type", "media_type", "data"],
+                "properties": {
+                  "type": { "const": "base64" },
+                  "media_type": { "type": "string" },
+                  "data": { "type": "string" }
+                }
+              },
+              {
+                "type": "object",
+                "required": ["type", "url"],
+                "properties": {
+                  "type": { "const": "url" },
+                  "url": { "type": "string" }
+                }
+              }
+            ]
+          }
+        },
+        "additionalProperties": true
+      },
+      "InputToolUseBlock": {
+        "type": "object",
+        "required": ["type", "id", "name", "input"],
+        "properties": {
+          "type": { "const": "tool_use" },
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "input": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      },
+      "InputToolResultBlock": {
+        "type": "object",
+        "required": ["type", "tool_use_id"],
+        "properties": {
+          "type": { "const": "tool_result" },
+          "tool_use_id": { "type": "string" },
+          "is_error": { "type": "boolean" },
+          "content": {
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    { "$ref": "#/components/schemas/InputTextBlock" },
+                    { "$ref": "#/components/schemas/InputImageBlock" }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "additionalProperties": true
+      },
+      "Tool": {
+        "type": "object",
+        "required": ["name", "input_schema"],
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "input_schema": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      },
+      "ToolChoice": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["type"],
+            "properties": { "type": { "const": "auto" } }
+          },
+          {
+            "type": "object",
+            "required": ["type"],
+            "properties": { "type": { "const": "any" } }
+          },
+          {
+            "type": "object",
+            "required": ["type", "name"],
+            "properties": {
+              "type": { "const": "tool" },
+              "name": { "type": "string" }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["type"],
+            "properties": { "type": { "const": "none" } }
+          }
+        ]
+      },
+      "Message": {
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "role",
+          "model",
+          "content",
+          "stop_reason",
+          "stop_sequence",
+          "usage"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "type": { "const": "message" },
+          "role": { "const": "assistant" },
+          "model": { "type": "string" },
+          "content": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/OutputContentBlock" }
+          },
+          "stop_reason": {
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "end_turn",
+                  "max_tokens",
+                  "stop_sequence",
+                  "tool_use",
+                  "pause_turn",
+                  "refusal"
+                ]
+              },
+              { "type": "null" }
+            ]
+          },
+          "stop_sequence": {
+            "oneOf": [{ "type": "string" }, { "type": "null" }]
+          },
+          "usage": { "$ref": "#/components/schemas/Usage" }
+        },
+        "additionalProperties": true
+      },
+      "OutputContentBlock": {
+        "oneOf": [
+          { "$ref": "#/components/schemas/TextBlock" },
+          { "$ref": "#/components/schemas/ToolUseBlock" },
+          { "$ref": "#/components/schemas/ThinkingBlock" }
+        ]
+      },
+      "TextBlock": {
+        "type": "object",
+        "required": ["type", "text"],
+        "properties": {
+          "type": { "const": "text" },
+          "text": { "type": "string" },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "ToolUseBlock": {
+        "type": "object",
+        "required": ["type", "id", "name", "input"],
+        "properties": {
+          "type": { "const": "tool_use" },
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "input": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      },
+      "ThinkingBlock": {
+        "type": "object",
+        "required": ["type", "thinking"],
+        "properties": {
+          "type": { "const": "thinking" },
+          "thinking": { "type": "string" },
+          "signature": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "Usage": {
+        "type": "object",
+        "required": ["input_tokens", "output_tokens"],
+        "properties": {
+          "input_tokens": { "type": "integer" },
+          "output_tokens": { "type": "integer" },
+          "cache_creation_input_tokens": {
+            "oneOf": [{ "type": "integer" }, { "type": "null" }]
+          },
+          "cache_read_input_tokens": {
+            "oneOf": [{ "type": "integer" }, { "type": "null" }]
+          }
+        },
+        "additionalProperties": true
+      },
+      "MessageDeltaUsage": {
+        "type": "object",
+        "required": ["output_tokens"],
+        "properties": {
+          "output_tokens": { "type": "integer" },
+          "input_tokens": { "type": "integer" },
+          "cache_creation_input_tokens": {
+            "oneOf": [{ "type": "integer" }, { "type": "null" }]
+          },
+          "cache_read_input_tokens": {
+            "oneOf": [{ "type": "integer" }, { "type": "null" }]
+          }
+        },
+        "additionalProperties": true
+      },
+      "TextDelta": {
+        "type": "object",
+        "required": ["type", "text"],
+        "properties": {
+          "type": { "const": "text_delta" },
+          "text": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "InputJsonDelta": {
+        "type": "object",
+        "required": ["type", "partial_json"],
+        "properties": {
+          "type": { "const": "input_json_delta" },
+          "partial_json": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "ThinkingDelta": {
+        "type": "object",
+        "required": ["type", "thinking"],
+        "properties": {
+          "type": { "const": "thinking_delta" },
+          "thinking": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "ContentBlockDelta": {
+        "oneOf": [
+          { "$ref": "#/components/schemas/TextDelta" },
+          { "$ref": "#/components/schemas/InputJsonDelta" },
+          { "$ref": "#/components/schemas/ThinkingDelta" }
+        ]
+      },
+      "MessageStartEvent": {
+        "type": "object",
+        "required": ["type", "message"],
+        "properties": {
+          "type": { "const": "message_start" },
+          "message": { "$ref": "#/components/schemas/Message" }
+        },
+        "additionalProperties": true
+      },
+      "ContentBlockStartEvent": {
+        "type": "object",
+        "required": ["type", "index", "content_block"],
+        "properties": {
+          "type": { "const": "content_block_start" },
+          "index": { "type": "integer" },
+          "content_block": {
+            "$ref": "#/components/schemas/OutputContentBlock"
+          }
+        },
+        "additionalProperties": true
+      },
+      "ContentBlockDeltaEvent": {
+        "type": "object",
+        "required": ["type", "index", "delta"],
+        "properties": {
+          "type": { "const": "content_block_delta" },
+          "index": { "type": "integer" },
+          "delta": { "$ref": "#/components/schemas/ContentBlockDelta" }
+        },
+        "additionalProperties": true
+      },
+      "ContentBlockStopEvent": {
+        "type": "object",
+        "required": ["type", "index"],
+        "properties": {
+          "type": { "const": "content_block_stop" },
+          "index": { "type": "integer" }
+        },
+        "additionalProperties": true
+      },
+      "MessageDeltaEvent": {
+        "type": "object",
+        "required": ["type", "delta", "usage"],
+        "properties": {
+          "type": { "const": "message_delta" },
+          "delta": {
+            "type": "object",
+            "properties": {
+              "stop_reason": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "end_turn",
+                      "max_tokens",
+                      "stop_sequence",
+                      "tool_use",
+                      "pause_turn",
+                      "refusal"
+                    ]
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "stop_sequence": {
+                "oneOf": [{ "type": "string" }, { "type": "null" }]
+              }
+            },
+            "additionalProperties": true
+          },
+          "usage": { "$ref": "#/components/schemas/MessageDeltaUsage" }
+        },
+        "additionalProperties": true
+      },
+      "MessageStopEvent": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": { "const": "message_stop" }
+        },
+        "additionalProperties": true
+      },
+      "PingEvent": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": { "const": "ping" }
+        },
+        "additionalProperties": true
+      },
+      "ErrorEvent": {
+        "type": "object",
+        "required": ["type", "error"],
+        "properties": {
+          "type": { "const": "error" },
+          "error": {
+            "type": "object",
+            "required": ["type", "message"],
+            "properties": {
+              "type": { "type": "string" },
+              "message": { "type": "string" }
+            },
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      },
+      "StreamEvent": {
+        "oneOf": [
+          { "$ref": "#/components/schemas/MessageStartEvent" },
+          { "$ref": "#/components/schemas/ContentBlockStartEvent" },
+          { "$ref": "#/components/schemas/ContentBlockDeltaEvent" },
+          { "$ref": "#/components/schemas/ContentBlockStopEvent" },
+          { "$ref": "#/components/schemas/MessageDeltaEvent" },
+          { "$ref": "#/components/schemas/MessageStopEvent" },
+          { "$ref": "#/components/schemas/PingEvent" },
+          { "$ref": "#/components/schemas/ErrorEvent" }
+        ]
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["type", "error"],
+        "properties": {
+          "type": { "const": "error" },
+          "error": {
+            "type": "object",
+            "required": ["type", "message"],
+            "properties": {
+              "type": { "type": "string" },
+              "message": { "type": "string" }
+            },
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  }
+}
