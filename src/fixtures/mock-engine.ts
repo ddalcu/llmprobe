@@ -36,6 +36,12 @@ export interface MockDefects {
    * budget remains. Capped tightly, such a model returns EMPTY content.
    */
   reasoningModel?: boolean;
+  /**
+   * Stall (1s) any chat completion whose prompt exceeds this many bytes —
+   * enough to trip a client timeout set below the stall. Models real engines
+   * whose prefill of a big prompt outlasts the per-request timeout.
+   */
+  stallAbovePromptBytes?: number;
   /** Which surfaces exist. Defaults to models + chat. */
   surfaces?: string[];
   /** Fixed port. Defaults to 0 (random), which is what the tests want. */
@@ -46,6 +52,8 @@ export interface MockEngine {
   url: string;
   stop(): void;
   requests: string[];
+  /** Parsed body of every /chat/completions request, in arrival order. */
+  chatBodies: Array<Record<string, unknown>>;
 }
 
 const MODEL = "mock-model-12b";
@@ -288,6 +296,7 @@ function streamFor(
 export function startMockEngine(defects: MockDefects = {}): MockEngine {
   const surfaces = defects.surfaces ?? ["models", "chat"];
   const requests: string[] = [];
+  const chatBodies: Array<Record<string, unknown>> = [];
 
   const server = Bun.serve({
     port: defects.port ?? 0,
@@ -305,6 +314,14 @@ export function startMockEngine(defects: MockDefects = {}): MockEngine {
 
       if (path === "/chat/completions" && surfaces.includes("chat")) {
         const body = (await request.json().catch(() => ({}))) as any;
+        chatBodies.push(body);
+
+        if (defects.stallAbovePromptBytes !== undefined) {
+          const last = (body.messages ?? []).at(-1);
+          const text = typeof last?.content === "string" ? last.content : "";
+          if (text.length > defects.stallAbovePromptBytes)
+            await Bun.sleep(1_000);
+        }
 
         // An empty-body probe must be rejected on validation — that is what
         // makes surface discovery free.
@@ -386,5 +403,6 @@ export function startMockEngine(defects: MockDefects = {}): MockEngine {
     url: `http://localhost:${server.port}`,
     stop: () => server.stop(true),
     requests,
+    chatBodies,
   };
 }

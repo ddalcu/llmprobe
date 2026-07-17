@@ -1,4 +1,5 @@
 import { tryParseJson } from "../core/assert";
+import { BudgetExceededError } from "../core/client";
 import type { RunContext } from "../core/context";
 import type {
   BenchReport,
@@ -23,6 +24,10 @@ import {
  *  - a warmup run per scenario, discarded, so cold model-load / cache-warm
  *    never leaks into the number;
  *  - K measured runs, reported as median (min–max), never a single figure;
+ *  - a unique lead-in on every request, so the engine's prompt/prefix cache
+ *    (llama.cpp slots, vLLM APC, LM Studio, Ollama) can never serve a measured
+ *    run from an earlier run's KV — a cache hit collapses TTFT and makes
+ *    prefill read as tens of thousands of tok/s;
  *  - a black-box speculative-decoding / MTP probe: decode throughput on
  *    predictable content (verbatim echo) versus novel content. Speculation only
  *    pays when the draft is accepted, which happens far more on predictable
@@ -50,6 +55,16 @@ const PREDICTABLE_PASSAGE =
   "spiral stairs, lit the great lamp, and watched its beam sweep slowly across " +
   "the dark water, guiding the fishing boats safely home through the fog.";
 
+/**
+ * Prefix caches match from token 0 and survive across llmprobe invocations, so
+ * the lead-in sits at the very start of the prompt and is unique per process
+ * (timestamp tag) and per request (sequence number).
+ */
+const CACHE_BUST_TAG = Date.now().toString(36);
+let cacheBustSeq = 0;
+const cacheBust = (text: string): string =>
+  `[probe ${CACHE_BUST_TAG}-${(cacheBustSeq++).toString(36)}] ${text}`;
+
 interface RunSample {
   ttftMs: number | null;
   decodeTokPerSec: number | null;
@@ -57,6 +72,14 @@ interface RunSample {
   outputTokens: number | null;
   inputTokens: number | null;
 }
+
+const NULL_SAMPLE: RunSample = {
+  ttftMs: null,
+  decodeTokPerSec: null,
+  prefillTokPerSec: null,
+  outputTokens: null,
+  inputTokens: null,
+};
 
 /** One timed generation, reduced to the metrics we care about. */
 async function timedRun(
@@ -69,7 +92,7 @@ async function timedRun(
   const body = {
     ...adapter.buildBody(
       {
-        turns: [{ type: "user", text }],
+        turns: [{ type: "user", text: cacheBust(text) }],
         temperature: 0,
         maxTokens,
         includeUsage: true,
@@ -79,21 +102,22 @@ async function timedRun(
     stream: true,
   };
 
-  const timed = await ctx.client.streamTimed(
-    adapter.path,
-    body,
-    adapter.headers(ctx.config),
-  );
-
-  if (timed.status !== 200) {
-    return {
-      ttftMs: null,
-      decodeTokPerSec: null,
-      prefillTokPerSec: null,
-      outputTokens: null,
-      inputTokens: null,
-    };
+  // A run that outlasts the request timeout (uncached prefill of the biggest
+  // context rung can, on slow hardware) costs one null sample, not the whole
+  // benchmark. Only the token-budget ceiling still aborts the run.
+  let timed;
+  try {
+    timed = await ctx.client.streamTimed(
+      adapter.path,
+      body,
+      adapter.headers(ctx.config),
+    );
+  } catch (err) {
+    if (err instanceof BudgetExceededError) throw err;
+    return NULL_SAMPLE;
   }
+
+  if (timed.status !== 200) return NULL_SAMPLE;
 
   const reply = adapter.parseStream(timed.frames);
   ctx.client.recordUsage(reply.usage.inputTokens, reply.usage.outputTokens);

@@ -88,6 +88,84 @@ describe("runBenchmark against the mock", () => {
     }
   });
 
+  test("never sends the same prompt twice, nor two prompts sharing a head", async () => {
+    // Engines cache prompt KV by prefix (llama.cpp slots, vLLM APC, LM Studio,
+    // Ollama). A measured run whose prompt the warmup already ingested gets a
+    // cache-hit TTFT, and prefill = inputTokens / TTFT then reports tens of
+    // thousands of tok/s. Every request must therefore be unique — and unique
+    // from the very first tokens, because prefix caches match from position 0.
+    engine = startMockEngine();
+    const root = normalizeRoot(engine.url);
+
+    const config: RunConfig = {
+      baseUrl: `${root}/v1`,
+      apiKey: "",
+      model: "mock-model-12b",
+      timeoutMs: 15_000,
+      depth: "full",
+      reasoningHeadroom: 0,
+    };
+    const client = new EngineClient(config);
+    const ctx = createContext({
+      config,
+      client,
+      adapters: new Map<string, SurfaceAdapter>(ADAPTERS.map((a) => [a.id, a])),
+      present: new Set(["models", "chat"]),
+      evalSurface: primarySurface(new Set(["chat"])),
+    });
+
+    await runBenchmark(ctx, false);
+
+    const texts = engine.chatBodies.map((body) => {
+      const messages = body.messages as Array<{ content: string }>;
+      return messages.at(-1)!.content;
+    });
+    expect(texts.length).toBeGreaterThan(0);
+
+    expect(new Set(texts).size).toBe(texts.length);
+
+    const heads = texts.map((t) => t.slice(0, 24));
+    expect(new Set(heads).size).toBe(heads.length);
+  });
+
+  test("a rung that outlasts the request timeout costs one point, not the report", async () => {
+    // Honest (uncached) prefill can push the largest context rung past the
+    // per-request timeout on slow hardware. That must yield n/a for the rung,
+    // never a dead PERFORMANCE section.
+    engine = startMockEngine({ stallAbovePromptBytes: 20_000 });
+    const root = normalizeRoot(engine.url);
+
+    const config: RunConfig = {
+      baseUrl: `${root}/v1`,
+      apiKey: "",
+      model: "mock-model-12b",
+      timeoutMs: 200,
+      depth: "full",
+      reasoningHeadroom: 0,
+    };
+    const client = new EngineClient(config);
+    const ctx = createContext({
+      config,
+      client,
+      adapters: new Map<string, SurfaceAdapter>(ADAPTERS.map((a) => [a.id, a])),
+      present: new Set(["models", "chat"]),
+      evalSurface: primarySurface(new Set(["chat"])),
+    });
+
+    const report = await runBenchmark(ctx, false);
+    expect(report).not.toBeNull();
+    coherent(report!.decodeTokPerSec);
+
+    // 512/4096-token rungs (≤16 KB prompts) fit under the stall threshold;
+    // the 8192/16384 rungs stall past the 200 ms timeout.
+    const points = report!.contextScaling!;
+    expect(points.map((p) => p.targetTokens)).toEqual([512, 4096, 8192, 16384]);
+    expect(points[1]!.ttftMs).not.toBeNull();
+    expect(points[2]!.ttftMs).toBeNull();
+    expect(points[2]!.decodeTokPerSec).toBeNull();
+    expect(points[3]!.ttftMs).toBeNull();
+  });
+
   test("returns null when there is no chat-shaped surface to benchmark", async () => {
     engine = startMockEngine();
     const root = normalizeRoot(engine.url);
