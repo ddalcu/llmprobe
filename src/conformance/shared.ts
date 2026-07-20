@@ -26,6 +26,13 @@ import {
  * that is impossible and the model simply won't cooperate, the test throws
  * `Inconclusive` rather than guessing.
  */
+
+/**
+ * Prefix caches survive across llmprobe invocations, so any test whose subject
+ * is a *cold* prefill must make its prompt unique per run.
+ */
+const runNonce =
+  Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 export function sharedTests(
   adapter: SurfaceAdapter,
   /** Only the engine's primary chat-shaped surface claims the shared features. */
@@ -253,6 +260,26 @@ export function sharedTests(
           "total_tokens equals input + output",
           total === inputTokens + outputTokens,
           `${total} !== ${inputTokens} + ${outputTokens}`,
+        );
+      }
+
+      // Sub-counts that exceed their parent are arithmetic lies with the same
+      // cost: budgets and cache-hit dashboards silently go wrong.
+      const { cachedInputTokens, reasoningTokens } = res.reply.usage;
+      if (cachedInputTokens !== null && typeof inputTokens === "number") {
+        a.must(
+          `${s}-usage-cached-bound`,
+          "cached tokens do not exceed input tokens",
+          cachedInputTokens <= inputTokens,
+          `cached_tokens ${cachedInputTokens} > prompt_tokens ${inputTokens}`,
+        );
+      }
+      if (reasoningTokens !== null && typeof outputTokens === "number") {
+        a.must(
+          `${s}-usage-reasoning-bound`,
+          "reasoning tokens do not exceed output tokens",
+          reasoningTokens <= outputTokens,
+          `reasoning_tokens ${reasoningTokens} > completion_tokens ${outputTokens}`,
         );
       }
     },
@@ -698,6 +725,92 @@ export function sharedTests(
     });
 
     tests.push({
+      id: `${s}-tool-choice-none`,
+      name: `${adapter.label}: tool_choice "none" suppresses tools`,
+      surface: s,
+      tier: "core",
+      feature: feature("tools"),
+      async run(ctx, a) {
+        // The engine-level counterpart of the model's tool-restraint eval: with
+        // tools present but explicitly disabled, no call may come back — a
+        // caller that said "none" has no handler wired up for one.
+        const res = await ctx.send(s, {
+          turns: [
+            {
+              type: "user",
+              text: "What's the weather in Paris? Use the weather tool.",
+            },
+          ],
+          tools: [WEATHER_TOOL],
+          toolChoice: "none",
+          temperature: 0,
+          maxTokens: 96,
+        });
+
+        a.must(
+          `${s}-tool-none-status`,
+          'accepts tool_choice: "none"',
+          res.status === 200,
+          `HTTP ${res.status}: ${res.text.slice(0, 160)}`,
+        );
+        if (res.status !== 200) return;
+
+        a.must(
+          `${s}-tool-none-suppressed`,
+          'no tool call is emitted under tool_choice: "none"',
+          res.reply.toolCalls.length === 0,
+          `got ${res.reply.toolCalls.length} tool call(s) despite tool_choice: "none"`,
+        );
+      },
+    });
+
+    tests.push({
+      id: `${s}-parallel-tools-off`,
+      name: `${adapter.label}: parallel_tool_calls: false is honored`,
+      surface: s,
+      tier: "extended",
+      feature: feature("parallel-tools"),
+      async run(ctx, a) {
+        // The disable direction of the parallel-tools switch. An engine that
+        // accepts `false` and still emits several calls breaks callers built
+        // around one-call-at-a-time dispatch.
+        const res = await ctx.send(s, {
+          turns: [
+            {
+              type: "user",
+              text: "What's the weather AND the current time in Tokyo? Call both tools.",
+            },
+          ],
+          tools: [WEATHER_TOOL, TIME_TOOL],
+          toolChoice: "required",
+          parallelToolCalls: false,
+          temperature: 0,
+          maxTokens: 256,
+        });
+
+        if (res.status !== 200) {
+          return {
+            featureSupported: false,
+            unsupportedDetail: `rejects parallel_tool_calls: false with HTTP ${res.status}`,
+          };
+        }
+
+        if (res.reply.toolCalls.length === 0) {
+          throw new Inconclusive(
+            'no tool call emitted even under tool_choice: "required"',
+          );
+        }
+
+        a.must(
+          `${s}-parallel-off-single`,
+          "disabling parallel calls yields at most one call",
+          res.reply.toolCalls.length === 1,
+          `got ${res.reply.toolCalls.length} tool calls with parallel_tool_calls: false`,
+        );
+      },
+    });
+
+    tests.push({
       id: `${s}-tool-arg-types`,
       name: `${adapter.label}: typed tool arguments survive the wire`,
       surface: s,
@@ -990,6 +1103,53 @@ export function sharedTests(
     });
   }
 
+  // ── top_p ─────────────────────────────────────────────────────────────────
+
+  tests.push({
+    id: `${s}-top-p`,
+    name: `${adapter.label}: top_p is honored`,
+    surface: s,
+    tier: "extended",
+    feature: feature("sampling"),
+    async run(ctx, a) {
+      // A near-zero nucleus collapses sampling to greedy, so two runs at
+      // temperature 1 must agree. If the engine accepted `top_p` and the
+      // outputs still diverge, the parameter was silently dropped — the same
+      // trap as ignored logprobs, and it charges the same way: coverage AND
+      // conformance.
+      const request = {
+        turns: [
+          { type: "user" as const, text: "Invent a two-word band name." },
+        ],
+        temperature: 1,
+        topP: 1e-6,
+        maxTokens: 24,
+      };
+
+      const first = await ctx.send(s, request);
+      if (first.status >= 400) {
+        return {
+          featureSupported: false,
+          unsupportedDetail: `rejects top_p with HTTP ${first.status}`,
+        };
+      }
+      const second = await ctx.send(s, request);
+
+      if (first.reply.text !== second.reply.text) {
+        a.must(
+          `${s}-top-p-not-ignored`,
+          "top_p is honored when requested",
+          false,
+          `temperature 1 with top_p≈0 should decode greedily, but two runs differ: "${first.reply.text.slice(0, 40)}" vs "${second.reply.text.slice(0, 40)}"`,
+        );
+        return {
+          featureSupported: false,
+          unsupportedDetail: "accepted `top_p` but sampling stayed random",
+        };
+      }
+    },
+  });
+
   // ── reasoning channel ─────────────────────────────────────────────────────
 
   tests.push({
@@ -999,24 +1159,53 @@ export function sharedTests(
     tier: "extended",
     feature: feature("reasoning"),
     async run(ctx, a) {
-      const res = await ctx.send(s, {
-        turns: [
-          {
-            type: "user",
-            text: "What is 17 * 3? Think it through, then answer.",
-          },
-        ],
-        temperature: 0,
-        maxTokens: 256,
-      });
+      const turns = [
+        {
+          type: "user" as const,
+          text: "What is 17 * 3? Think it through, then answer.",
+        },
+      ];
 
-      const hasChannel =
-        res.reply.reasoningText !== null ||
-        res.reply.usage.reasoningTokens !== null;
+      // The opt-in ladder. Some engines (mlx-serve) ship thinking disabled by
+      // default and strip think blocks from the output unless asked, so a
+      // plain request under-reports the feature. Rung 1 is the plain request;
+      // rung 2 retries with the surface's spec-standard opt-in
+      // (reasoning_effort / reasoning.effort / thinking). Vendor toggles like
+      // `enable_thinking` are never sent — a feature reachable only through a
+      // non-standard knob does not earn the standard's coverage line.
+      let res = await ctx.send(s, { turns, temperature: 0, maxTokens: 256 });
+
+      const channelIn = (r: typeof res) =>
+        r.reply.reasoningText !== null ||
+        r.reply.usage.reasoningTokens !== null;
+
+      let hasChannel = channelIn(res);
+      let optInStatus: number | null = null;
+
+      if (!hasChannel && adapter.reasoningOptIn) {
+        const retry = await ctx.send(s, {
+          turns,
+          temperature: 0,
+          // Room to think AND answer without headroom: the messages opt-in
+          // carries a 256-token budget, and max_tokens must exceed it.
+          maxTokens: 640,
+          allowReasoning: false,
+          extra: adapter.reasoningOptIn,
+        });
+        optInStatus = retry.status;
+        if (retry.status === 200 && channelIn(retry)) {
+          res = retry;
+          hasChannel = true;
+        }
+      }
+
       if (!hasChannel) {
         return {
           featureSupported: false,
-          unsupportedDetail: "no separate reasoning channel",
+          unsupportedDetail:
+            optInStatus !== null && optInStatus >= 400
+              ? `no reasoning channel; the standard opt-in was rejected with HTTP ${optInStatus}`
+              : "no separate reasoning channel, even with the standard opt-in",
         };
       }
 
@@ -1050,7 +1239,7 @@ export function sharedTests(
         promptCacheKey: "llmprobe-cache-probe",
       };
 
-      await ctx.send(s, request);
+      const first = await ctx.send(s, request);
       const second = await ctx.send(s, request);
 
       const cached = second.reply.usage.cachedInputTokens;
@@ -1067,6 +1256,113 @@ export function sharedTests(
         cached > 0,
         `cached_tokens was ${cached} on an identical repeated prompt`,
       );
+
+      const input = second.reply.usage.inputTokens;
+      if (typeof input === "number") {
+        a.must(
+          `${s}-cache-bound`,
+          "cached tokens do not exceed input tokens",
+          cached <= input,
+          `cached_tokens ${cached} > prompt_tokens ${input}`,
+        );
+      }
+
+      // The bug that matters most: reused KV that decodes differently from a
+      // cold prefill — a corrupted cache serving wrong answers while every
+      // counter looks healthy. SHOULD, not MUST: a cache hit can legitimately
+      // take a different kernel path, and a flipped token from numerics alone
+      // is not spec non-conformance. Real corruption diverges wildly and shows
+      // up here loudly.
+      if (cached > 0) {
+        a.should(
+          `${s}-cache-correct`,
+          "a cache hit does not change the answer",
+          second.reply.text === first.reply.text,
+          `warm answer differs from cold at temperature 0: "${first.reply.text.slice(0, 40)}" vs "${second.reply.text.slice(0, 40)}"`,
+        );
+      }
+    },
+  });
+
+  tests.push({
+    id: `${s}-prompt-cache-prefix`,
+    name: `${adapter.label}: prefix cache reuses a growing conversation`,
+    surface: s,
+    tier: "frontier",
+    slow: true,
+    async run(ctx, a) {
+      // The realistic cache pattern: a conversation grows by one turn, and the
+      // engine's best-prefix match should reuse everything up to the new
+      // tokens. Nonced so a cache from an earlier llmprobe run can never make
+      // the "cold" call warm. No feature id here — the reporting test above
+      // owns the coverage line, and an exact-match-only cache should not lose
+      // it for failing the harder prefix case.
+      const system =
+        `Conversation ${runNonce}. ` +
+        "You are a meticulous archivist. ".repeat(120);
+      const q1 = "In one word, what is your role?";
+
+      const first = await ctx.send(s, {
+        turns: [{ type: "user", text: q1 }],
+        system,
+        temperature: 0,
+        maxTokens: 32,
+      });
+      if (first.status !== 200) {
+        return {
+          featureSupported: false,
+          unsupportedDetail: `HTTP ${first.status}`,
+        };
+      }
+
+      const second = await ctx.send(s, {
+        turns: [
+          { type: "user", text: q1 },
+          { type: "assistant-text", text: first.reply.text || "An archivist." },
+          {
+            type: "user",
+            text: "Thanks. In one word, name your favourite tool.",
+          },
+        ],
+        system,
+        temperature: 0,
+        maxTokens: 32,
+      });
+
+      const cached = second.reply.usage.cachedInputTokens;
+      if (cached === null) {
+        return {
+          featureSupported: false,
+          unsupportedDetail: "no cached-token reporting",
+        };
+      }
+
+      a.must(
+        `${s}-cache-prefix-hit`,
+        "extending a conversation reuses the shared prefix",
+        cached > 0,
+        `cached_tokens was ${cached} after resending an identical prefix`,
+      );
+
+      const input2 = second.reply.usage.inputTokens;
+      if (typeof input2 === "number") {
+        a.must(
+          `${s}-cache-prefix-bound`,
+          "cached tokens do not exceed input tokens",
+          cached <= input2,
+          `cached_tokens ${cached} > prompt_tokens ${input2}`,
+        );
+      }
+
+      const input1 = first.reply.usage.inputTokens;
+      if (cached > 0 && typeof input1 === "number") {
+        a.should(
+          `${s}-cache-prefix-most`,
+          "most of the shared prefix is reused",
+          cached >= input1 / 2,
+          `only ${cached} of the ~${input1}-token shared prefix was reused`,
+        );
+      }
     },
   });
 
@@ -1149,6 +1445,54 @@ export function sharedTests(
           );
         }
       }
+    },
+  });
+
+  tests.push({
+    id: `${s}-concurrency-cache`,
+    name: `${adapter.label}: concurrent identical requests agree`,
+    surface: s,
+    tier: "core",
+    slow: true,
+    async run(ctx, a) {
+      // The cache-stampede case the distinct-prompt test above never touches:
+      // several in-flight requests racing on ONE cache entry, where a
+      // partially-built KV can leak into a sibling. Nonced so the entry is
+      // genuinely cold when the race starts.
+      const text = `[${runNonce}] Repeat this text exactly, nothing else: cobalt lantern 42`;
+
+      const replies = await runConcurrent(4, 4, (i) =>
+        ctx
+          .send(s, {
+            turns: [{ type: "user", text }],
+            temperature: 0,
+            maxTokens: 32,
+          })
+          .then((res) => ({ i, res })),
+      );
+
+      for (const { i, res } of replies) {
+        a.must(
+          `${s}-stampede-status-${i}`,
+          "every racing request succeeds",
+          res.status === 200,
+          `request ${i} got HTTP ${res.status}`,
+        );
+        a.must(
+          `${s}-stampede-text-${i}`,
+          "every racing request gets a non-empty answer",
+          res.status !== 200 || res.reply.text.length > 0,
+          `request ${i} came back empty`,
+        );
+      }
+
+      const texts = new Set(replies.map(({ res }) => res.reply.text));
+      a.should(
+        `${s}-stampede-agree`,
+        "identical concurrent requests agree at temperature 0",
+        texts.size === 1,
+        `4 identical requests produced ${texts.size} distinct answers`,
+      );
     },
   });
 

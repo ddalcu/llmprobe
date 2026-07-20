@@ -182,6 +182,8 @@ export const responsesAdapter: SurfaceAdapter = {
 
   headers: (config) => bearerAuth(config),
 
+  reasoningOptIn: { reasoning: { effort: "low" } },
+
   responseSchema: responseResourceSchema,
   chunkSchema: responsesStreamEventSchema,
 
@@ -194,6 +196,7 @@ export const responsesAdapter: SurfaceAdapter = {
     if (request.system) body.instructions = request.system;
     if (request.temperature !== undefined)
       body.temperature = request.temperature;
+    if (request.topP !== undefined) body.top_p = request.topP;
     if (request.maxTokens !== undefined)
       body.max_output_tokens = request.maxTokens;
 

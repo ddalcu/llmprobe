@@ -2,7 +2,7 @@
  * Core result vocabulary for llmprobe.
  *
  * The suite answers two independent questions in one run — "how complete and
- * correct is this engine?" and "is this model semi-capable?" — and the types
+ * correct is this engine?" and "does this model clear the floor?" — and the types
  * here keep those axes from contaminating each other. A weak model must never
  * be able to move the engine score, and a strong one must never rescue it.
  */
@@ -170,29 +170,36 @@ export interface CategoryScore {
   pct: number;
 }
 
+/**
+ * The graded verdict. "below-floor" fails any of the three gates; past the
+ * gates, the overall percentage picks "capable" or "strong". Deliberately
+ * coarse: with 3–6 samples per category, finer tiers would grade noise.
+ */
+export type CapabilityVerdict = "below-floor" | "capable" | "strong";
+
 export interface CapabilityScore {
   categories: CategoryScore[];
   passed: number;
   total: number;
   pct: number;
-  semiCapable: boolean;
-  /** Categories below the floor — one reason `semiCapable` is false. */
+  verdict: CapabilityVerdict;
+  /** Categories below the floor — one reason `verdict` is "below-floor". */
   weakCategories: EvalCategory[];
   /**
    * Required categories that never ran at all — the other reason.
    *
    * Found the hard way: a 2B model whose chat template cannot do tools made the
    * engine reject every tool request, so all three tool categories silently
-   * *vanished* from the card and the model was certified "semi-capable" at 100%
-   * on the easy half. A category we could not measure must never be scored as
+   * *vanished* from the card and the model was certified capable at 100% on
+   * the easy half. A category we could not measure must never be scored as
    * absent-and-therefore-fine. We do not know, so we do not certify.
    */
   unmeasured: EvalCategory[];
 }
 
 /**
- * Categories that must actually be measured before a model can be called
- * semi-capable. Long-context and knowledge are omitted: the first is skipped
+ * Categories that must actually be measured before a model can grade above
+ * "below-floor". Long-context and knowledge are omitted: the first is skipped
  * below `--full`, and the second is the weakest signal we have.
  */
 export const REQUIRED_EVAL_CATEGORIES: EvalCategory[] = [
@@ -206,12 +213,15 @@ export const REQUIRED_EVAL_CATEGORIES: EvalCategory[] = [
 ];
 
 /**
- * The bar for "semi-capable". Deliberately a floor check, not an intelligence
+ * The tier cuts. "capable" is deliberately a floor check, not an intelligence
  * benchmark: a 12B-class model (Gemma-12B, Qwen-9B+) should clear it. Tuned
- * against real runs in Phase 4 rather than guessed.
+ * against real runs in Phase 4 rather than guessed. "strong" is the same
+ * gates plus a 90% overall — room at the top without pretending 39 samples
+ * can rank models finely.
  */
-export const SEMI_CAPABLE_OVERALL_PCT = 70;
-export const SEMI_CAPABLE_CATEGORY_FLOOR_PCT = 50;
+export const CAPABLE_OVERALL_PCT = 70;
+export const STRONG_OVERALL_PCT = 90;
+export const CATEGORY_FLOOR_PCT = 50;
 
 export interface RunTarget {
   baseUrl: string;
@@ -252,12 +262,32 @@ export interface SpeculativeResult {
 
 /** One rung of the context-length ladder — how the engine does at this size. */
 export interface ContextPoint {
-  /** The size we aimed for (0.5k / 4k / 8k / 16k). */
+  /** The size we aimed for (0.5k … 64k; the top rungs run only at --full). */
   targetTokens: number;
   /** What the engine actually reported ingesting — the honest x-axis. */
   inputTokens: number | null;
   decodeTokPerSec: number | null;
   ttftMs: number | null;
+  /** Successful runs behind the numbers (1 by default, median of 3 at --full). */
+  runs: number;
+  /**
+   * Why the rung produced no numbers — e.g. the engine's own context-overflow
+   * error, verbatim. A failed rung ends the ladder: larger rungs are not
+   * attempted, and their absence means "not tried", never "n/a".
+   */
+  note: string | null;
+}
+
+/**
+ * Where the benchmark ran. Timings are hardware-dependent and only comparable
+ * on the same machine — recording the machine makes that claim checkable
+ * instead of a caveat the reader has to take on faith.
+ */
+export interface MachineInfo {
+  platform: string;
+  arch: string;
+  cpu: string | null;
+  memGB: number;
 }
 
 export interface BenchReport {
@@ -270,6 +300,7 @@ export interface BenchReport {
   prefillPromptTokens: number | null;
   /** MTP / speculative-decoding effectiveness, or null if not probed. */
   speculative: SpeculativeResult | null;
+  machine: MachineInfo;
   /**
    * Decode throughput and latency as context grows. The interesting shape:
    * decode slows as the KV cache grows, and some engines fall off a cliff while

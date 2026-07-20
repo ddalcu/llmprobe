@@ -108,6 +108,8 @@ export const chatAdapter: SurfaceAdapter = {
   responseSchema: chatCompletionSchema,
   chunkSchema: chatCompletionChunkSchema,
 
+  reasoningOptIn: { reasoning_effort: "low" },
+
   buildBody(request: ChatRequest, config: RunConfig): Record<string, unknown> {
     const messages: Message[] = [];
     if (request.system)
@@ -118,6 +120,7 @@ export const chatAdapter: SurfaceAdapter = {
 
     if (request.temperature !== undefined)
       body.temperature = request.temperature;
+    if (request.topP !== undefined) body.top_p = request.topP;
 
     // Modern OpenAI models reject `max_tokens` and require
     // `max_completion_tokens`. Current LM Studio / vLLM / llama.cpp / Ollama

@@ -301,6 +301,75 @@ describe("pipeline against planted defects", () => {
     expect(extended.missing).toContain("logprobs");
   });
 
+  test("silently ignoring n costs BOTH coverage and conformance", async () => {
+    const run = await probeAndRun({ silentlyIgnoreN: true });
+
+    expect(failedIds(run.results)).toContain("chat-n-not-ignored");
+    expect(run.featureSupport.get("n-choices")!.supported).toBe(false);
+
+    const extended = run.coverage.byTier.find((t) => t.tier === "extended")!;
+    expect(extended.missing).toContain("n>1 choices");
+  });
+
+  test("emitting parallel calls despite parallel_tool_calls: false is caught", async () => {
+    const run = await probeAndRun({ ignoresParallelDisable: true });
+    expect(failedIds(run.results)).toContain("chat-parallel-off-single");
+  });
+
+  test("silently ignoring top_p costs BOTH coverage and conformance", async () => {
+    const run = await probeAndRun({ silentlyIgnoreTopP: true });
+
+    expect(failedIds(run.results)).toContain("chat-top-p-not-ignored");
+    expect(run.featureSupport.get("sampling")!.supported).toBe(false);
+  });
+
+  test("a cache hit that changes the answer is flagged as a warning", async () => {
+    // The corrupted-KV signature: cached_tokens > 0 and a different answer at
+    // temperature 0. A SHOULD, not a MUST — numerics can legitimately differ —
+    // so it must land in the warnings, not sink the score.
+    const run = await probeAndRun(
+      { promptCache: true, cacheChangesAnswer: true },
+      "full",
+    );
+
+    const warning = run.conformance.warnings.find(
+      (w) => w.id === "chat-cache-correct",
+    );
+    expect(warning).toBeDefined();
+    expect(run.featureSupport.get("prompt-caching")!.supported).toBe(true);
+  });
+
+  test("prefix reuse across a growing conversation is verified", async () => {
+    const run = await probeAndRun({ promptCache: true }, "full");
+
+    const prefix = find(run.results, "chat-prompt-cache-prefix")!;
+    expect(prefix.outcome).toBe("pass");
+
+    // Without a cache, the same test is unsupported — never a failure.
+    engine?.stop();
+    const uncached = await probeAndRun({}, "full");
+    expect(find(uncached.results, "chat-prompt-cache-prefix")!.outcome).toBe(
+      "unsupported",
+    );
+  });
+
+  test("a reasoning channel behind the standard opt-in is still credited", async () => {
+    // mlx-serve's default: thinking off, think blocks stripped, unless the
+    // request asks. The probe's second rung sends the spec-standard opt-in, so
+    // the engine gets the coverage line without llmprobe ever touching a
+    // vendor toggle like `enable_thinking`.
+    const run = await probeAndRun({ reasoningRequiresOptIn: true });
+
+    expect(find(run.results, "chat-reasoning")!.outcome).toBe("pass");
+    expect(run.featureSupport.get("reasoning")!.supported).toBe(true);
+
+    // Without the defect, the same engine has no channel at all — that must
+    // stay unsupported, never a false credit.
+    engine?.stop();
+    const plain = await probeAndRun();
+    expect(find(plain.results, "chat-reasoning")!.outcome).toBe("unsupported");
+  });
+
   test("an uncooperative model makes the tool test inconclusive, not failed", async () => {
     // The engine may serialize tool calls perfectly — we simply never got one
     // to look at. Scoring it either way would be a lie.

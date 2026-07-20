@@ -4,7 +4,7 @@
  *
  * The graders are deliberately forgiving about *form* (case, punctuation,
  * "The answer is..." preambles) and strict about *substance*. We are asking
- * "is this model semi-capable", not "did it format its reply the way I like" —
+ * "does this model clear the floor", not "did it format its reply the way I like" —
  * except where formatting IS the thing under test, in which case the strictness
  * is the point.
  */

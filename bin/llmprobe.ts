@@ -35,6 +35,7 @@ import {
   diffBaseline,
   type JsonReport,
 } from "../src/core/report/json";
+import { renderHtml } from "../src/core/report/html";
 import { renderMarkdown } from "../src/core/report/markdown";
 import { renderReport } from "../src/core/report/terminal";
 import {
@@ -63,6 +64,7 @@ interface Args {
   budget?: number;
   baseline?: string;
   save?: string;
+  html?: string;
   noColor: boolean;
   help: boolean;
 }
@@ -118,6 +120,9 @@ function parseArgs(argv: string[]): Args {
       case "--save":
         args.save = next();
         break;
+      case "--html":
+        args.html = next();
+        break;
       case "--no-color":
         args.noColor = true;
         break;
@@ -138,11 +143,11 @@ const HELP = `llmprobe — LLM engine conformance & capability suite
 Usage: llmprobe <base-url> [options]
 
 Probes every standard surface at an OpenAI-compatible endpoint, scores what it
-implements, and separately checks whether the model is semi-capable.
+implements, and separately grades the model's capability.
 
   Coverage     how much of the standard surface exists (Core / Extended / Frontier)
   Conformance  of what IS implemented, how correct is it (MUST assertions only)
-  Capability   is the model semi-capable (deterministic evals, calibrated for 12B+)
+  Capability   below floor / capable / strong (deterministic evals, calibrated for 12B+)
 
 Options:
   -k, --api-key <key>   API key (optional for local engines)
@@ -155,6 +160,7 @@ Options:
       --markdown        README-ready report with badges
       --baseline <f>    Diff against a saved run and flag regressions
       --save <f>        Write the JSON report to a file
+      --html <f>        Write a self-contained HTML report with charts
       --budget <n>      Hard ceiling on total tokens (paid endpoints)
       --timeout <sec>   Per-request timeout (default: 60)
       --no-color        Disable ANSI colour
@@ -466,6 +472,10 @@ async function main(): Promise<void> {
   });
 
   if (args.save) writeFileSync(args.save, `${JSON.stringify(json, null, 2)}\n`);
+  if (args.html) {
+    writeFileSync(args.html, renderHtml(json));
+    log(`${c.gray("html report →")} ${args.html}`);
+  }
 
   if (args.json) {
     console.log(JSON.stringify(json, null, 2));

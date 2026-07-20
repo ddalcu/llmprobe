@@ -5,7 +5,7 @@
 Point it at any OpenAI-compatible endpoint — llama.cpp, LM Studio, mlx-serve, vLLM, Ollama, OpenRouter — and it answers two questions that are usually tangled together:
 
 1. **How complete and correct is your engine?** Does it implement Responses? Messages? Embeddings, vision, logprobs, structured outputs? And of what it _does_ implement, is it actually right?
-2. **Is the model semi-capable?** Not an intelligence benchmark — a floor check. Does it call tools correctly, follow instructions, produce valid JSON, remember what you told it?
+2. **Does the model clear the floor?** Not an intelligence benchmark, a floor check with three grades (below floor / capable / strong). Does it call tools correctly, follow instructions, produce valid JSON, remember what you told it?
 
 ```bash
 npx llmprobe localhost:8080          # llama.cpp
@@ -28,7 +28,7 @@ ENGINE CONFORMANCE                                                   96.8%
   ⚠ 1 inconclusive — engine never exercised
       tool_calls serialization — model never emitted a tool call
 
-MODEL CAPABILITY                                  78.4%   semi-capable ✓
+MODEL CAPABILITY                                       78.4%   capable ✓
   Tool selection         6/6      100%  ██████████
   Tool restraint         4/6     66.7%  ███████░░░
   JSON discipline        6/6      100%  ██████████
@@ -40,7 +40,7 @@ MODEL CAPABILITY                                  78.4%   semi-capable ✓
 
 **Conformance** — of what _is_ implemented, how correct is it. Only `MUST` assertions score. `SHOULD` and `MAY` failures print below the line as warnings and nits, because a missing `system_fingerprint` breaks nobody and a corrupted tool-call argument breaks everybody, and one number cannot represent both.
 
-**Capability** — whether the model clears the bar. Deterministic grading only: no LLM judge, no second API key, reproducible.
+**Capability** — whether the model clears the floor, graded below floor / capable / strong. Deterministic grading only: no LLM judge, no second API key, reproducible.
 
 They are never averaged. A weak model cannot drag down the engine's score, and a strong one cannot rescue it. That separation is enforced by tests, not by convention.
 
@@ -85,6 +85,8 @@ So llmprobe probes once for a reasoning channel and, if it finds one, grants eve
 
 Reasoning models therefore take substantially longer and cost more tokens to test. That's inherent, not incidental.
 
+Engines also differ on whether thinking is on by default (mlx-serve ships it off and strips think blocks unless the request asks). So the reasoning-channel probe is a two-rung ladder: a plain request first, then one retry with the surface's standard opt-in (`reasoning_effort` on chat, `reasoning.effort` on Responses, `thinking` on Messages). A channel that only appears with the opt-in still earns the coverage line. Vendor toggles like `enable_thinking` are never sent, by the same rule that keeps native APIs at zero points.
+
 ## Performance benchmark (`--bench`)
 
 Opt-in, informational, and **never scored** — a slow engine isn't a non-conformant one, so this is a fourth section that never touches the three cards or the exit code.
@@ -92,6 +94,7 @@ Opt-in, informational, and **never scored** — a slow engine isn't a non-confor
 ```
 PERFORMANCE
   informational — not scored; hardware-dependent, same-machine comparisons only
+  machine: Apple M3 Max · 64 GB · darwin arm64
   Decode throughput     42.3 tok/s (39.1–44.0)
   Time to first token   380 ms (310–520)
   Prefill throughput    910 tok/s  (2048-token prompt)
@@ -104,9 +107,9 @@ PERFORMANCE
    ~16.2k   29.8 tok/s   1280 ms
 ```
 
-What makes it a benchmark rather than the incidental per-request timing: a **discarded warmup** run per scenario (so cold model-load never leaks in), **median of 3** measured runs reported as `median (min–max)` (never a single fake-precise figure), and the honesty that everything else has — `n/a` when usage isn't reported, rather than a fabricated number.
+What makes it a benchmark rather than the incidental per-request timing: a **discarded warmup** run per scenario (so cold model-load never leaks in), **median of 3** measured runs reported as `median (min–max)` (never a single fake-precise figure), and the honesty that everything else has — `n/a` when usage isn't reported, rather than a fabricated number. The report also records the machine it ran on (chip, RAM, platform), so "same-machine comparisons only" is something you can check in a saved baseline, not a caveat you have to remember.
 
-**Context scaling** (inspired by [llm_context_benchmarks](https://github.com/ivanfioravanti/llm_context_benchmarks)) times one generation at ~0.5k / 4k / 8k / 16k prompt tokens, so you can see decode throughput and latency degrade as the KV cache grows — some engines fall off a cliff, others hold up. Kept deliberately light (one run per rung), and the size column reports the tokens the engine _actually_ ingested, not our byte estimate.
+**Context scaling** (inspired by [llm_context_benchmarks](https://github.com/ivanfioravanti/llm_context_benchmarks)) times generation at ~0.5k / 4k / 8k / 16k prompt tokens, so you can see decode throughput and latency degrade as the KV cache grows — some engines fall off a cliff, others hold up. The default run stays light (one run per rung); `--full` climbs to 32k and 64k and takes the median of 3 runs per rung. A rung the engine rejects (usually a context-window overflow) ends the ladder with the engine's own error printed on it, larger rungs are not attempted. The size column reports the tokens the engine _actually_ ingested, not our byte estimate.
 
 **The speculative-decoding / MTP probe** is the interesting part. MTP and speculative decoding only speed things up when the draft is _accepted_, which happens far more on predictable output than novel output. So the probe measures decode throughput on **predictable content** (repeat this passage verbatim) versus **novel content** (invent something original) and reports the ratio. A ratio well above 1 is the black-box signature that the engine's MTP/draft path is actually working; ~1.0 means it's absent or not helping. It can't tell you _which_ technique (MTP vs draft model vs prompt-lookahead) — only whether it pays off.
 
@@ -123,6 +126,14 @@ Two honesty guardrails: the report states it's **hardware-dependent** (cross-eng
 Surface discovery is free: it probes with empty-body POSTs, which every engine rejects at validation long before inference. Mapping the whole surface costs zero tokens even against a paid endpoint. For the rest, `--budget <tokens>` sets a hard ceiling.
 
 **Catch-all servers.** Not every engine 404s a path it doesn't have. LM Studio answers _every_ unknown path with `HTTP 200` and `{"error":"Unexpected endpoint or method. (POST /v1/images/generations)"}` — so a status-only probe credits it with audio, images, and endpoints it has never heard of. llmprobe first asks for an endpoint that cannot exist, fingerprints whatever the server says, and reads any matching reply as absent. Coverage is the number people quote; getting this wrong would have been the most damaging bug in the tool.
+
+## HTML report (`--html`)
+
+`--html report.html` writes a single self-contained page: the three cards, capability bars, and (with `--bench`) context-scaling and speculative-decoding charts. Chart.js is inlined, so the file opens offline and you can attach it to an issue or a PR as-is. Every chart's data is also in the page as a plain table, and it follows your system's light or dark mode.
+
+```bash
+llmprobe localhost:8080 --bench --html report.html
+```
 
 ## Regression tracking
 
@@ -141,7 +152,9 @@ Exit code is non-zero on any `MUST` failure, regression, or exhausted budget, so
 
 **Surfaces** — `/v1/models`, `chat/completions` (Core); `responses`, `messages`, `embeddings`, `completions` (Extended); `images`, `audio/speech`, `audio/transcriptions` (Frontier).
 
-**Features** — SSE framing and event ordering, tool calling, JSON mode, usage tokens, finish reasons, error shapes, `stop`/`max_tokens` (Core); structured outputs, parallel tool calls, vision, logprobs, reasoning items, streamed usage, seed determinism (Extended); MCP tools, rate limiting, prompt caching, `previous_response_id`, background responses (Frontier).
+**Features** — SSE framing and event ordering, tool calling, JSON mode, usage tokens, finish reasons, error shapes, `stop`/`max_tokens` (Core); structured outputs, parallel tool calls, vision, logprobs, reasoning items, streamed usage, seed determinism, `top_p` sampling, `n`>1 choices, the legacy `max_tokens` alias (Extended); MCP tools, rate limiting, prompt caching, `previous_response_id`, background responses (Frontier).
+
+The silent-ignore rule gets exercised hard here: `n`, `top_p`, the legacy `max_tokens` alias, `tool_choice: "none"`, and `parallel_tool_calls: false` are all checked in the direction engines actually break (accepted with a 200, then quietly dropped). Prompt caching is probed three ways: cached-token reporting on a repeated prefix, reuse across a growing conversation, and a warm-vs-cold answer comparison, because a corrupted KV cache reports healthy counters while serving wrong answers. A concurrency test races 4 identical requests on one cold cache entry for the same reason.
 
 Per assertion: HTTP status, Zod schema (from the OpenAPI documents in `schema/`), field presence and types, SSE event ordering, chunk correctness, error body shape.
 
@@ -149,9 +162,9 @@ Per assertion: HTTP status, Zod schema (from the OpenAPI documents in `schema/`)
 
 Tool and JSON evals run at **k=3 with temperature 0.7**, deliberately. At temperature 0 a deterministic engine returns three identical samples and k=3 measures nothing. Real applications sample, and a model that picks the right tool two times in three is a materially different proposition from one that does it every time — that reliability figure is the most useful single fact about a local model, and it only exists if you let the model sample. Everything else runs k=1 at temperature 0.
 
-"Semi-capable" means **≥70% overall, no category below 50%, and every required category actually measured**.
+The verdict has three grades. "Capable" means **≥70% overall, no category below 50%, and every required category actually measured**. "Strong" is the same gates at ≥90% overall. Anything else is "below floor". Deliberately coarse: with 3-6 samples per category, finer tiers would be grading noise.
 
-That third gate exists because of a real result. A 2B model whose chat template can't do tools made the engine reject every tool request — so all three tool categories _silently vanished_ from the card and the model was certified "semi-capable" at 100% on the easy half. Being unable to attempt a category must never score better than attempting it badly. Now the card reads `100% — not semi-capable ✗` with `⚠ never measured: Tool selection, Tool restraint, Tool arg fidelity`. We don't know, so we don't certify.
+The measured-categories gate exists because of a real result. A 2B model whose chat template can't do tools made the engine reject every tool request, so all three tool categories _silently vanished_ from the card and the model was certified at 100% on the easy half. Being unable to attempt a category must never score better than attempting it badly. Now the card reads `100% — below floor ✗` with `⚠ never measured: Tool selection, Tool restraint, Tool arg fidelity`. We don't know, so we don't certify.
 
 ## Development
 

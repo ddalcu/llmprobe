@@ -47,7 +47,7 @@ describe("runBenchmark against the mock", () => {
       apiKey: "",
       model: "mock-model-12b",
       timeoutMs: 15_000,
-      depth: "full",
+      depth: "default",
       reasoningHeadroom: 0,
     };
     const client = new EngineClient(config);
@@ -66,6 +66,12 @@ describe("runBenchmark against the mock", () => {
     coherent(report!.ttftMs);
     coherent(report!.prefillTokPerSec);
 
+    // The "same machine only" caveat is checkable: the report records where
+    // it ran.
+    expect(report!.machine.platform.length).toBeGreaterThan(0);
+    expect(report!.machine.arch.length).toBeGreaterThan(0);
+    expect(report!.machine.memGB).toBeGreaterThan(0);
+
     if (report!.speculative) {
       expect(["effective", "marginal", "none"]).toContain(
         report!.speculative.verdict,
@@ -75,16 +81,50 @@ describe("runBenchmark against the mock", () => {
       expect(report!.speculative.verdict).not.toBe("effective");
     }
 
-    // Context ladder: one point per rung, each coherent.
+    // Context ladder: one point per rung at the default depth, each coherent.
     expect(report!.contextScaling).not.toBeNull();
     expect(report!.contextScaling!.map((p) => p.targetTokens)).toEqual([
       512, 4096, 8192, 16384,
     ]);
     for (const point of report!.contextScaling!) {
+      expect(point.runs).toBe(1);
+      expect(point.note).toBeNull();
       if (point.decodeTokPerSec !== null) {
         expect(point.decodeTokPerSec).toBeGreaterThan(0);
       }
       if (point.ttftMs !== null) expect(point.ttftMs).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  test("--full climbs to 64k and takes the median of 3 runs per rung", async () => {
+    engine = startMockEngine();
+    const root = normalizeRoot(engine.url);
+
+    const config: RunConfig = {
+      baseUrl: `${root}/v1`,
+      apiKey: "",
+      model: "mock-model-12b",
+      timeoutMs: 15_000,
+      depth: "full",
+      reasoningHeadroom: 0,
+    };
+    const client = new EngineClient(config);
+    const ctx = createContext({
+      config,
+      client,
+      adapters: new Map<string, SurfaceAdapter>(ADAPTERS.map((a) => [a.id, a])),
+      present: new Set(["models", "chat"]),
+      evalSurface: primarySurface(new Set(["chat"])),
+    });
+
+    const report = await runBenchmark(ctx, false);
+    const points = report!.contextScaling!;
+    expect(points.map((p) => p.targetTokens)).toEqual([
+      512, 4096, 8192, 16384, 32768, 65536,
+    ]);
+    for (const point of points) {
+      expect(point.runs).toBe(3);
+      expect(point.note).toBeNull();
     }
   });
 
@@ -128,10 +168,11 @@ describe("runBenchmark against the mock", () => {
     expect(new Set(heads).size).toBe(heads.length);
   });
 
-  test("a rung that outlasts the request timeout costs one point, not the report", async () => {
-    // Honest (uncached) prefill can push the largest context rung past the
-    // per-request timeout on slow hardware. That must yield n/a for the rung,
-    // never a dead PERFORMANCE section.
+  test("a rung that outlasts the request timeout ends the ladder with a note", async () => {
+    // Honest (uncached) prefill can push a big context rung past the
+    // per-request timeout on slow hardware. That must yield a named failure on
+    // that rung — never a dead PERFORMANCE section — and stop the climb:
+    // larger rungs can only fail the same way.
     engine = startMockEngine({ stallAbovePromptBytes: 20_000 });
     const root = normalizeRoot(engine.url);
 
@@ -140,7 +181,7 @@ describe("runBenchmark against the mock", () => {
       apiKey: "",
       model: "mock-model-12b",
       timeoutMs: 200,
-      depth: "full",
+      depth: "default",
       reasoningHeadroom: 0,
     };
     const client = new EngineClient(config);
@@ -156,14 +197,15 @@ describe("runBenchmark against the mock", () => {
     expect(report).not.toBeNull();
     coherent(report!.decodeTokPerSec);
 
-    // 512/4096-token rungs (≤16 KB prompts) fit under the stall threshold;
-    // the 8192/16384 rungs stall past the 200 ms timeout.
+    // 512/4096-token rungs (≤16 KB prompts) fit under the stall threshold; the
+    // 8192 rung stalls past the 200 ms timeout, so 16384 is never attempted.
     const points = report!.contextScaling!;
-    expect(points.map((p) => p.targetTokens)).toEqual([512, 4096, 8192, 16384]);
+    expect(points.map((p) => p.targetTokens)).toEqual([512, 4096, 8192]);
     expect(points[1]!.ttftMs).not.toBeNull();
     expect(points[2]!.ttftMs).toBeNull();
     expect(points[2]!.decodeTokPerSec).toBeNull();
-    expect(points[3]!.ttftMs).toBeNull();
+    expect(points[2]!.runs).toBe(0);
+    expect(points[2]!.note).toMatch(/timed out/);
   });
 
   test("returns null when there is no chat-shaped surface to benchmark", async () => {

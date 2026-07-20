@@ -208,7 +208,7 @@ describe("scoreCapability", () => {
     expect(tools).toMatchObject({ passed: 4, total: 6, pct: 66.7 });
   });
 
-  test("clears the bar at >=70% overall with every required category measured and above the floor", () => {
+  test(">=90% overall with every gate cleared grades strong", () => {
     const score = scoreCapability([
       evalResult("tool-selection", [true, true, true]),
       evalResult("tool-restraint", [true, true, true]),
@@ -220,13 +220,29 @@ describe("scoreCapability", () => {
       evalResult("knowledge", [true, false]),
     ]);
 
-    expect(score.pct).toBeGreaterThanOrEqual(70);
-    expect(score.semiCapable).toBe(true);
+    expect(score.pct).toBeGreaterThanOrEqual(90);
+    expect(score.verdict).toBe("strong");
     expect(score.weakCategories).toEqual([]);
     expect(score.unmeasured).toEqual([]);
   });
 
-  test("a single category below the floor sinks semi-capable, even at a high overall", () => {
+  test("70–90% overall with every gate cleared grades capable, not strong", () => {
+    const score = scoreCapability([
+      evalResult("tool-selection", [true, true, true]),
+      evalResult("tool-restraint", [true, true, false]),
+      evalResult("tool-args", [true, true, false]),
+      evalResult("multiturn", [true, true]),
+      evalResult("instructions", [true, true, false]),
+      evalResult("json-discipline", [true, true, true]),
+      evalResult("reasoning", [true, true, false]),
+    ]);
+
+    expect(score.pct).toBeGreaterThanOrEqual(70);
+    expect(score.pct).toBeLessThan(90);
+    expect(score.verdict).toBe("capable");
+  });
+
+  test("a single category below the floor grades below-floor, even at a high overall", () => {
     const score = scoreCapability([
       evalResult("tool-selection", [true, true, true, true, true, true, true]),
       evalResult("json-discipline", [true, true, true]),
@@ -237,10 +253,10 @@ describe("scoreCapability", () => {
 
     expect(score.pct).toBeGreaterThanOrEqual(70);
     expect(score.weakCategories).toEqual(["tool-restraint"]);
-    expect(score.semiCapable).toBe(false);
+    expect(score.verdict).toBe("below-floor");
   });
 
-  test("a strong-but-not-perfect card below 70% overall is not semi-capable", () => {
+  test("a decent-but-not-good card below 70% overall grades below-floor", () => {
     const score = scoreCapability([
       evalResult("tool-selection", [true, false]),
       evalResult("json-discipline", [true, false]),
@@ -248,7 +264,7 @@ describe("scoreCapability", () => {
     ]);
 
     expect(score.pct).toBe(50);
-    expect(score.semiCapable).toBe(false);
+    expect(score.verdict).toBe("below-floor");
   });
 
   test("unsupported evals are excluded rather than counted as failures", () => {
@@ -263,10 +279,10 @@ describe("scoreCapability", () => {
     expect(score).toMatchObject({ passed: 2, total: 2, pct: 100 });
   });
 
-  test("no evals at all scores 0 and is not semi-capable", () => {
+  test("no evals at all scores 0 and grades below-floor", () => {
     const score = scoreCapability([]);
     expect(score).toMatchObject({ passed: 0, total: 0, pct: 0 });
-    expect(score.semiCapable).toBe(false);
+    expect(score.verdict).toBe("below-floor");
   });
 });
 
@@ -274,9 +290,9 @@ describe("scoreCapability — unmeasured categories", () => {
   test("a model whose tool evals never ran is NOT certified, however well it did elsewhere", () => {
     // Found against a real 2B: its chat template couldn't do tools, so the
     // engine 400'd every tool request, all three tool categories silently
-    // vanished from the card, and the model was certified "semi-capable" at
-    // 100% on the easy half. Being unable to attempt a category must never
-    // score better than attempting it badly.
+    // vanished from the card, and the model was certified capable at 100% on
+    // the easy half. Being unable to attempt a category must never score
+    // better than attempting it badly.
     const score = scoreCapability([
       { ...evalResult("multiturn", [true, true]), id: "m" },
       { ...evalResult("instructions", [true, true, true]), id: "i" },
@@ -296,7 +312,7 @@ describe("scoreCapability — unmeasured categories", () => {
       "tool-args",
     ]);
     // 100% and still not certified — because we never saw it try.
-    expect(score.semiCapable).toBe(false);
+    expect(score.verdict).toBe("below-floor");
   });
 
   test("a full card with every required category measured is certified", () => {
@@ -311,7 +327,7 @@ describe("scoreCapability — unmeasured categories", () => {
     ]);
 
     expect(score.unmeasured).toEqual([]);
-    expect(score.semiCapable).toBe(true);
+    expect(score.verdict).not.toBe("below-floor");
   });
 
   test("long-context and knowledge are not required — --full gates the first", () => {
@@ -327,6 +343,6 @@ describe("scoreCapability — unmeasured categories", () => {
 
     expect(score.unmeasured).not.toContain("long-context");
     expect(score.unmeasured).not.toContain("knowledge");
-    expect(score.semiCapable).toBe(true);
+    expect(score.verdict).not.toBe("below-floor");
   });
 });

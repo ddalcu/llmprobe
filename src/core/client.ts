@@ -57,6 +57,8 @@ export interface TimedStreamResult {
   frameTimesMs: number[];
   startMs: number;
   endMs: number;
+  /** The whole body — on a non-200 this is the error JSON, not SSE frames. */
+  raw: string;
 }
 
 /**
@@ -204,6 +206,7 @@ export class EngineClient {
     const decoder = new TextDecoder();
     const separator = /\r?\n\r?\n/;
     let buffer = "";
+    let raw = "";
 
     const flushFrame = (block: string): void => {
       const dataLines: string[] = [];
@@ -224,7 +227,9 @@ export class EngineClient {
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
-        buffer += decoder.decode(value, { stream: true });
+        const chunk = decoder.decode(value, { stream: true });
+        raw += chunk;
+        buffer += chunk;
         let match: RegExpExecArray | null;
         while ((match = separator.exec(buffer)) !== null) {
           const block = buffer.slice(0, match.index);
@@ -241,6 +246,7 @@ export class EngineClient {
       frameTimesMs,
       startMs,
       endMs: Date.now(),
+      raw,
     };
   }
 }

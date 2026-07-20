@@ -1,9 +1,12 @@
+import { arch, cpus, platform, totalmem } from "node:os";
+
 import { tryParseJson } from "../core/assert";
 import { BudgetExceededError } from "../core/client";
 import type { RunContext } from "../core/context";
 import type {
   BenchReport,
   ContextPoint,
+  MachineInfo,
   SpeculativeResult,
 } from "../core/outcome";
 import { buildLongPrefix } from "../core/assert";
@@ -44,6 +47,10 @@ const PREFILL_PROMPT_BYTES = 8192;
 
 /** Context ladder — kept deliberately short so --bench stays quick. */
 const CONTEXT_LADDER = [512, 4096, 8192, 16384];
+/** --full climbs higher — the interesting cliffs often appear past 16k. */
+const CONTEXT_LADDER_FULL = [...CONTEXT_LADDER, 32768, 65536];
+/** --full also repeats each rung, so one OS hiccup can't bend the curve. */
+const CONTEXT_RUNS_FULL = 3;
 const CONTEXT_GEN_TOKENS = 64;
 /** English runs ~4 bytes/token; the real size is read back from usage anyway. */
 const BYTES_PER_TOKEN = 4;
@@ -71,15 +78,34 @@ interface RunSample {
   prefillTokPerSec: number | null;
   outputTokens: number | null;
   inputTokens: number | null;
+  /** Why the run produced nothing — engine error or timeout, verbatim. */
+  error?: string;
 }
 
-const NULL_SAMPLE: RunSample = {
+const failedSample = (error: string): RunSample => ({
   ttftMs: null,
   decodeTokPerSec: null,
   prefillTokPerSec: null,
   outputTokens: null,
   inputTokens: null,
-};
+  error,
+});
+
+/** Pull the human part out of an error body: `{"error":{"message":...}}` etc. */
+function errorFromBody(status: number, raw: string): string {
+  const parsed = tryParseJson(raw.trim());
+  let message = "";
+  if (parsed.ok && typeof parsed.value === "object" && parsed.value !== null) {
+    const err = (parsed.value as { error?: unknown }).error;
+    if (typeof err === "string") message = err;
+    else if (typeof err === "object" && err !== null) {
+      const m = (err as { message?: unknown }).message;
+      if (typeof m === "string") message = m;
+    }
+  }
+  message = message.replace(/\s+/g, " ").trim().slice(0, 120);
+  return message ? `HTTP ${status} — ${message}` : `HTTP ${status}`;
+}
 
 /** One timed generation, reduced to the metrics we care about. */
 async function timedRun(
@@ -114,10 +140,15 @@ async function timedRun(
     );
   } catch (err) {
     if (err instanceof BudgetExceededError) throw err;
-    return NULL_SAMPLE;
+    if (err instanceof Error && err.name === "TimeoutError") {
+      return failedSample(`timed out after ${ctx.config.timeoutMs / 1000}s`);
+    }
+    return failedSample(err instanceof Error ? err.message : String(err));
   }
 
-  if (timed.status !== 200) return NULL_SAMPLE;
+  if (timed.status !== 200) {
+    return failedSample(errorFromBody(timed.status, timed.raw));
+  }
 
   const reply = adapter.parseStream(timed.frames);
   ctx.client.recordUsage(reply.usage.inputTokens, reply.usage.outputTokens);
@@ -183,41 +214,77 @@ const fmtK = (n: number): string =>
   n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 
 /**
- * One generation per context size — decode + latency as the prompt grows.
- *
- * A single measured run per rung keeps this fast (the only real cost is the
- * 16k prefill). We report the *actual* input tokens usage returns, not the
+ * Decode + latency as the prompt grows. One run per rung by default (the only
+ * real cost is the big prefill); --full climbs to 64k and takes the median of
+ * 3 runs per rung. We report the *actual* input tokens usage returns, not the
  * target, so the x-axis is honest even when the tokenizer disagrees with our
  * byte estimate.
+ *
+ * A rung where every run fails ends the ladder with the engine's own error on
+ * the point (typically a context-window overflow) — larger rungs can only fail
+ * the same way, and burning minutes to prove it helps nobody.
  */
 async function contextScaling(
   ctx: RunContext,
   surface: string,
   onProgress?: (label: string) => void,
 ): Promise<ContextPoint[]> {
+  const full = ctx.config.depth === "full";
+  const ladder = full ? CONTEXT_LADDER_FULL : CONTEXT_LADDER;
+  const runsPerRung = full ? CONTEXT_RUNS_FULL : 1;
   const points: ContextPoint[] = [];
 
-  for (const target of CONTEXT_LADDER) {
-    onProgress?.(`context ~${fmtK(target)}`);
+  for (const target of ladder) {
     const prompt =
       buildLongPrefix(
         "Operations archive entry for the quarterly review.",
         target * BYTES_PER_TOKEN,
       ) + "\n\nIn one sentence, summarise the archive above.";
 
-    const sample = await timedRun(ctx, surface, prompt, CONTEXT_GEN_TOKENS);
-    points.push({
+    const samples: RunSample[] = [];
+    for (let i = 0; i < runsPerRung; i += 1) {
+      const count = runsPerRung > 1 ? ` ${i + 1}/${runsPerRung}` : "";
+      onProgress?.(`context ~${fmtK(target)}${count}`);
+      samples.push(await timedRun(ctx, surface, prompt, CONTEXT_GEN_TOKENS));
+    }
+
+    const ok = samples.filter((s) => s.error === undefined);
+    const decodes = ok
+      .map((s) => s.decodeTokPerSec)
+      .filter((v): v is number => v !== null);
+    const ttfts = ok
+      .map((s) => s.ttftMs)
+      .filter((v): v is number => v !== null);
+
+    const point: ContextPoint = {
       targetTokens: target,
-      inputTokens: sample.inputTokens,
+      inputTokens:
+        ok.map((s) => s.inputTokens).find((v) => typeof v === "number") ?? null,
       decodeTokPerSec:
-        sample.decodeTokPerSec === null
-          ? null
-          : Math.round(sample.decodeTokPerSec * 10) / 10,
-      ttftMs: sample.ttftMs === null ? null : Math.round(sample.ttftMs),
-    });
+        decodes.length > 0 ? Math.round(median(decodes) * 10) / 10 : null,
+      ttftMs: ttfts.length > 0 ? Math.round(median(ttfts)) : null,
+      runs: ok.length,
+      note: null,
+    };
+
+    if (ok.length === 0) {
+      point.note = samples[0]?.error ?? "no successful run";
+      points.push(point);
+      break;
+    }
+    points.push(point);
   }
 
   return points;
+}
+
+function machineInfo(): MachineInfo {
+  return {
+    platform: platform(),
+    arch: arch(),
+    cpu: cpus()[0]?.model.trim() || null,
+    memGB: Math.round(totalmem() / 2 ** 30),
+  };
 }
 
 export async function runBenchmark(
@@ -305,6 +372,7 @@ export async function runBenchmark(
     prefillTokPerSec: pick(prefillSamples, "prefillTokPerSec"),
     prefillPromptTokens,
     speculative,
+    machine: machineInfo(),
     contextScaling: contextPoints.length > 0 ? contextPoints : null,
   };
 }

@@ -8,9 +8,10 @@ import {
   type CreditEntry,
   type EvalCategory,
   type EvalResult,
+  CAPABLE_OVERALL_PCT,
+  CATEGORY_FLOOR_PCT,
   REQUIRED_EVAL_CATEGORIES,
-  SEMI_CAPABLE_CATEGORY_FLOOR_PCT,
-  SEMI_CAPABLE_OVERALL_PCT,
+  STRONG_OVERALL_PCT,
   type SurfaceConformance,
   type TierCoverage,
   TIERS,
@@ -116,7 +117,8 @@ export function scoreConformance(
 }
 
 /**
- * Capability — is the model semi-capable? A floor check, not an intelligence
+ * Capability — does the model clear the floor, and by how much? Graded
+ * below-floor / capable / strong; a floor check, not an intelligence
  * benchmark.
  *
  * Scores *samples*, not items. Tool and JSON evals run at k=3, so a model that
@@ -149,7 +151,7 @@ export function scoreCapability(results: EvalResult[]): CapabilityScore {
   const overallPct = pct(passed, total);
 
   const weakCategories = categories
-    .filter((c) => c.pct < SEMI_CAPABLE_CATEGORY_FLOOR_PCT)
+    .filter((c) => c.pct < CATEGORY_FLOOR_PCT)
     .map((c) => c.category);
 
   // A required category that produced no samples was never measured — usually
@@ -159,19 +161,26 @@ export function scoreCapability(results: EvalResult[]): CapabilityScore {
   const measured = new Set(categories.map((c) => c.category));
   const unmeasured = REQUIRED_EVAL_CATEGORIES.filter((c) => !measured.has(c));
 
+  // Three gates. A high overall cannot buy its way past a floored category —
+  // a model that calls tools when it shouldn't is disqualifying however good
+  // the rest looks — nor past a category we never got to measure at all.
+  // Past the gates, the overall percentage alone picks capable vs strong.
+  const clearsFloor =
+    total > 0 &&
+    overallPct >= CAPABLE_OVERALL_PCT &&
+    weakCategories.length === 0 &&
+    unmeasured.length === 0;
+
   return {
     categories,
     passed,
     total,
     pct: overallPct,
-    // Three gates. A high overall cannot buy its way past a floored category —
-    // a model that calls tools when it shouldn't is disqualifying however good
-    // the rest looks — nor past a category we never got to measure at all.
-    semiCapable:
-      total > 0 &&
-      overallPct >= SEMI_CAPABLE_OVERALL_PCT &&
-      weakCategories.length === 0 &&
-      unmeasured.length === 0,
+    verdict: !clearsFloor
+      ? "below-floor"
+      : overallPct >= STRONG_OVERALL_PCT
+        ? "strong"
+        : "capable",
     weakCategories,
     unmeasured,
   };

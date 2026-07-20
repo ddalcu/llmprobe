@@ -38,7 +38,7 @@ export interface JsonReport {
   };
   capability: {
     pct: number;
-    semiCapable: boolean;
+    verdict: RunReport["capability"]["verdict"];
     categories: RunReport["capability"]["categories"];
     weakCategories: RunReport["capability"]["weakCategories"];
     evals: Array<{
@@ -93,7 +93,7 @@ export function buildJsonReport(
     },
     capability: {
       pct: report.capability.pct,
-      semiCapable: report.capability.semiCapable,
+      verdict: report.capability.verdict,
       categories: report.capability.categories,
       weakCategories: report.capability.weakCategories,
       evals: details.evals.map((e) => ({

@@ -6,6 +6,7 @@ import { responsesAdapter } from "../surfaces/responses/adapter";
 import { sharedTests } from "./shared";
 import {
   audioTests,
+  chatOnlyTests,
   completionsTests,
   embeddingsTests,
   imagesTests,
@@ -47,6 +48,7 @@ export function buildConformanceTests(present: Set<string>): ConformanceTest[] {
     ...ADAPTERS.flatMap((adapter) =>
       sharedTests(adapter, adapter.id === primary),
     ),
+    ...chatOnlyTests,
     ...responsesOnlyTests,
     ...messagesOnlyTests,
     ...embeddingsTests,

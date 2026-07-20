@@ -1,6 +1,6 @@
 {
   "name": "llmprobe",
-  "version": "0.1.1",
+  "version": "0.3.0",
   "description": "Conformance and capability test suite for LLM inference engines. Scores surface coverage, spec conformance, and whether the model is semi-capable.",
   "keywords": [
     "llm",
@@ -55,5 +55,8 @@
   },
   "lint-staged": {
     "*": "prettier --write --ignore-unknown"
+  },
+  "dependencies": {
+    "chart.js": "^4.5.1"
   }
 }

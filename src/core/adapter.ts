@@ -65,6 +65,8 @@ export interface ChatRequest {
   tools?: ToolDef[];
   toolChoice?: ToolChoice;
   temperature?: number;
+  /** Nucleus sampling. Near-zero forces greedy decoding — the top-p probe leans on that. */
+  topP?: number;
   maxTokens?: number;
   stop?: string[];
   seed?: number;
@@ -165,6 +167,15 @@ export interface SurfaceAdapter {
   /** Version-less path, e.g. `/chat/completions`. The probe resolves `/v1`. */
   path: string;
   capabilities: SurfaceCapabilities;
+  /**
+   * The surface's spec-standard opt-in for a visible reasoning channel, merged
+   * into the body on the reasoning probe's second attempt. Engines like
+   * mlx-serve ship thinking disabled by default and strip think blocks unless
+   * asked, so a plain request alone under-reports the feature. Only standard
+   * params belong here — vendor toggles (`enable_thinking`) are deliberately
+   * never sent, by the same rule that scores Ollama's native API at zero.
+   */
+  reasoningOptIn?: Record<string, unknown>;
   /** Extra headers — Anthropic needs `x-api-key` + `anthropic-version`. */
   headers(config: RunConfig): Record<string, string>;
   buildBody(request: ChatRequest, config: RunConfig): Record<string, unknown>;

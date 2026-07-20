@@ -132,6 +132,10 @@ export const messagesAdapter: SurfaceAdapter = {
     };
   },
 
+  // Anthropic requires max_tokens > budget_tokens; the probe's retry sends a
+  // max_tokens comfortably above this.
+  reasoningOptIn: { thinking: { type: "enabled", budget_tokens: 256 } },
+
   responseSchema: messageSchema,
   chunkSchema: messagesStreamEventSchema,
 
@@ -145,6 +149,7 @@ export const messagesAdapter: SurfaceAdapter = {
     if (request.system) body.system = request.system;
     if (request.temperature !== undefined)
       body.temperature = request.temperature;
+    if (request.topP !== undefined) body.top_p = request.topP;
     if (request.stop) body.stop_sequences = request.stop;
 
     if (request.tools?.length) {
@@ -156,6 +161,14 @@ export const messagesAdapter: SurfaceAdapter = {
     }
     if (request.toolChoice !== undefined) {
       body.tool_choice = toolChoiceBody(request.toolChoice);
+    }
+    // Anthropic expresses "no parallel calls" inside tool_choice rather than
+    // as a sibling field the way chat/completions and Responses do.
+    if (request.parallelToolCalls === false && body.tool_choice) {
+      body.tool_choice = {
+        ...(body.tool_choice as Record<string, unknown>),
+        disable_parallel_tool_use: true,
+      };
     }
 
     return { ...body, ...(request.extra ?? {}) };

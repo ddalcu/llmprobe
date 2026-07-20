@@ -87,7 +87,7 @@ function fixture(overrides: Partial<RunReport> = {}): RunReport {
       passed: 24,
       total: 30,
       pct: 80,
-      semiCapable: true,
+      verdict: "capable",
       weakCategories: [],
       unmeasured: [],
     },
@@ -144,8 +144,11 @@ describe("renderReport", () => {
     expect(out).toContain("SHOULD");
   });
 
-  test("renders the semi-capable verdict", () => {
-    expect(render(fixture())).toContain("semi-capable");
+  test("renders the graded verdict", () => {
+    expect(render(fixture())).toContain("capable ✓");
+    const strong = fixture();
+    strong.capability.verdict = "strong";
+    expect(render(strong)).toContain("strong ✓");
   });
 
   test("a weak model names the category that sank it", () => {
@@ -158,14 +161,14 @@ describe("renderReport", () => {
         passed: 11,
         total: 20,
         pct: 55,
-        semiCapable: false,
+        verdict: "below-floor",
         weakCategories: ["tool-restraint"],
         unmeasured: [],
       },
     });
     const out = render(weak);
     expect(out).toContain("Tool restraint");
-    expect(out).toMatch(/not semi-capable|✗/);
+    expect(out).toContain("below floor ✗");
   });
 
   test("a weak model leaves the engine card untouched", () => {
@@ -181,7 +184,7 @@ describe("renderReport", () => {
           passed: 1,
           total: 10,
           pct: 10,
-          semiCapable: false,
+          verdict: "below-floor",
           weakCategories: ["tool-selection"],
           unmeasured: [],
         },
@@ -210,7 +213,7 @@ describe("renderReport", () => {
         passed: 0,
         total: 0,
         pct: 0,
-        semiCapable: false,
+        verdict: "below-floor",
         weakCategories: [],
         unmeasured: [],
       },

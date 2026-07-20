@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { bearerAuth } from "../core/adapter";
-import { Inconclusive } from "../core/assert";
+import { Inconclusive, isLengthStyleFinish } from "../core/assert";
 import type { ConformanceTest } from "../core/context";
 import { checkSSEFraming } from "../core/sse";
 
@@ -543,6 +543,247 @@ export const messagesOnlyTests: ConformanceTest[] = [
         "a request without max_tokens is rejected",
         res.status >= 400,
         `accepted a request with no max_tokens (HTTP ${res.status}) — the spec requires it`,
+      );
+    },
+  },
+  {
+    id: "messages-stop-sequence-echo",
+    name: "messages: stop_sequence is reported and echoed",
+    surface: "messages",
+    tier: "core",
+    async run(ctx, a) {
+      // The shared stop test checks the cut; this checks the *reporting* the
+      // Anthropic spec adds on top: stop_reason "stop_sequence" plus the
+      // matched sequence echoed back, which is how callers learn WHICH stop
+      // fired.
+      const res = await ctx.send("messages", {
+        turns: [{ type: "user", text: "Say exactly: alpha beta gamma" }],
+        temperature: 0,
+        maxTokens: 32,
+        stop: ["beta"],
+      });
+
+      if (res.status !== 200) {
+        a.must(
+          "messages-stop-echo-status",
+          "accepts stop_sequences",
+          false,
+          `HTTP ${res.status}`,
+        );
+        return;
+      }
+
+      if (!/alpha/i.test(res.reply.text)) {
+        throw new Inconclusive(
+          "the model did not echo the phrase, so the stop sequence was never reachable",
+        );
+      }
+
+      a.must(
+        "messages-stop-reason",
+        'a hit stop sequence reports stop_reason "stop_sequence"',
+        res.reply.finishReason === "stop_sequence",
+        `stop_reason was "${res.reply.finishReason}"`,
+      );
+      a.should(
+        "messages-stop-echoed",
+        "the matched sequence is echoed in stop_sequence",
+        (res.raw as any)?.stop_sequence === "beta",
+        `stop_sequence field was ${JSON.stringify((res.raw as any)?.stop_sequence)}`,
+      );
+    },
+  },
+  {
+    id: "messages-thinking-budget",
+    name: "messages: thinking blocks and budget",
+    surface: "messages",
+    tier: "extended",
+    async run(ctx, a) {
+      // Anthropic's extended-thinking contract: opt in with a budget, get
+      // thinking blocks in a separate channel with reasoning kept out of the
+      // visible text. No feature id — the shared reasoning test owns the
+      // coverage line; this is the Messages-specific wire contract.
+      // Budget kept small on purpose: a big local model thinking through a
+      // 1024-token budget blew straight past the 60s default request timeout
+      // on a real run. 256 is enough to prove the contract.
+      const res = await ctx.send("messages", {
+        turns: [
+          {
+            type: "user",
+            text: "What is 17 * 23? Think it through, then answer.",
+          },
+        ],
+        maxTokens: 640,
+        extra: { thinking: { type: "enabled", budget_tokens: 256 } },
+      });
+
+      if (res.status !== 200) {
+        return {
+          featureSupported: false,
+          unsupportedDetail: `rejects thinking with HTTP ${res.status}`,
+        };
+      }
+
+      if (res.reply.reasoningText === null) {
+        throw new Inconclusive(
+          "thinking was enabled but the model produced no thinking block",
+        );
+      }
+
+      a.must(
+        "messages-thinking-separate",
+        "thinking arrives in thinking blocks, not in the visible text",
+        !/<think>|<\|thinking\|>/i.test(res.reply.text),
+        "raw thinking tags leaked into the text content",
+      );
+
+      const reasoningTokens = res.reply.usage.reasoningTokens;
+      if (typeof reasoningTokens === "number") {
+        // Budgets are approximate by design; 1.5x is generous enough to never
+        // fire on rounding while still catching an ignored budget.
+        a.should(
+          "messages-thinking-budget-respected",
+          "the thinking budget is roughly respected",
+          reasoningTokens <= 256 * 1.5,
+          `budget_tokens 256 but reasoning used ${reasoningTokens} tokens`,
+        );
+      }
+    },
+  },
+];
+
+export const chatOnlyTests: ConformanceTest[] = [
+  {
+    id: "chat-n-choices",
+    name: "chat/completions: n > 1 choices",
+    surface: "chat",
+    tier: "extended",
+    feature: "n-choices",
+    async run(ctx, a) {
+      // Most local engines quietly return one choice whatever `n` says — the
+      // classic silent no-op, and it charges like ignored logprobs: coverage
+      // AND conformance.
+      const res = await ctx.send("chat", {
+        turns: [{ type: "user", text: "Invent a two-word band name." }],
+        temperature: 0.8,
+        maxTokens: 24,
+        extra: { n: 2 },
+      });
+
+      if (res.status >= 400) {
+        return {
+          featureSupported: false,
+          unsupportedDetail: `rejects n=2 with HTTP ${res.status}`,
+        };
+      }
+
+      const choices = (res.raw as any)?.choices;
+      if (!Array.isArray(choices) || choices.length < 2) {
+        a.must(
+          "chat-n-not-ignored",
+          "n is honored when requested",
+          false,
+          `accepted n: 2 with HTTP 200 but returned ${Array.isArray(choices) ? choices.length : 0} choice(s) — a silent no-op is worse than a clean rejection`,
+        );
+        return {
+          featureSupported: false,
+          unsupportedDetail: "accepted `n` but returned one choice",
+        };
+      }
+
+      a.must(
+        "chat-n-count",
+        "returns exactly n choices",
+        choices.length === 2,
+        `asked for 2 choices, got ${choices.length}`,
+      );
+      a.must(
+        "chat-n-indices",
+        "choices carry distinct indices",
+        new Set(choices.map((c: any) => c?.index)).size === choices.length,
+        "duplicate choice indices — callers cannot tell the choices apart",
+      );
+    },
+  },
+  {
+    id: "chat-max-tokens-alias",
+    name: "chat/completions: legacy max_tokens alias",
+    surface: "chat",
+    tier: "extended",
+    feature: "max-tokens-alias",
+    async run(ctx, a) {
+      // The suite normally sends the modern `max_completion_tokens`; a decade
+      // of existing clients still send `max_tokens`. Both are spec-valid, and
+      // an engine that accepts the legacy name while ignoring it generates
+      // unbounded output for exactly the clients least likely to notice.
+      const res = await ctx.send("chat", {
+        turns: [{ type: "user", text: "Write a long essay about the sea." }],
+        temperature: 0,
+        extra: { max_tokens: 1 },
+      });
+
+      if (res.status >= 400) {
+        return {
+          featureSupported: false,
+          unsupportedDetail: `rejects legacy max_tokens with HTTP ${res.status}`,
+        };
+      }
+
+      const output = res.reply.usage.outputTokens;
+      const reason = res.reply.finishReason ?? "";
+      const capped =
+        (typeof output === "number" && output <= 4) ||
+        isLengthStyleFinish(reason);
+
+      if (!capped) {
+        a.must(
+          "chat-max-tokens-alias-not-ignored",
+          "legacy max_tokens is honored when sent",
+          false,
+          `asked for 1 token via max_tokens, got ${output ?? "unknown"} tokens with finish "${reason}" — the legacy alias was silently ignored`,
+        );
+        return {
+          featureSupported: false,
+          unsupportedDetail: "accepted legacy `max_tokens` but did not cap",
+        };
+      }
+
+      a.must(
+        "chat-max-tokens-alias-finish",
+        "truncation via the legacy alias reports a length finish",
+        isLengthStyleFinish(reason),
+        `expected length/max_tokens, got "${reason}"`,
+      );
+    },
+  },
+  {
+    id: "chat-stop-string",
+    name: "chat/completions: stop as a bare string",
+    surface: "chat",
+    tier: "core",
+    async run(ctx, a) {
+      // The spec allows `stop` as a string OR an array; the shared test sends
+      // the array form, so a string-blind parser would sail through unprobed.
+      const res = await ctx.send("chat", {
+        turns: [{ type: "user", text: "Say exactly: alpha beta gamma" }],
+        temperature: 0,
+        maxTokens: 32,
+        extra: { stop: "beta" },
+      });
+
+      a.must(
+        "chat-stop-string-status",
+        "accepts stop as a bare string",
+        res.status === 200,
+        `HTTP ${res.status} — the spec allows string or array`,
+      );
+      if (res.status !== 200) return;
+
+      a.must(
+        "chat-stop-string-honored",
+        "a bare-string stop sequence cuts the output",
+        !res.reply.text.includes("beta"),
+        `stop "beta" (string form) appeared in the output: "${res.reply.text.slice(0, 80)}"`,
       );
     },
   },

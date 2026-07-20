@@ -18,7 +18,7 @@ import {
  * Model capability — a floor check, not an intelligence benchmark.
  *
  * Calibrated so a 12B-class model (Gemma-12B, Qwen-9B+) clears the bar. We are
- * asking "is this model semi-capable enough to build on": does it pick the right
+ * asking "is this model capable enough to build on": does it pick the right
  * tool, does it *refrain* from picking one when it shouldn't, does it emit JSON
  * that parses, does it remember what you told it two turns ago.
  *

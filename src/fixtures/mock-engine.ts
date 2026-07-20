@@ -24,6 +24,19 @@ export interface MockDefects {
   neverCallsTools?: boolean;
   /** Accept a malformed body with 200 instead of rejecting it. */
   acceptsMalformedBodies?: boolean;
+  /** Accept `n: 2`, return 200, send one choice. The silent no-op, again. */
+  silentlyIgnoreN?: boolean;
+  /** Emit two tool calls despite `parallel_tool_calls: false`. */
+  ignoresParallelDisable?: boolean;
+  /** Accept a near-zero `top_p`, keep sampling randomly anyway. */
+  silentlyIgnoreTopP?: boolean;
+  /**
+   * Simulate a prefix cache: a repeated system prompt reports
+   * `prompt_tokens_details.cached_tokens` on the second sighting.
+   */
+  promptCache?: boolean;
+  /** The corrupted-KV case: a cache hit changes the answer. */
+  cacheChangesAnswer?: boolean;
   /**
    * Answer every unknown path with HTTP 200 and an error body, the way LM
    * Studio really does. Without a defence, this makes an engine look like it
@@ -36,6 +49,12 @@ export interface MockDefects {
    * budget remains. Capped tightly, such a model returns EMPTY content.
    */
   reasoningModel?: boolean;
+  /**
+   * Behave like mlx-serve's default: the reasoning channel exists but only
+   * appears when the request opts in with the standard `reasoning_effort`
+   * param; a plain request gets its think block stripped.
+   */
+  reasoningRequiresOptIn?: boolean;
   /**
    * Stall (1s) any chat completion whose prompt exceeds this many bytes —
    * enough to trip a client timeout set below the stall. Models real engines
@@ -67,6 +86,8 @@ function chatCompletion(options: {
   defects: MockDefects;
   logprobs?: boolean;
   reasoning?: string;
+  n?: number;
+  cachedTokens?: number;
 }): Record<string, unknown> {
   const { defects } = options;
 
@@ -87,32 +108,33 @@ function chatCompletion(options: {
     },
   }));
 
+  const choice = (index: number) => ({
+    index,
+    message: {
+      role: "assistant",
+      content: options.content ?? null,
+      ...(options.reasoning ? { reasoning_content: options.reasoning } : {}),
+      ...(toolCalls?.length ? { tool_calls: toolCalls } : {}),
+    },
+    finish_reason: options.finishReason,
+    ...(options.logprobs
+      ? { logprobs: { content: [{ token: "hi", logprob: -0.1 }] } }
+      : {}),
+  });
+
   return {
     id: "chatcmpl-mock-1",
     object: "chat.completion",
     created: 1_700_000_000,
     model: MODEL,
-    choices: [
-      {
-        index: 0,
-        message: {
-          role: "assistant",
-          content: options.content ?? null,
-          ...(options.reasoning
-            ? { reasoning_content: options.reasoning }
-            : {}),
-          ...(toolCalls?.length ? { tool_calls: toolCalls } : {}),
-        },
-        finish_reason: options.finishReason,
-        ...(options.logprobs
-          ? { logprobs: { content: [{ token: "hi", logprob: -0.1 }] } }
-          : {}),
-      },
-    ],
+    choices: Array.from({ length: options.n ?? 1 }, (_, i) => choice(i)),
     usage: {
       prompt_tokens: options.inputTokens,
       completion_tokens: options.outputTokens,
       total_tokens: total,
+      ...(options.cachedTokens !== undefined
+        ? { prompt_tokens_details: { cached_tokens: options.cachedTokens } }
+        : {}),
     },
   };
 }
@@ -153,6 +175,19 @@ function respondTo(body: any, defects: MockDefects) {
         ? body.tool_choice.function?.name
         : undefined;
     const name = forced ?? (/(time)/i.test(text) ? "get_time" : "get_weather");
+
+    // The defect: a request that disabled parallel calls gets two anyway.
+    if (defects.ignoresParallelDisable && body.parallel_tool_calls === false) {
+      return {
+        toolCalls: [
+          { name: "get_weather", args: { city: "Tokyo" } },
+          { name: "get_time", args: { city: "Tokyo" } },
+        ],
+        finishReason: "tool_calls",
+        outputTokens: 24,
+      };
+    }
+
     return {
       toolCalls: [{ name, args: { city: "Paris", unit: "celsius" } }],
       finishReason: "tool_calls",
@@ -178,7 +213,9 @@ function respondTo(body: any, defects: MockDefects) {
   }
 
   // Echo mode keeps parity/unicode/stop-sequence tests meaningful.
-  const stop: string[] = body.stop ?? [];
+  // The spec allows `stop` as a bare string or an array; honor both.
+  const stop: string[] =
+    typeof body.stop === "string" ? [body.stop] : (body.stop ?? []);
   let content = "Paris";
   if (/repeat this text exactly/i.test(text)) {
     content = text.split(":").slice(1).join(":").trim();
@@ -194,11 +231,25 @@ function respondTo(body: any, defects: MockDefects) {
     if (at !== -1) content = content.slice(0, at).trimEnd();
   }
 
+  // The defect: a near-zero top_p should force greedy decoding, but this
+  // engine keeps sampling — two identical requests disagree.
+  if (
+    defects.silentlyIgnoreTopP &&
+    typeof body.top_p === "number" &&
+    body.top_p < 0.01
+  ) {
+    content += ` ${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  const showsReasoning =
+    defects.reasoningModel ||
+    (defects.reasoningRequiresOptIn && body.reasoning_effort !== undefined);
+
   return {
     content,
     finishReason: "stop",
     outputTokens: 6,
-    ...(defects.reasoningModel
+    ...(showsReasoning
       ? { reasoning: "Let me think about this step by step..." }
       : {}),
   };
@@ -297,6 +348,8 @@ export function startMockEngine(defects: MockDefects = {}): MockEngine {
   const surfaces = defects.surfaces ?? ["models", "chat"];
   const requests: string[] = [];
   const chatBodies: Array<Record<string, unknown>> = [];
+  /** System prompts already prefilled once — the simulated prefix cache. */
+  const seenSystems = new Set<string>();
 
   const server = Bun.serve({
     port: defects.port ?? 0,
@@ -342,11 +395,40 @@ export function startMockEngine(defects: MockDefects = {}): MockEngine {
           );
         }
 
+        // Simulated prefix cache: a system prompt seen before reports half the
+        // prompt as cached; with the corruption defect, the warm answer also
+        // changes — the KV-reuse bug the cache-correctness check exists for.
+        let cachedTokens: number | undefined;
+        if (defects.promptCache) {
+          const system = (body.messages ?? []).find(
+            (m: any) => m?.role === "system",
+          )?.content;
+          if (typeof system === "string" && system.length > 0) {
+            if (seenSystems.has(system)) cachedTokens = 10;
+            seenSystems.add(system);
+          }
+        }
+
         const plan = respondTo(body, defects);
+        if (
+          cachedTokens !== undefined &&
+          defects.cacheChangesAnswer &&
+          typeof plan.content === "string"
+        ) {
+          plan.content = "A completely different answer.";
+        }
+
+        const n =
+          typeof body.n === "number" && body.n > 1 && !defects.silentlyIgnoreN
+            ? body.n
+            : undefined;
+
         const payload = chatCompletion({
           ...plan,
           inputTokens: 20,
           defects,
+          n,
+          cachedTokens,
           logprobs: body.logprobs === true && !defects.silentlyIgnoreLogprobs,
         } as Parameters<typeof chatCompletion>[0]);
 

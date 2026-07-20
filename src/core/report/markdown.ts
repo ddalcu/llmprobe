@@ -39,8 +39,14 @@ export function renderMarkdown(report: RunReport): string {
       badge("conformance", `${conformance.pct}%`, colourFor(conformance.pct)),
       badge(
         "model",
-        capability.semiCapable ? "semi-capable" : "below bar",
-        capability.semiCapable ? "brightgreen" : "red",
+        capability.verdict === "below-floor"
+          ? "below floor"
+          : capability.verdict,
+        capability.verdict === "strong"
+          ? "brightgreen"
+          : capability.verdict === "capable"
+            ? "green"
+            : "red",
       ),
     ].join(" "),
   );
@@ -107,9 +113,10 @@ export function renderMarkdown(report: RunReport): string {
   }
   lines.push("");
 
-  const verdict = capability.semiCapable
-    ? "semi-capable ✅"
-    : "below the bar ❌";
+  const verdict =
+    capability.verdict === "below-floor"
+      ? "below the floor ❌"
+      : `${capability.verdict} ✅`;
   lines.push(`## Model capability — ${capability.pct}% (${verdict})`);
   lines.push("");
   if (capability.total === 0) {

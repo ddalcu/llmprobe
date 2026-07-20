@@ -154,6 +154,19 @@ export const FEATURES: FeatureDef[] = [
     surface: "chat",
   },
   { id: "seed", label: "seed determinism", tier: "extended", surface: "chat" },
+  {
+    id: "sampling",
+    label: "top_p sampling",
+    tier: "extended",
+    surface: "chat",
+  },
+  { id: "n-choices", label: "n>1 choices", tier: "extended", surface: "chat" },
+  {
+    id: "max-tokens-alias",
+    label: "max_tokens legacy alias",
+    tier: "extended",
+    surface: "chat",
+  },
 
   // ── Frontier ──
   {

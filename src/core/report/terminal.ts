@@ -11,7 +11,7 @@ import { type Palette, paletteFor } from "./colors";
 
 const WIDTH = 74;
 
-const CATEGORY_LABELS: Record<EvalCategory, string> = {
+export const CATEGORY_LABELS: Record<EvalCategory, string> = {
   "tool-selection": "Tool selection",
   "tool-restraint": "Tool restraint",
   "tool-args": "Tool arg fidelity",
@@ -151,9 +151,10 @@ function renderConformance(conf: ConformanceScore, c: Palette): string[] {
 }
 
 function renderCapability(cap: CapabilityScore, c: Palette): string[] {
-  const verdict = cap.semiCapable
-    ? c.green("semi-capable ✓")
-    : c.red("not semi-capable ✗");
+  const verdict =
+    cap.verdict === "below-floor"
+      ? c.red("below floor ✗")
+      : c.green(`${cap.verdict} ✓`);
   const headline = cap.total === 0 ? c.gray("no evals run") : fmtPct(cap.pct);
 
   const lines = [
@@ -213,9 +214,18 @@ function fmtLatency(ms: number): string {
 }
 
 function renderBench(bench: BenchReport, c: Palette): string[] {
+  const machine = [
+    bench.machine.cpu,
+    `${bench.machine.memGB} GB`,
+    `${bench.machine.platform} ${bench.machine.arch}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   const lines = [
     c.bold("PERFORMANCE"),
     `  ${c.gray("informational — not scored; hardware-dependent, same-machine comparisons only")}`,
+    `  ${c.gray(`machine: ${machine}`)}`,
     `  ${"Decode throughput".padEnd(22)}${fmtStat(bench.decodeTokPerSec, "tok/s")}`,
     `  ${"Time to first token".padEnd(22)}${fmtStat(bench.ttftMs, "ms")}`,
   ];
@@ -233,6 +243,10 @@ function renderBench(bench: BenchReport, c: Palette): string[] {
     for (const point of bench.contextScaling) {
       const size = point.inputTokens ?? point.targetTokens;
       const sizeLabel = `~${fmtTokensK(size)}`.padStart(8);
+      if (point.note) {
+        lines.push(`  ${c.gray(sizeLabel)}   ${c.yellow(`✗ ${point.note}`)}`);
+        continue;
+      }
       const decode = (
         point.decodeTokPerSec !== null
           ? `${point.decodeTokPerSec} tok/s`
