@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 
 import { ADAPTERS, primarySurface } from "../conformance/index";
 import type { SurfaceAdapter } from "../core/adapter";
@@ -36,7 +36,7 @@ function coherent(stat: BenchStat | null): void {
 
 describe("runBenchmark against the mock", () => {
   test("produces a coherent, non-throwing report", async () => {
-    engine = startMockEngine();
+    engine = await startMockEngine();
     const root = normalizeRoot(engine.url);
 
     const adapters = new Map<string, SurfaceAdapter>(
@@ -97,7 +97,7 @@ describe("runBenchmark against the mock", () => {
   });
 
   test("--full climbs to 64k and takes the median of 3 runs per rung", async () => {
-    engine = startMockEngine();
+    engine = await startMockEngine();
     const root = normalizeRoot(engine.url);
 
     const config: RunConfig = {
@@ -134,7 +134,7 @@ describe("runBenchmark against the mock", () => {
     // cache-hit TTFT, and prefill = inputTokens / TTFT then reports tens of
     // thousands of tok/s. Every request must therefore be unique — and unique
     // from the very first tokens, because prefix caches match from position 0.
-    engine = startMockEngine();
+    engine = await startMockEngine();
     const root = normalizeRoot(engine.url);
 
     const config: RunConfig = {
@@ -173,7 +173,7 @@ describe("runBenchmark against the mock", () => {
     // per-request timeout on slow hardware. That must yield a named failure on
     // that rung — never a dead PERFORMANCE section — and stop the climb:
     // larger rungs can only fail the same way.
-    engine = startMockEngine({ stallAbovePromptBytes: 20_000 });
+    engine = await startMockEngine({ stallAbovePromptBytes: 20_000 });
     const root = normalizeRoot(engine.url);
 
     const config: RunConfig = {
@@ -209,7 +209,7 @@ describe("runBenchmark against the mock", () => {
   });
 
   test("returns null when there is no chat-shaped surface to benchmark", async () => {
-    engine = startMockEngine();
+    engine = await startMockEngine();
     const root = normalizeRoot(engine.url);
     const config: RunConfig = {
       baseUrl: `${root}/v1`,

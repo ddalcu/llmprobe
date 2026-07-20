@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 
 import {
   ADAPTERS,
@@ -41,7 +41,7 @@ async function probeAndRun(
   depth: RunDepth = "default",
   reasoningHeadroom?: number,
 ) {
-  engine = startMockEngine(defects);
+  engine = await startMockEngine(defects);
   const root = normalizeRoot(engine.url);
 
   const adapters = new Map<string, SurfaceAdapter>(
@@ -124,7 +124,7 @@ describe("pipeline against a sound engine", () => {
   test("surface discovery costs no tokens", async () => {
     // Probing is empty-body POSTs, rejected on validation before inference.
     // If this ever regresses, mapping a paid endpoint starts costing money.
-    engine = startMockEngine();
+    engine = await startMockEngine();
     const root = normalizeRoot(engine.url);
 
     for (const surface of SURFACES) {
@@ -148,9 +148,11 @@ describe("pipeline against a sound engine", () => {
     const frontier = run.coverage.byTier.find((t) => t.tier === "frontier")!;
 
     // The normative bite: you don't get frontier credit for features you have
-    // no surface to host.
+    // no surface to host. The single frontier item a bare chat engine can
+    // still earn is n>1 choices.
     expect(frontier.missing).toContain("MCP tools");
-    expect(frontier.pct).toBe(0);
+    expect(frontier.missing).toContain("background responses");
+    expect(frontier.supported).toBe(1);
   });
 
   test("core conformance is clean on a sound engine", async () => {
@@ -230,14 +232,17 @@ describe("pipeline against planted defects", () => {
     }
 
     const frontier = run.coverage.byTier.find((t) => t.tier === "frontier")!;
-    expect(frontier.pct).toBe(0);
+    // The phantom endpoints earn nothing; the only frontier credit comes from
+    // n>1 choices on the one surface that really exists.
+    expect(frontier.missing).toContain("images/generations");
+    expect(frontier.supported).toBe(1);
   });
 
   test("the catch-all defence covers the bare-root mounting too", async () => {
     // The bug this pins: a catch-all reply echoes the path it was given, so the
     // `/v1` fingerprint does not match the bare-root reply. Probing only the
     // `/v1` mounting let every endpoint through on the fallback attempt.
-    engine = startMockEngine({
+    engine = await startMockEngine({
       catchAll200: true,
       surfaces: ["models", "chat"],
     });
@@ -270,7 +275,7 @@ describe("pipeline against planted defects", () => {
     // LM Studio echoes the method too — "Unexpected endpoint or method.
     // (GET /api/tags)" — so a POST-only fingerprint still hands out a phantom
     // credit for Ollama's native API on a server that has never had one.
-    engine = startMockEngine({
+    engine = await startMockEngine({
       catchAll200: true,
       surfaces: ["models", "chat"],
     });
@@ -307,8 +312,8 @@ describe("pipeline against planted defects", () => {
     expect(failedIds(run.results)).toContain("chat-n-not-ignored");
     expect(run.featureSupport.get("n-choices")!.supported).toBe(false);
 
-    const extended = run.coverage.byTier.find((t) => t.tier === "extended")!;
-    expect(extended.missing).toContain("n>1 choices");
+    const frontier = run.coverage.byTier.find((t) => t.tier === "frontier")!;
+    expect(frontier.missing).toContain("n>1 choices");
   });
 
   test("emitting parallel calls despite parallel_tool_calls: false is caught", async () => {

@@ -160,7 +160,6 @@ export const FEATURES: FeatureDef[] = [
     tier: "extended",
     surface: "chat",
   },
-  { id: "n-choices", label: "n>1 choices", tier: "extended", surface: "chat" },
   {
     id: "max-tokens-alias",
     label: "max_tokens legacy alias",
@@ -175,6 +174,10 @@ export const FEATURES: FeatureDef[] = [
     tier: "frontier",
     surface: "responses",
   },
+  // Multi-choice sampling is a cloud-API affordance: local engines almost
+  // never batch n samples, and even OpenAI dropped `n` from Responses. Full
+  // parity territory, not a standard to pressure every local engine toward.
+  { id: "n-choices", label: "n>1 choices", tier: "frontier", surface: "chat" },
   {
     id: "rate-limiting",
     label: "rate limiting",

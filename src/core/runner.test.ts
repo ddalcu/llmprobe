@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
 import { Inconclusive, Unsupported } from "./assert";
 import type { ConformanceTest, EvalDef, RunContext } from "./context";

@@ -1,3 +1,10 @@
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
+import type { AddressInfo } from "node:net";
+
 /**
  * A mock OpenAI-compatible engine with switchable defects.
  *
@@ -344,146 +351,177 @@ function streamFor(
   return `${frames.join("\n\n")}\n\n`;
 }
 
-export function startMockEngine(defects: MockDefects = {}): MockEngine {
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function readBodyJson(req: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    return {};
+  }
+}
+
+export async function startMockEngine(
+  defects: MockDefects = {},
+): Promise<MockEngine> {
   const surfaces = defects.surfaces ?? ["models", "chat"];
   const requests: string[] = [];
   const chatBodies: Array<Record<string, unknown>> = [];
   /** System prompts already prefilled once — the simulated prefix cache. */
   const seenSystems = new Set<string>();
 
-  const server = Bun.serve({
-    port: defects.port ?? 0,
-    async fetch(request) {
-      const url = new URL(request.url);
-      const path = url.pathname.replace(/^\/v1/, "");
-      requests.push(`${request.method} ${path}`);
+  const json = (
+    res: ServerResponse,
+    body: unknown,
+    status = 200,
+    contentType = "application/json",
+  ): void => {
+    res.writeHead(status, { "content-type": contentType });
+    res.end(typeof body === "string" ? body : JSON.stringify(body));
+  };
 
-      if (path === "/models" && surfaces.includes("models")) {
-        return Response.json({
-          object: "list",
-          data: [{ id: MODEL, object: "model", created: 1, owned_by: "mock" }],
-        });
+  const handle = async (
+    request: IncomingMessage,
+    res: ServerResponse,
+  ): Promise<void> => {
+    const url = new URL(request.url ?? "/", "http://localhost");
+    const path = url.pathname.replace(/^\/v1/, "");
+    requests.push(`${request.method} ${path}`);
+
+    if (path === "/models" && surfaces.includes("models")) {
+      return json(res, {
+        object: "list",
+        data: [{ id: MODEL, object: "model", created: 1, owned_by: "mock" }],
+      });
+    }
+
+    if (path === "/chat/completions" && surfaces.includes("chat")) {
+      const body = (await readBodyJson(request)) as any;
+      chatBodies.push(body);
+
+      if (defects.stallAbovePromptBytes !== undefined) {
+        const last = (body.messages ?? []).at(-1);
+        const text = typeof last?.content === "string" ? last.content : "";
+        if (text.length > defects.stallAbovePromptBytes) await sleep(1_000);
       }
 
-      if (path === "/chat/completions" && surfaces.includes("chat")) {
-        const body = (await request.json().catch(() => ({}))) as any;
-        chatBodies.push(body);
+      // An empty-body probe must be rejected on validation — that is what
+      // makes surface discovery free.
+      const malformed =
+        !body?.model ||
+        !Array.isArray(body?.messages) ||
+        body.messages.length === 0;
 
-        if (defects.stallAbovePromptBytes !== undefined) {
-          const last = (body.messages ?? []).at(-1);
-          const text = typeof last?.content === "string" ? last.content : "";
-          if (text.length > defects.stallAbovePromptBytes)
-            await Bun.sleep(1_000);
-        }
-
-        // An empty-body probe must be rejected on validation — that is what
-        // makes surface discovery free.
-        const malformed =
-          !body?.model ||
-          !Array.isArray(body?.messages) ||
-          body.messages.length === 0;
-
-        if (malformed && !defects.acceptsMalformedBodies) {
-          return Response.json(
-            {
-              error: {
-                message: "messages must be a non-empty array",
-                type: "invalid_request_error",
-              },
+      if (malformed && !defects.acceptsMalformedBodies) {
+        return json(
+          res,
+          {
+            error: {
+              message: "messages must be a non-empty array",
+              type: "invalid_request_error",
             },
-            { status: 400 },
-          );
-        }
-
-        // Simulated prefix cache: a system prompt seen before reports half the
-        // prompt as cached; with the corruption defect, the warm answer also
-        // changes — the KV-reuse bug the cache-correctness check exists for.
-        let cachedTokens: number | undefined;
-        if (defects.promptCache) {
-          const system = (body.messages ?? []).find(
-            (m: any) => m?.role === "system",
-          )?.content;
-          if (typeof system === "string" && system.length > 0) {
-            if (seenSystems.has(system)) cachedTokens = 10;
-            seenSystems.add(system);
-          }
-        }
-
-        const plan = respondTo(body, defects);
-        if (
-          cachedTokens !== undefined &&
-          defects.cacheChangesAnswer &&
-          typeof plan.content === "string"
-        ) {
-          plan.content = "A completely different answer.";
-        }
-
-        const n =
-          typeof body.n === "number" && body.n > 1 && !defects.silentlyIgnoreN
-            ? body.n
-            : undefined;
-
-        const payload = chatCompletion({
-          ...plan,
-          inputTokens: 20,
-          defects,
-          n,
-          cachedTokens,
-          logprobs: body.logprobs === true && !defects.silentlyIgnoreLogprobs,
-        } as Parameters<typeof chatCompletion>[0]);
-
-        if (body.stream) {
-          return new Response(streamFor(payload, defects), {
-            headers: { "content-type": "text/event-stream" },
-          });
-        }
-
-        return Response.json(payload);
+          },
+          400,
+        );
       }
 
-      if (path === "/embeddings" && surfaces.includes("embeddings")) {
-        const body = (await request.json().catch(() => ({}))) as any;
-        if (!body?.input) {
-          return Response.json(
-            { error: { message: "input required" } },
-            { status: 400 },
-          );
+      // Simulated prefix cache: a system prompt seen before reports half the
+      // prompt as cached; with the corruption defect, the warm answer also
+      // changes — the KV-reuse bug the cache-correctness check exists for.
+      let cachedTokens: number | undefined;
+      if (defects.promptCache) {
+        const system = (body.messages ?? []).find(
+          (m: any) => m?.role === "system",
+        )?.content;
+        if (typeof system === "string" && system.length > 0) {
+          if (seenSystems.has(system)) cachedTokens = 10;
+          seenSystems.add(system);
         }
-        const dims = body.dimensions ?? 8;
-        return Response.json({
-          object: "list",
-          data: [
-            {
-              object: "embedding",
-              index: 0,
-              embedding: Array.from({ length: dims }, () => 0.1),
-            },
-          ],
-          model: MODEL,
-          usage: { prompt_tokens: 4, total_tokens: 4 },
-        });
       }
 
-      if (defects.catchAll200) {
-        // LM Studio's real behaviour, verbatim: HTTP 200, an error in the body,
-        // and the requested path echoed back. Note the echoed path differs
-        // between the `/v1` mounting and the bare root — which is precisely
-        // where the first version of the catch-all defence leaked.
-        return Response.json({
-          error: `Unexpected endpoint or method. (${request.method} ${url.pathname})`,
-        });
+      const plan = respondTo(body, defects);
+      if (
+        cachedTokens !== undefined &&
+        defects.cacheChangesAnswer &&
+        typeof plan.content === "string"
+      ) {
+        plan.content = "A completely different answer.";
       }
 
-      return Response.json(
-        { error: { message: "not found" } },
-        { status: 404 },
-      );
-    },
+      const n =
+        typeof body.n === "number" && body.n > 1 && !defects.silentlyIgnoreN
+          ? body.n
+          : undefined;
+
+      const payload = chatCompletion({
+        ...plan,
+        inputTokens: 20,
+        defects,
+        n,
+        cachedTokens,
+        logprobs: body.logprobs === true && !defects.silentlyIgnoreLogprobs,
+      } as Parameters<typeof chatCompletion>[0]);
+
+      if (body.stream) {
+        return json(res, streamFor(payload, defects), 200, "text/event-stream");
+      }
+
+      return json(res, payload);
+    }
+
+    if (path === "/embeddings" && surfaces.includes("embeddings")) {
+      const body = (await readBodyJson(request)) as any;
+      if (!body?.input) {
+        return json(res, { error: { message: "input required" } }, 400);
+      }
+      const dims = body.dimensions ?? 8;
+      return json(res, {
+        object: "list",
+        data: [
+          {
+            object: "embedding",
+            index: 0,
+            embedding: Array.from({ length: dims }, () => 0.1),
+          },
+        ],
+        model: MODEL,
+        usage: { prompt_tokens: 4, total_tokens: 4 },
+      });
+    }
+
+    if (defects.catchAll200) {
+      // LM Studio's real behaviour, verbatim: HTTP 200, an error in the body,
+      // and the requested path echoed back. Note the echoed path differs
+      // between the `/v1` mounting and the bare root — which is precisely
+      // where the first version of the catch-all defence leaked.
+      return json(res, {
+        error: `Unexpected endpoint or method. (${request.method} ${url.pathname})`,
+      });
+    }
+
+    return json(res, { error: { message: "not found" } }, 404);
+  };
+
+  const server = createServer((request, res) => {
+    handle(request, res).catch(() => {
+      if (!res.headersSent) res.writeHead(500);
+      res.end();
+    });
   });
 
+  await new Promise<void>((resolve) =>
+    server.listen(defects.port ?? 0, resolve),
+  );
+  const port = (server.address() as AddressInfo).port;
+
   return {
-    url: `http://localhost:${server.port}`,
-    stop: () => server.stop(true),
+    url: `http://localhost:${port}`,
+    stop: () => {
+      server.closeAllConnections();
+      server.close();
+    },
     requests,
     chatBodies,
   };

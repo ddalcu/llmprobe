@@ -657,7 +657,7 @@ export const chatOnlyTests: ConformanceTest[] = [
     id: "chat-n-choices",
     name: "chat/completions: n > 1 choices",
     surface: "chat",
-    tier: "extended",
+    tier: "frontier",
     feature: "n-choices",
     async run(ctx, a) {
       // Most local engines quietly return one choice whatever `n` says — the

@@ -6,10 +6,10 @@ Contributions are welcome.
 ## Development
 
 ```bash
-bun test                       # unit + end-to-end tests (offline, no engine)
-bun run typecheck              # TypeScript
-bun run prettier --write .     # format — CI checks this, run it before pushing
-bun run probe <base-url> --full   # run against a live engine
+npm test                       # unit + end-to-end tests (offline, no engine)
+npm run typecheck              # TypeScript
+npm run prettier --write .     # format — CI checks this, run it before pushing
+npm run probe <base-url> --full   # run against a live engine
 ```
 
 The test suite drives the whole pipeline against a mock engine in

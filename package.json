@@ -35,26 +35,22 @@
   "scripts": {
     "prettier": "prettier",
     "build:cli": "esbuild bin/llmprobe.ts --bundle --platform=node --format=esm --target=node20 --outfile=bin/dist/llmprobe.mjs && chmod +x bin/dist/llmprobe.mjs",
-    "prepare": "husky && npm run build:cli",
+    "prepare": "npm run build:cli",
     "prepublishOnly": "npm run build:cli",
-    "probe": "bun run bin/llmprobe.ts",
+    "probe": "npm run build:cli && node bin/dist/llmprobe.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "bun test",
-    "test:unit": "bun test"
+    "test": "vitest run",
+    "test:unit": "vitest run"
   },
   "author": "David Dalcu <david.dalcu@gmail.com>",
   "license": "Apache-2.0",
   "devDependencies": {
-    "@types/bun": "^1.3.0",
+    "@types/node": "^26.1.1",
     "esbuild": "^0.28.0",
-    "husky": "^9.1.7",
-    "lint-staged": "^16.2.7",
     "prettier": "^3.6.2",
     "typescript": "^5.9.3",
+    "vitest": "^4.1.10",
     "zod": "^3.25.76"
-  },
-  "lint-staged": {
-    "*": "prettier --write --ignore-unknown"
   },
   "dependencies": {
     "chart.js": "^4.5.1"

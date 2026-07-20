@@ -152,7 +152,7 @@ Exit code is non-zero on any `MUST` failure, regression, or exhausted budget, so
 
 **Surfaces** — `/v1/models`, `chat/completions` (Core); `responses`, `messages`, `embeddings`, `completions` (Extended); `images`, `audio/speech`, `audio/transcriptions` (Frontier).
 
-**Features** — SSE framing and event ordering, tool calling, JSON mode, usage tokens, finish reasons, error shapes, `stop`/`max_tokens` (Core); structured outputs, parallel tool calls, vision, logprobs, reasoning items, streamed usage, seed determinism, `top_p` sampling, `n`>1 choices, the legacy `max_tokens` alias (Extended); MCP tools, rate limiting, prompt caching, `previous_response_id`, background responses (Frontier).
+**Features** — SSE framing and event ordering, tool calling, JSON mode, usage tokens, finish reasons, error shapes, `stop`/`max_tokens` (Core); structured outputs, parallel tool calls, vision, logprobs, reasoning items, streamed usage, seed determinism, `top_p` sampling, the legacy `max_tokens` alias (Extended); MCP tools, `n`>1 choices, rate limiting, prompt caching, `previous_response_id`, background responses (Frontier).
 
 The silent-ignore rule gets exercised hard here: `n`, `top_p`, the legacy `max_tokens` alias, `tool_choice: "none"`, and `parallel_tool_calls: false` are all checked in the direction engines actually break (accepted with a 200, then quietly dropped). Prompt caching is probed three ways: cached-token reporting on a repeated prefix, reuse across a growing conversation, and a warm-vs-cold answer comparison, because a corrupted KV cache reports healthy counters while serving wrong answers. A concurrency test races 4 identical requests on one cold cache entry for the same reason.
 
@@ -169,9 +169,9 @@ The measured-categories gate exists because of a real result. A 2B model whose c
 ## Development
 
 ```bash
-bun test           # 100+ unit + end-to-end tests, fully offline
-bun run typecheck
-bun run probe localhost:8080 --full
+npm test           # 100+ unit + end-to-end tests, fully offline
+npm run typecheck
+npm run probe -- localhost:8080 --full
 ```
 
 The test suite drives the entire pipeline — probe, run, score, report — against a mock engine in `src/fixtures/mock-engine.ts` with switchable defects. Each planted defect (a stream missing `[DONE]`, a lying `finish_reason`, tool arguments serialized as an object, a silently-ignored `logprobs`) has a test demanding the report name it. A conformance suite nobody has run against a known-broken engine is just a well-formatted opinion.
