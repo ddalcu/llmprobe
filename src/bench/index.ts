@@ -54,6 +54,13 @@ const CONTEXT_RUNS_FULL = 3;
 const CONTEXT_GEN_TOKENS = 64;
 /** English runs ~4 bytes/token; the real size is read back from usage anyway. */
 const BYTES_PER_TOKEN = 4;
+/**
+ * Context rungs run with the per-request timeout stretched by this factor: an
+ * uncached prefill of the biggest rung is the slowest single request in the
+ * whole suite, and on slow hardware it routinely outlasts a timeout that every
+ * other request finishes well inside.
+ */
+const CONTEXT_TIMEOUT_MULTIPLIER = 3;
 
 /** A coherent passage the model can echo verbatim — high draft acceptance. */
 const PREDICTABLE_PASSAGE =
@@ -113,6 +120,7 @@ async function timedRun(
   surface: string,
   text: string,
   maxTokens: number,
+  timeoutMs = ctx.config.timeoutMs,
 ): Promise<RunSample> {
   const adapter = ctx.adapters.get(surface)!;
   const body = {
@@ -137,11 +145,12 @@ async function timedRun(
       adapter.path,
       body,
       adapter.headers(ctx.config),
+      timeoutMs,
     );
   } catch (err) {
     if (err instanceof BudgetExceededError) throw err;
     if (err instanceof Error && err.name === "TimeoutError") {
-      return failedSample(`timed out after ${ctx.config.timeoutMs / 1000}s`);
+      return failedSample(`timed out after ${timeoutMs / 1000}s`);
     }
     return failedSample(err instanceof Error ? err.message : String(err));
   }
@@ -232,6 +241,7 @@ async function contextScaling(
   const full = ctx.config.depth === "full";
   const ladder = full ? CONTEXT_LADDER_FULL : CONTEXT_LADDER;
   const runsPerRung = full ? CONTEXT_RUNS_FULL : 1;
+  const timeoutMs = ctx.config.timeoutMs * CONTEXT_TIMEOUT_MULTIPLIER;
   const points: ContextPoint[] = [];
 
   for (const target of ladder) {
@@ -245,7 +255,9 @@ async function contextScaling(
     for (let i = 0; i < runsPerRung; i += 1) {
       const count = runsPerRung > 1 ? ` ${i + 1}/${runsPerRung}` : "";
       onProgress?.(`context ~${fmtK(target)}${count}`);
-      samples.push(await timedRun(ctx, surface, prompt, CONTEXT_GEN_TOKENS));
+      samples.push(
+        await timedRun(ctx, surface, prompt, CONTEXT_GEN_TOKENS, timeoutMs),
+      );
     }
 
     const ok = samples.filter((s) => s.error === undefined);

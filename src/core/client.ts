@@ -184,6 +184,7 @@ export class EngineClient {
     path: string,
     body: unknown,
     headers: Record<string, string> = {},
+    timeoutMs?: number,
   ): Promise<TimedStreamResult> {
     this.assertBudget();
     this.requests += 1;
@@ -197,7 +198,7 @@ export class EngineClient {
         ...headers,
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(this.config.timeoutMs),
+      signal: AbortSignal.timeout(timeoutMs ?? this.config.timeoutMs),
     });
 
     const frames: SSEFrame[] = [];

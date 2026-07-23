@@ -198,7 +198,8 @@ describe("runBenchmark against the mock", () => {
     coherent(report!.decodeTokPerSec);
 
     // 512/4096-token rungs (≤16 KB prompts) fit under the stall threshold; the
-    // 8192 rung stalls past the 200 ms timeout, so 16384 is never attempted.
+    // 8192 rung stalls past even the stretched context timeout (3 × 200 ms),
+    // so 16384 is never attempted.
     const points = report!.contextScaling!;
     expect(points.map((p) => p.targetTokens)).toEqual([512, 4096, 8192]);
     expect(points[1]!.ttftMs).not.toBeNull();
@@ -206,6 +207,42 @@ describe("runBenchmark against the mock", () => {
     expect(points[2]!.decodeTokPerSec).toBeNull();
     expect(points[2]!.runs).toBe(0);
     expect(points[2]!.note).toMatch(/timed out/);
+  });
+
+  test("context rungs get 3× the request timeout — big uncached prefills are the slowest thing we do", async () => {
+    // A slow model that answers small prompts inside the timeout but needs
+    // longer than `--timeout` for a big prefill. The flat timeout would kill
+    // the rung; the context ladder must stretch it 3× before giving up.
+    engine = await startMockEngine({ stallAbovePromptBytes: 20_000 });
+    const root = normalizeRoot(engine.url);
+
+    const config: RunConfig = {
+      baseUrl: `${root}/v1`,
+      apiKey: "",
+      model: "mock-model-12b",
+      timeoutMs: 500, // < the mock's 1s stall, but 3× = 1.5s clears it
+      depth: "default",
+      reasoningHeadroom: 0,
+    };
+    const client = new EngineClient(config);
+    const ctx = createContext({
+      config,
+      client,
+      adapters: new Map<string, SurfaceAdapter>(ADAPTERS.map((a) => [a.id, a])),
+      present: new Set(["models", "chat"]),
+      evalSurface: primarySurface(new Set(["chat"])),
+    });
+
+    const report = await runBenchmark(ctx, false);
+    const points = report!.contextScaling!;
+
+    // Every rung completes: the stalled 8192/16384 prompts finish within the
+    // stretched window instead of ending the ladder.
+    expect(points.map((p) => p.targetTokens)).toEqual([512, 4096, 8192, 16384]);
+    for (const point of points) {
+      expect(point.note).toBeNull();
+      expect(point.runs).toBe(1);
+    }
   });
 
   test("returns null when there is no chat-shaped surface to benchmark", async () => {

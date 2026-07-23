@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync } from "node:fs";
+import { createInterface } from "node:readline/promises";
 
 import {
   ADAPTERS,
@@ -15,6 +16,7 @@ import {
 } from "../src/core/client";
 import { createContext } from "../src/core/context";
 import { detectEngine } from "../src/core/engine-id";
+import { pickModel } from "../src/core/model-picker";
 import type {
   ConformanceResult,
   CreditEntry,
@@ -151,7 +153,8 @@ implements, and separately grades the model's capability.
 
 Options:
   -k, --api-key <key>   API key (optional for local engines)
-  -m, --model <name>    Model to test (default: the first from /v1/models)
+  -m, --model <name>    Model to test (default: interactive picker from
+                        /v1/models on a TTY, otherwise the first model)
       --quick           Surface probe + core smoke tests only
       --full            Everything, including the slow tests (long context, caching)
       --bench           Add a performance benchmark: decode tok/s, TTFT, prefill,
@@ -162,7 +165,8 @@ Options:
       --save <f>        Write the JSON report to a file
       --html <f>        Write a self-contained HTML report with charts
       --budget <n>      Hard ceiling on total tokens (paid endpoints)
-      --timeout <sec>   Per-request timeout (default: 60)
+      --timeout <sec>   Per-request timeout (default: 60; the context-size
+                        benchmark allows 3× this per rung)
       --no-color        Disable ANSI colour
   -h, --help            Show this help
 
@@ -291,6 +295,7 @@ async function main(): Promise<void> {
 
   let model = args.model ?? "";
   let serverHeader: string | null = null;
+  let modelIds: string[] = [];
   try {
     const res = await fetch(`${baseUrl}/models`, {
       headers: bearerAuth({ apiKey } as RunConfig),
@@ -299,10 +304,34 @@ async function main(): Promise<void> {
     serverHeader = res.headers.get("server");
     if (!model) {
       const data = (await res.json()) as { data?: Array<{ id?: string }> };
-      model = data?.data?.[0]?.id ?? "";
+      modelIds = (data?.data ?? [])
+        .map((m) => m.id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0);
     }
   } catch {
     // Fall through to the model error below.
+  }
+
+  if (!model && modelIds.length > 0) {
+    const interactive =
+      !quiet && process.stdin.isTTY === true && process.stdout.isTTY === true;
+    if (modelIds.length === 1 || !interactive) {
+      model = modelIds[0]!;
+    } else {
+      const rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+      try {
+        model = await pickModel(modelIds, {
+          ask: (question) => rl.question(question),
+          print: (line) => console.log(line),
+        });
+      } finally {
+        rl.close();
+      }
+      log();
+    }
   }
 
   if (!model) {
