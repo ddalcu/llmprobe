@@ -5,6 +5,7 @@ import type {
   ConformanceScore,
   CoverageScore,
   EvalCategory,
+  FidelityScore,
   RunReport,
 } from "../outcome";
 import { type Palette, paletteFor } from "./colors";
@@ -198,6 +199,49 @@ function renderCapability(cap: CapabilityScore, c: Palette): string[] {
   return lines;
 }
 
+function renderFidelity(fid: FidelityScore, c: Palette): string[] {
+  const lines = [
+    spread(c.bold("ENGINE FIDELITY"), c.bold(fmtPct(fid.pct))),
+    `  ${c.gray("same-model comparisons only — holds the model constant, so the number is the engine")}`,
+  ];
+
+  const width = Math.max(...fid.slices.map((s) => s.label.length));
+  for (const s of fid.slices) {
+    const label = s.label.padEnd(width + 2);
+    if (!s.measured) {
+      lines.push(`  ${label}${c.gray("—      not measured")}  ${c.gray(s.detail)}`);
+      continue;
+    }
+    const scorePct = Math.round(s.score * 10000) / 100;
+    const pct = fmtPct(scorePct).padStart(7);
+    lines.push(`  ${label}${pct}  ${bar(scorePct, c)}  ${c.gray(s.detail)}`);
+  }
+
+  // The greedy self-divergence fact: a temperature-0 rerun that failed to
+  // reproduce is a pure engine bug, and where it split is the useful part.
+  if (fid.firstDivergence) {
+    const d = fid.firstDivergence;
+    lines.push(
+      `  ${c.yellow(`⚠ greedy runs diverged at char ${d.charIndex}`)} ${c.gray(`(${d.itemId}, ${d.runs} runs) — non-determinism at temperature 0`)}`,
+    );
+  }
+
+  // Never let "no logprobs" read as a zero — name what dropped out instead.
+  if (fid.unmeasured.length > 0) {
+    lines.push(
+      `  ${c.gray(`· ${fid.unmeasured.join(", ")} not measured — engine exposed no logprobs`)}`,
+    );
+  }
+
+  if (fid.reasoningCaveat) {
+    lines.push(
+      `  ${c.gray("(reasoning model — Confidence reads the post-thinking distribution, so the score is a floor)")}`,
+    );
+  }
+
+  return lines;
+}
+
 function fmtStat(stat: BenchStat | null, unit: string): string {
   if (!stat) return "n/a";
   const range = stat.min === stat.max ? "" : ` (${stat.min}–${stat.max})`;
@@ -308,6 +352,10 @@ export function renderReport(
     ...renderCapability(report.capability, c),
     "",
   ];
+
+  if (report.fidelity) {
+    lines.push(...renderFidelity(report.fidelity, c), "");
+  }
 
   if (report.bench) {
     lines.push(...renderBench(report.bench, c), "");

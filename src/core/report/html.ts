@@ -283,6 +283,7 @@ export function renderHtml(report: JsonReport): string {
   const cap = report.capability;
   const conf = report.conformance;
   const bench = report.bench;
+  const fid = report.fidelity;
 
   const badge =
     cap.verdict === "below-floor"
@@ -300,6 +301,9 @@ export function renderHtml(report: JsonReport): string {
       <div class="tile-value">${cap.pct}%</div>
       ${badge}
     </div>`,
+    ...(fid
+      ? [statTile("Engine fidelity", `${fid.pct}%`, "same-model comparisons only")]
+      : []),
     ...(bench
       ? [
           statTile(
@@ -377,6 +381,41 @@ export function renderHtml(report: JsonReport): string {
       </div>
       ${capabilityTable}
     </section>`;
+
+  let fidelitySection = "";
+  if (fid) {
+    const rows = fid.slices
+      .map((s) =>
+        s.measured
+          ? pctBar(s.label, s.detail, Math.round(s.score * 10000) / 100)
+          : `<div class="row"><span class="row-label">${esc(s.label)}</span><span class="row-ratio" style="grid-column: 2 / 5; text-align:left">${esc(s.detail)}</span></div>`,
+      )
+      .join("\n");
+
+    const notes: string[] = [];
+    if (fid.firstDivergence) {
+      const d = fid.firstDivergence;
+      notes.push(
+        `<div class="missing">✗ greedy runs diverged at char ${d.charIndex} (${esc(d.itemId)}, ${d.runs} runs) — non-determinism at temperature 0</div>`,
+      );
+    }
+    if (fid.unmeasured.length > 0) {
+      notes.push(
+        `<div class="fineprint">${fid.unmeasured.map(esc).join(", ")} not measured — engine exposed no logprobs</div>`,
+      );
+    }
+    if (fid.reasoningCaveat) {
+      notes.push(
+        `<div class="fineprint">reasoning model — Confidence reads the post-thinking distribution, so the score is a floor</div>`,
+      );
+    }
+
+    fidelitySection = `<section>
+      <h2>Engine fidelity <span class="note">— ${fid.pct}% · same-model comparisons only, the number is the engine</span></h2>
+      ${rows}
+      ${notes.join("\n")}
+    </section>`;
+  }
 
   let benchSection = "";
   if (bench) {
@@ -470,6 +509,7 @@ export function renderHtml(report: JsonReport): string {
   </section>
 
   ${capabilitySection}
+  ${fidelitySection}
   ${benchSection}
 
   <div class="fineprint">${esc(footer)}</div>

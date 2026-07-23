@@ -52,6 +52,7 @@ import {
   scoreCoverage,
 } from "../src/core/score";
 import { runBenchmark } from "../src/bench/index";
+import { runFidelity } from "../src/fidelity/index";
 import { ALL_EVALS } from "../src/evals/index";
 
 interface Args {
@@ -452,7 +453,50 @@ async function main(): Promise<void> {
     log(`\n${c.yellow("⚠")} ${err.message} — stopping early.`);
   }
 
-  // ── 4b. Benchmark (opt-in) — informational, never scored ────────────────
+  // ── 4b. Fidelity — how faithfully the engine reproduces the model ───────
+  // Scored (a single rankable number) but never gates the exit code: a lossy
+  // quant is a legitimate config, not a broken engine. Runs by default; a
+  // --quick smoke run skips it.
+
+  let fidelity: RunReport["fidelity"];
+  if (!budgetHit && args.depth !== "quick" && ctx.evalSurface) {
+    log();
+    log(`${c.gray("fidelity (cloze battery + greedy self-consistency)...")}`);
+
+    // Progress updates one line in place per phase (cloze battery, then each
+    // greedy prompt), so a slow run stays live without scrolling a counter
+    // ladder. Grouped by the label minus its "N/M" tail; a new group starts a
+    // fresh line. Piped output gets none of this — the card is all that matters.
+    const tty = !quiet && process.stdout.isTTY === true;
+    let fidGroup = "";
+    const fidProgress = (label: string) => {
+      if (!tty) return;
+      const group = label.replace(/\s*\d+\/\d+\s*$/, "");
+      if (fidGroup && group !== fidGroup) process.stdout.write("\n");
+      fidGroup = group;
+      process.stdout.write(`\r  ${c.gray(label)}\x1b[K`);
+    };
+    const endProgress = () => {
+      if (tty && fidGroup) process.stdout.write("\n");
+    };
+
+    try {
+      fidelity = (await runFidelity(ctx, thinks, fidProgress)) ?? undefined;
+      endProgress();
+    } catch (err) {
+      endProgress();
+      if (err instanceof BudgetExceededError) {
+        budgetHit = true;
+        log(`${c.yellow("⚠")} ${err.message}`);
+      } else {
+        log(
+          `${c.yellow("⚠")} fidelity failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  }
+
+  // ── 4c. Benchmark (opt-in) — informational, never scored ────────────────
 
   let bench: RunReport["bench"];
   if (args.bench && !budgetHit && ctx.evalSurface) {
@@ -489,6 +533,7 @@ async function main(): Promise<void> {
     coverage: scoreCoverage(entries, credits),
     conformance: scoreConformance(conformanceResults),
     capability: scoreCapability(evalResults),
+    fidelity,
     bench,
     usage: { ...client.usage },
     durationMs: Date.now() - startedAt,

@@ -309,11 +309,90 @@ export interface BenchReport {
   contextScaling: ContextPoint[] | null;
 }
 
+/**
+ * Fidelity — does the engine reproduce the model faithfully? A single-engine,
+ * reference-free score, meant to be compared across engines running the *same
+ * weights*: hold the model constant and the delta between cards is the engine.
+ *
+ * Unlike the other three cards, this one *is* blended into a single rankable
+ * number, on purpose — the whole use case is "which engine reproduced this
+ * model best". The slices are still shown so a low score says *why*: a legit Q4
+ * quant costs Confidence (that's the honest fidelity price of the quant), while
+ * a genuine engine bug — non-determinism at temperature 0, a logprob that
+ * disagrees with the token actually emitted — costs Determinism or Consistency.
+ */
+export type FidelitySliceId =
+  | "correctness"
+  | "confidence"
+  | "determinism"
+  | "consistency";
+
+export interface FidelitySlice {
+  id: FidelitySliceId;
+  label: string;
+  /** 0..1 sub-score. */
+  score: number;
+  /** Weight in the blended headline, before renormalising over measured slices. */
+  weight: number;
+  /** Human summary, e.g. "23/24 items" or "mean top-1 prob 0.94". */
+  detail: string;
+  /**
+   * False when the engine couldn't be measured on this slice — Confidence and
+   * Consistency need logprobs, and an engine that exposes none simply drops out
+   * of the denominator rather than scoring zero, the same way an unimplemented
+   * surface leaves the Conformance denominator alone.
+   */
+  measured: boolean;
+  /** Why it wasn't measured, when `measured` is false. */
+  unmeasuredReason?: string;
+}
+
+export interface FirstDivergence {
+  /** Which battery item's greedy runs split. */
+  itemId: string;
+  /** Character index where the repeated temperature-0 runs first disagreed. */
+  charIndex: number;
+  /** How many runs were compared. */
+  runs: number;
+}
+
+export interface FidelityScore {
+  /** 0..100, the single rankable number, blended over measured slices only. */
+  pct: number;
+  slices: FidelitySlice[];
+  /** How many battery items were graded — the honest denominator. */
+  items: number;
+  /**
+   * The greedy self-divergence fact: the first repeated temperature-0 run that
+   * failed to reproduce byte-for-byte, or null when the engine was perfectly
+   * deterministic. "diverged at char 84" is the single most useful thing here.
+   */
+  firstDivergence: FirstDivergence | null;
+  /** Slice labels excluded for want of logprobs, named on the card. */
+  unmeasured: string[];
+  /**
+   * True on a reasoning model: it spends budget thinking before the visible
+   * answer, so Confidence reads the post-thinking distribution and the score is
+   * a floor, not a ceiling. Flagged, never hidden — same honesty as the bench.
+   */
+  reasoningCaveat: boolean;
+}
+
+/** Blend weights for the fidelity headline. Correctness leads; see FidelityScore. */
+export const FIDELITY_WEIGHTS: Record<FidelitySliceId, number> = {
+  correctness: 0.4,
+  confidence: 0.25,
+  determinism: 0.25,
+  consistency: 0.1,
+};
+
 export interface RunReport {
   target: RunTarget;
   coverage: CoverageScore;
   conformance: ConformanceScore;
   capability: CapabilityScore;
+  /** Engine-fidelity card; present unless the run was `--quick`. */
+  fidelity?: FidelityScore;
   bench?: BenchReport;
   usage?: UsageTotals;
   durationMs: number;

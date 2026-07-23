@@ -134,6 +134,38 @@ export function renderMarkdown(report: RunReport): string {
     }
   }
 
+  if (report.fidelity) {
+    const fid = report.fidelity;
+    lines.push("");
+    lines.push(`## Engine fidelity — ${fid.pct}%`);
+    lines.push("");
+    lines.push(
+      "_Same-model comparisons only — holds the model constant, so the number is the engine._",
+    );
+    lines.push("");
+    lines.push("| Slice | Score | Detail |");
+    lines.push("| --- | --- | --- |");
+    for (const slice of fid.slices) {
+      const score = slice.measured
+        ? `${Math.round(slice.score * 10000) / 100}%`
+        : "not measured";
+      lines.push(`| ${slice.label} | ${score} | ${slice.detail} |`);
+    }
+    if (fid.firstDivergence) {
+      const d = fid.firstDivergence;
+      lines.push("");
+      lines.push(
+        `> ⚠️ Greedy runs diverged at char ${d.charIndex} (\`${d.itemId}\`, ${d.runs} runs) — non-determinism at temperature 0.`,
+      );
+    }
+    if (fid.reasoningCaveat) {
+      lines.push("");
+      lines.push(
+        "> Reasoning model — Confidence reads the post-thinking distribution, so the score is a floor.",
+      );
+    }
+  }
+
   lines.push("");
   lines.push("---");
   lines.push("");

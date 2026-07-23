@@ -21,6 +21,10 @@ export interface MockDefects {
   noDoneSentinel?: boolean;
   /** Accept `logprobs: true`, return 200, send no logprobs. The silent no-op. */
   silentlyIgnoreLogprobs?: boolean;
+  /** Spread probability mass thin — the signature of a degraded quant. */
+  flatLogprobs?: boolean;
+  /** Vary output run-to-run even at temperature 0 — a non-deterministic kernel. */
+  nondeterministicGreedy?: boolean;
   /** Report `finish_reason: "stop"` even when truncated by max_tokens. */
   wrongLengthFinishReason?: boolean;
   /** Report a `total_tokens` that isn't input + output. */
@@ -92,6 +96,7 @@ function chatCompletion(options: {
   outputTokens: number;
   defects: MockDefects;
   logprobs?: boolean;
+  topLogprobs?: number;
   reasoning?: string;
   n?: number;
   cachedTokens?: number;
@@ -125,7 +130,13 @@ function chatCompletion(options: {
     },
     finish_reason: options.finishReason,
     ...(options.logprobs
-      ? { logprobs: { content: [{ token: "hi", logprob: -0.1 }] } }
+      ? {
+          logprobs: buildLogprobs(
+            options.content,
+            options.topLogprobs ?? 0,
+            defects,
+          ),
+        }
       : {}),
   });
 
@@ -144,6 +155,34 @@ function chatCompletion(options: {
         : {}),
     },
   };
+}
+
+/**
+ * A plausible OpenAI-shaped `logprobs.content`. Only the first token matters to
+ * the fidelity probe (it reads the answer token's confidence), so we make that
+ * one faithful: near-all mass on the emitted token, with the top-k sorted and
+ * the argmax equal to the token — unless a defect flattens or corrupts it.
+ */
+function buildLogprobs(
+  content: string | undefined,
+  topK: number,
+  defects: MockDefects,
+): { content: Array<Record<string, unknown>> } {
+  const firstWord = (content ?? "").trim().split(/\s+/)[0];
+  const token = (firstWord && firstWord.slice(0, 16)) || "x";
+  // -0.05 ⇒ p≈0.95 (faithful); -1.4 ⇒ p≈0.25 (flat, like a degraded quant).
+  const topLogprob = defects.flatLogprobs ? -1.4 : -0.05;
+  const entry: Record<string, unknown> = { token, logprob: topLogprob };
+  if (topK > 0) {
+    entry.top_logprobs = [
+      { token, logprob: topLogprob },
+      { token: "~a", logprob: topLogprob - 1.6 },
+      { token: "~b", logprob: topLogprob - 2.7 },
+      { token: "~c", logprob: topLogprob - 3.9 },
+      { token: "~d", logprob: topLogprob - 5.1 },
+    ].slice(0, topK);
+  }
+  return { content: [entry] };
 }
 
 /** How many tokens a reasoning model burns before it writes anything visible. */
@@ -245,6 +284,12 @@ function respondTo(body: any, defects: MockDefects) {
     typeof body.top_p === "number" &&
     body.top_p < 0.01
   ) {
+    content += ` ${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  // A non-deterministic kernel: identical temperature-0 requests disagree. The
+  // fidelity determinism probe exists to catch exactly this.
+  if (defects.nondeterministicGreedy) {
     content += ` ${Math.random().toString(36).slice(2, 8)}`;
   }
 
@@ -462,6 +507,8 @@ export async function startMockEngine(
         n,
         cachedTokens,
         logprobs: body.logprobs === true && !defects.silentlyIgnoreLogprobs,
+        topLogprobs:
+          typeof body.top_logprobs === "number" ? body.top_logprobs : 0,
       } as Parameters<typeof chatCompletion>[0]);
 
       if (body.stream) {

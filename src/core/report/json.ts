@@ -49,6 +49,8 @@ export interface JsonReport {
       outcome?: string;
     }>;
   };
+  /** Engine-fidelity card; present unless the run was --quick. */
+  fidelity?: RunReport["fidelity"];
   /** Informational performance numbers; present only when --bench ran. */
   bench?: RunReport["bench"];
   usage?: RunReport["usage"];
@@ -104,6 +106,7 @@ export function buildJsonReport(
         outcome: e.outcome,
       })),
     },
+    fidelity: report.fidelity,
     bench: report.bench,
     usage: report.usage,
     durationMs: report.durationMs,
