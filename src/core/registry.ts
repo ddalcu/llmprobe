@@ -79,6 +79,13 @@ export const SURFACES: SurfaceDef[] = [
     path: "/images/generations",
   },
   {
+    id: "images-edit",
+    label: "images/edits",
+    tier: "frontier",
+    method: "POST",
+    path: "/images/edits",
+  },
+  {
     id: "audio-speech",
     label: "audio/speech",
     tier: "frontier",

@@ -4,6 +4,7 @@ import { bearerAuth } from "../core/adapter";
 import { Inconclusive, isLengthStyleFinish } from "../core/assert";
 import type { ConformanceTest } from "../core/context";
 import { checkSSEFraming } from "../core/sse";
+import { TINY_PNG_BYTES } from "./fixtures";
 
 /**
  * `/v1/models` has no generated schema in this repo (it isn't in the forked
@@ -245,7 +246,9 @@ export const imagesTests: ConformanceTest[] = [
           n: 1,
           size: "256x256",
         },
-        timeoutMs: 120_000,
+        // Generous: a local engine may COLD-LOAD a multi-GB checkpoint before
+        // it can answer, which dwarfs the generation itself.
+        timeoutMs: 300_000,
       });
 
       if (res.status >= 400) {
@@ -260,6 +263,74 @@ export const imagesTests: ConformanceTest[] = [
         "returns a url or base64 payload",
         typeof first?.url === "string" || typeof first?.b64_json === "string",
         "neither url nor b64_json on data[0]",
+      );
+    },
+  },
+  {
+    id: "images-edit",
+    name: "images: edit (multipart)",
+    surface: "images-edit",
+    tier: "frontier",
+    slow: true,
+    async run(ctx, a) {
+      // The one OpenAI endpoint that is multipart/form-data rather than JSON,
+      // which makes it the one place a server can read the request differently
+      // from every other route. `model` in particular arrives as a form FIELD.
+      const form = new FormData();
+      form.append("model", ctx.config.model);
+      form.append("prompt", "make the square blue");
+      form.append(
+        "image",
+        new Blob([TINY_PNG_BYTES], { type: "image/png" }),
+        "image.png",
+      );
+
+      const res = await ctx.client.request("POST", "/images/edits", {
+        headers: bearerAuth(ctx.config),
+        body: form,
+        timeoutMs: 300_000,
+      });
+
+      if (res.status < 400) {
+        const first = (res.json as any)?.data?.[0];
+        a.must(
+          "images-edit-payload",
+          "returns a url or base64 payload",
+          typeof first?.url === "string" || typeof first?.b64_json === "string",
+          "neither url nor b64_json on data[0]",
+        );
+        return;
+      }
+
+      // A failure here is only interesting if this model does images at all.
+      // Ask the JSON sibling the same question: if generation SUCCEEDS for the
+      // very same model id, then "no image model" cannot explain the edit
+      // failing, and the multipart surface is genuinely broken. This is the
+      // signature of a server that resolves the model before it parses the
+      // form body, so the `model` field is silently ignored and the request
+      // runs against whatever the default model happens to be.
+      const sibling = await ctx.client.request("POST", "/images/generations", {
+        headers: bearerAuth(ctx.config),
+        body: {
+          model: ctx.config.model,
+          prompt: "a red square",
+          n: 1,
+          size: "256x256",
+        },
+        timeoutMs: 300_000,
+      });
+
+      if (sibling.status >= 400) {
+        throw new Inconclusive(
+          `HTTP ${res.status} on edits and ${sibling.status} on generations — likely needs a dedicated image model`,
+        );
+      }
+
+      a.must(
+        "images-edit-accepts-multipart",
+        "accepts a multipart edit for a model whose generations work",
+        false,
+        `HTTP ${res.status} on /images/edits while /images/generations succeeded for the same model: ${res.text.slice(0, 200)}`,
       );
     },
   },

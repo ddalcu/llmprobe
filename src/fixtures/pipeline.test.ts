@@ -207,6 +207,32 @@ describe("pipeline against planted defects", () => {
     expect(failedIds(run.results)).toContain("chat-error-status");
   });
 
+  test("catches an /images/edits that rejects what /images/generations accepts", async () => {
+    // `/images/edits` is the one OpenAI endpoint that is multipart rather than
+    // JSON, so it is the one place a server can read the request differently
+    // from every other route — e.g. resolving the model before parsing the
+    // form, which ignores the `model` FIELD and runs against the default model.
+    // A bare "4xx here means no image model" would excuse it; the sibling
+    // generations call is what removes that excuse.
+    const run = await probeAndRun(
+      {
+        surfaces: ["models", "chat", "images"],
+        imageEditsIgnoreFormModel: true,
+      },
+      "full",
+    );
+    expect(failedIds(run.results)).toContain("images-edit-accepts-multipart");
+  });
+
+  test("an engine with no image surface at all is inconclusive, not failed", async () => {
+    // The excuse has to keep working: a chat-only engine must not be marked
+    // down for an endpoint it never claimed.
+    const run = await probeAndRun({ surfaces: ["models", "chat"] }, "full");
+    expect(failedIds(run.results)).not.toContain(
+      "images-edit-accepts-multipart",
+    );
+  });
+
   test("a catch-all server is not credited with endpoints it does not have", async () => {
     // LM Studio really does answer every unknown path with HTTP 200 and an
     // error body. Trusting the status alone would hand it a perfect Frontier

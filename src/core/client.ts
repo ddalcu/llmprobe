@@ -104,15 +104,26 @@ export class EngineClient {
     this.assertBudget();
     this.requests += 1;
 
+    // `/images/edits` is multipart/form-data, the one OpenAI endpoint that
+    // isn't JSON. Hand FormData straight to fetch so it writes the parts and
+    // sets the boundary itself — a Content-Type we set here would have none.
+    const isForm = options.body instanceof FormData;
+
     const start = Date.now();
     const response = await fetch(this.url(path), {
       method,
       headers: {
-        ...(method === "POST" ? { "Content-Type": "application/json" } : {}),
+        ...(method === "POST" && !isForm
+          ? { "Content-Type": "application/json" }
+          : {}),
         ...(options.headers ?? {}),
       },
       body:
-        options.body === undefined ? undefined : JSON.stringify(options.body),
+        options.body === undefined
+          ? undefined
+          : isForm
+            ? (options.body as FormData)
+            : JSON.stringify(options.body),
       signal: AbortSignal.timeout(options.timeoutMs ?? this.config.timeoutMs),
     });
     const durationMs = Date.now() - start;

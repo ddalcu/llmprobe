@@ -6,6 +6,11 @@ import type { ToolDef } from "../core/adapter";
 export const TINY_PNG_DATA_URL =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
+/** The same 1x1 PNG as raw bytes, for the multipart `/images/edits` upload. */
+export const TINY_PNG_BYTES = Uint8Array.from(
+  Buffer.from(TINY_PNG_DATA_URL.split(",")[1]!, "base64"),
+);
+
 export const WEATHER_TOOL: ToolDef = {
   name: "get_weather",
   description: "Get the current weather for a city.",

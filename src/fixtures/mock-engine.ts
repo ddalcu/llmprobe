@@ -74,6 +74,13 @@ export interface MockDefects {
   stallAbovePromptBytes?: number;
   /** Which surfaces exist. Defaults to models + chat. */
   surfaces?: string[];
+  /**
+   * Reject every `/images/edits` call while `/images/generations` keeps working
+   * for the same model — the shape a server takes when it resolves the model
+   * BEFORE parsing the multipart body, so the `model` form field is ignored and
+   * the request silently runs against the default model.
+   */
+  imageEditsIgnoreFormModel?: boolean;
   /** Fixed port. Defaults to 0 (random), which is what the tests want. */
   port?: number;
 }
@@ -408,6 +415,27 @@ async function readBodyJson(req: IncomingMessage): Promise<unknown> {
   }
 }
 
+/** A 1x1 PNG, the payload every mocked image endpoint returns. */
+const TINY_PNG_B64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+/**
+ * Parse a `multipart/form-data` body. Node's Request does this for us, so the
+ * mock validates the real wire bytes rather than trusting the client wrote
+ * them — the point of an edits fixture is that the framing is right.
+ */
+async function readBodyForm(req: IncomingMessage): Promise<FormData> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  try {
+    return await new Response(Buffer.concat(chunks), {
+      headers: { "content-type": req.headers["content-type"] ?? "" },
+    }).formData();
+  } catch {
+    return new FormData();
+  }
+}
+
 export async function startMockEngine(
   defects: MockDefects = {},
 ): Promise<MockEngine> {
@@ -516,6 +544,42 @@ export async function startMockEngine(
       }
 
       return json(res, payload);
+    }
+
+    if (path === "/images/generations" && surfaces.includes("images")) {
+      const body = (await readBodyJson(request)) as any;
+      if (!body?.prompt) {
+        return json(res, { error: { message: "prompt required" } }, 400);
+      }
+      return json(res, { created: 1, data: [{ b64_json: TINY_PNG_B64 }] });
+    }
+
+    if (path === "/images/edits" && surfaces.includes("images")) {
+      if (defects.imageEditsIgnoreFormModel) {
+        // The multipart body is never consulted for the model, so the request
+        // is resolved against the default model — a chat model here — and the
+        // modality check rejects it. Generations (JSON) still work, which is
+        // exactly what makes this a defect rather than "no image model".
+        return json(
+          res,
+          {
+            error: {
+              message: "Target model does not support this media modality.",
+              type: "invalid_request_error",
+            },
+          },
+          400,
+        );
+      }
+      const form = await readBodyForm(request);
+      if (!form.has("image") || !form.get("prompt")) {
+        return json(
+          res,
+          { error: { message: "image and prompt required" } },
+          400,
+        );
+      }
+      return json(res, { created: 1, data: [{ b64_json: TINY_PNG_B64 }] });
     }
 
     if (path === "/embeddings" && surfaces.includes("embeddings")) {
