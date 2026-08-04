@@ -51,6 +51,7 @@ function sampleReport(): JsonReport {
       evals: [],
     },
     bench: {
+      streamCaveat: null,
       decodeTokPerSec: {
         median: 42.3,
         min: 39.1,

@@ -352,11 +352,17 @@ function renderBench(bench: BenchReport, c: Palette): string[] {
     }
   }
 
+  const caveatLines: string[] = [];
+  if (bench.streamCaveat) {
+    caveatLines.push(`  ${c.yellow(`⚠ ${bench.streamCaveat}`)}`);
+  }
+
   const lines = [
     c.bold("PERFORMANCE"),
     `  ${c.gray("informational — not scored; hardware-dependent, same-machine comparisons only")}`,
     `  ${c.gray(`machine: ${machine}`)}`,
     ...driftLines,
+    ...caveatLines,
     `  ${"Decode throughput".padEnd(22)}${fmtStat(bench.decodeTokPerSec, "tok/s")}`,
     `  ${"Time to first token".padEnd(22)}${fmtStat(bench.ttftMs, "ms")}`,
   ];

@@ -434,6 +434,12 @@ export interface BenchReport {
    * — the workload these engines are actually asked to serve.
    */
   decodeTokPerSec: BenchStat | null;
+  /**
+   * Set when the engine's stream coalesced deltas (a fat first frame) on any
+   * timed sample: client-side rates then exclude pre-window tokens, and the
+   * classic per-frame math would have inflated them.
+   */
+  streamCaveat: string | null;
   /** Time to first generated token, ms. */
   ttftMs: BenchStat | null;
   /** Prompt ingestion rate, tokens/sec, from a deliberately long prompt. */

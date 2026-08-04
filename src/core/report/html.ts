@@ -607,9 +607,14 @@ export function renderHtml(report: JsonReport): string {
           }</div>`
         : "";
 
+    const streamCaveatBlock = bench.streamCaveat
+      ? `<div class="fineprint">⚠ ${esc(bench.streamCaveat)}</div>`
+      : "";
+
     benchSection = `<section>
       <h2>Performance <span class="note">— informational, not scored · ${esc(machine)}</span></h2>
       ${driftBlock}
+      ${streamCaveatBlock}
       ${scalingCharts}
       ${serverBlock}
       ${specBlock}

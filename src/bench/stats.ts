@@ -108,6 +108,103 @@ export function decodeRate(
   return ((visibleTokens - 1) / span) * 1000;
 }
 
+/** One streamed frame that carried generated text: when, and how much. */
+export interface DeliveryFrame {
+  timeMs: number;
+  chars: number;
+}
+
+export interface DeliveryRateResult {
+  /** Client-observed delivered tokens per second, or null if unmeasurable. */
+  rate: number | null;
+  /** Output tokens divided by text frames — stream granularity. */
+  meanTokensPerFrame: number | null;
+  /** Fraction of the output already in flight when the window opened. */
+  firstFrameShare: number | null;
+  /** True when frame sizes say the server coalesces deltas. */
+  coalesced: boolean;
+  /** Human-readable caveat when `coalesced`, else null. */
+  note: string | null;
+}
+
+/**
+ * A first frame carrying more than this share of the output means the window
+ * start is not a per-token event and the classic (N-1)/span math would credit
+ * pre-window tokens to the measured span.
+ */
+export const COALESCED_FIRST_FRAME_SHARE = 0.05;
+
+/**
+ * Client-observed delivery rate, robust to delta coalescing.
+ *
+ * The classic client-side decode math is (tokens - 1) / (t_last - t_first)
+ * over frame arrival times. That silently trusts the server to stream one
+ * token per frame: a server that coalesces deltas (a stream-interval knob, a
+ * buffering proxy) delivers its first frame LATE and FAT, which shortens the
+ * measured window while the numerator keeps every token — measured 15-20%
+ * inflation on a live engine against the same stream timed per-token. The fix
+ * is bookkeeping, not smoothing: tokens already in flight when the window
+ * opens (the first frame's share, estimated by characters) do not belong to
+ * the numerator. On an honest per-token stream the first frame is one token
+ * and this reduces exactly to (N-1)/span.
+ *
+ * Tokens are apportioned to frames by character count — usage reports true
+ * totals, frames report true text, and chars-per-token cancels out of the
+ * share arithmetic.
+ */
+export function deliveryRate(
+  frames: DeliveryFrame[],
+  outputTokens: number | null,
+): DeliveryRateResult {
+  const none: DeliveryRateResult = {
+    rate: null,
+    meanTokensPerFrame: null,
+    firstFrameShare: null,
+    coalesced: false,
+    note: null,
+  };
+  if (typeof outputTokens !== "number" || outputTokens < 2) return none;
+  if (frames.length === 1) {
+    return {
+      ...none,
+      meanTokensPerFrame: outputTokens,
+      firstFrameShare: 1,
+      coalesced: true,
+      note: "stream arrived in one frame — client-side rate unmeasurable",
+    };
+  }
+  if (frames.length < 2) return none;
+  const totalChars = frames.reduce((sum, f) => sum + f.chars, 0);
+  if (totalChars <= 0) return none;
+  const span = frames[frames.length - 1]!.timeMs - frames[0]!.timeMs;
+  const firstFrameShare = frames[0]!.chars / totalChars;
+  const meanTokensPerFrame = outputTokens / frames.length;
+  const coalesced = firstFrameShare > COALESCED_FIRST_FRAME_SHARE;
+  const note = coalesced
+    ? `first frame carried ${Math.round(firstFrameShare * 100)}% of the output — coalesced deltas; rate excludes pre-window tokens`
+    : null;
+  if (span <= 0) {
+    return {
+      rate: null,
+      meanTokensPerFrame,
+      firstFrameShare,
+      coalesced: true,
+      note: "all frames arrived at once — client-side rate unmeasurable",
+    };
+  }
+  const deliveredInWindow = outputTokens * (1 - firstFrameShare);
+  if (deliveredInWindow < 1) {
+    return { rate: null, meanTokensPerFrame, firstFrameShare, coalesced, note };
+  }
+  return {
+    rate: (deliveredInWindow / span) * 1000,
+    meanTokensPerFrame,
+    firstFrameShare,
+    coalesced,
+    note,
+  };
+}
+
 export type PrefixCacheVerdict = "active" | "none" | "unknown";
 
 /** A repeat this much faster to first token means the prefill was skipped. */
