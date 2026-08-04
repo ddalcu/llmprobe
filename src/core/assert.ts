@@ -108,6 +108,62 @@ export class Unsupported extends Error {
 
 // ── pure helpers (carried over from the old behavior-helpers) ────────────────
 
+/**
+ * Wrappers an engine is supposed to strip out of `content` and hand back on a
+ * reasoning channel. Finding one in the visible text is unambiguous: no model
+ * emits these as an answer, so the engine failed to separate the channel.
+ */
+const THINKING_TAGS: Array<[RegExp, string]> = [
+  [/<\/?think>/i, "<think>"],
+  [/<\|?thinking\|?>/i, "<thinking>"],
+  [/<\/?thought>/i, "<thought>"],
+  [/\[\/?think(ing)?\]/i, "[thinking]"],
+  [/◁\/?think▷/, "◁think▷"],
+  [/<\|channel\|>\s*analysis/i, "<|channel|>analysis"],
+];
+
+/**
+ * Openers that mark first-person deliberation rather than an answer. Anchored
+ * at the start, because the tell is a response that *begins* by narrating its
+ * own reasoning about the request instead of replying to it.
+ */
+const THINKING_OPENERS: RegExp[] = [
+  /^here'?s\s+(a|my|the)\s+(thinking|thought|reasoning)\s+process/i,
+  /^(thinking|thought|reasoning)\s*(process)?\s*:/i,
+  /^(okay|alright|ok|hmm|so)[,.!]?\s+(so\s+)?the\s+user\s+(is\s+)?(asking|wants|said|has|just)/i,
+  /^let'?s\s+(think|break\s+(this|it)\s+down)/i,
+  /^first[,.]?\s+i\s+(need|should|must)\b/i,
+  /^i\s+need\s+to\s+(figure\s+out|work\s+out|determine|analy[sz]e)/i,
+  /^\*\*\s*(analy[sz]|identify|understand|deconstruct|step\s*1)/i,
+];
+
+export interface ReasoningLeak {
+  /** The wrapper found in visible content, if any. Unambiguous engine bug. */
+  tag: string | null;
+  /** Untagged deliberation the reply opened with. Weaker: could be the model. */
+  opener: string | null;
+}
+
+/**
+ * Did chain-of-thought end up in the user-visible content?
+ *
+ * Two strengths of evidence, kept apart on purpose. A thinking *tag* in
+ * `content` can only be the engine failing to strip a channel it was handed.
+ * Untagged deliberation — "Here's a thinking process: 1. **Analyze User
+ * Input:** ..." — is the same bug wearing no markers, but a rambling model
+ * asked for a short answer looks identical from outside, so it cannot carry the
+ * same weight.
+ */
+export function detectReasoningLeak(text: string): ReasoningLeak {
+  const trimmed = text.trim();
+  const tag = THINKING_TAGS.find(([re]) => re.test(trimmed))?.[1] ?? null;
+  const opener =
+    THINKING_OPENERS.find((re) => re.test(trimmed)) !== undefined
+      ? trimmed.slice(0, 60).replace(/\s+/g, " ")
+      : null;
+  return { tag, opener };
+}
+
 /** Deterministic filler text of approximately `bytes` bytes. */
 export function buildLongPrefix(seed: string, bytes: number): string {
   if (bytes <= 0) return "";

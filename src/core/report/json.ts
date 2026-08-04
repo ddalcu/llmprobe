@@ -33,6 +33,8 @@ export interface JsonReport {
       surface: string;
       outcome: string;
       reason?: string;
+      /** Wall clock for this test, so a slow one is findable after the fact. */
+      durationMs?: number;
       failures: Array<{ id: string; severity: string; message?: string }>;
     }>;
   };
@@ -49,6 +51,8 @@ export interface JsonReport {
       outcome?: string;
     }>;
   };
+  /** Agentic card; present unless --quick, no tools, or the budget ran out. */
+  agentic?: RunReport["agentic"];
   /** Engine-fidelity card; present unless the run was --quick. */
   fidelity?: RunReport["fidelity"];
   /** Informational performance numbers; present only when --bench ran. */
@@ -88,6 +92,7 @@ export function buildJsonReport(
         surface: r.surface,
         outcome: r.outcome,
         reason: r.reason,
+        durationMs: r.durationMs,
         failures: r.assertions
           .filter((a) => !a.passed)
           .map((a) => ({ id: a.id, severity: a.severity, message: a.message })),
@@ -106,6 +111,7 @@ export function buildJsonReport(
         outcome: e.outcome,
       })),
     },
+    agentic: report.agentic,
     fidelity: report.fidelity,
     bench: report.bench,
     usage: report.usage,

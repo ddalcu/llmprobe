@@ -155,6 +155,12 @@ export const FEATURES: FeatureDef[] = [
     surface: "chat",
   },
   {
+    id: "reasoning-roundtrip",
+    label: "reasoning history round-trip",
+    tier: "extended",
+    surface: "chat",
+  },
+  {
     id: "stream-usage",
     label: "streamed usage",
     tier: "extended",

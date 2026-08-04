@@ -46,8 +46,22 @@ export interface MockDefects {
    * `prompt_tokens_details.cached_tokens` on the second sighting.
    */
   promptCache?: boolean;
+  /**
+   * Chain-of-thought delivered in `content` with no reasoning channel at all.
+   * `"tagged"` wraps it in `<think>`, which only a broken engine emits;
+   * `"prose"` is the harder mtplx shape — the same scratchpad wearing no
+   * markers, which a tag-matching check never sees.
+   */
+  leakThinkingIntoContent?: "tagged" | "prose";
   /** The corrupted-KV case: a cache hit changes the answer. */
   cacheChangesAnswer?: boolean;
+  /**
+   * The benign case that looks like the corrupted one: a cache hit returns the
+   * same continuation stopped earlier. Speculative decoding makes this routine
+   * — the truncation point moves with the draft block boundary, which differs
+   * between a cold and a warm prefill — and it must not read as corruption.
+   */
+  cacheShortensAnswer?: boolean;
   /**
    * Answer every unknown path with HTTP 200 and an error body, the way LM
    * Studio really does. Without a defence, this makes an engine look like it
@@ -72,6 +86,18 @@ export interface MockDefects {
    * whose prefill of a big prompt outlasts the per-request timeout.
    */
   stallAbovePromptBytes?: number;
+  /**
+   * Reject any chat completion whose prompt exceeds this many bytes with a 400,
+   * the way a real engine refuses a prompt past its context window.
+   */
+  rejectAbovePromptBytes?: number;
+  /**
+   * Report `prompt_tokens` as the prompt's byte length over this ratio, instead
+   * of the flat 20. English runs ~4.4 bytes/token, and a suite that assumes 4
+   * builds every context rung ~10% short — this is what lets a test see whether
+   * the ladder calibrates itself against what the engine actually counted.
+   */
+  bytesPerToken?: number;
   /** Which surfaces exist. Defaults to models + chat. */
   surfaces?: string[];
   /**
@@ -474,10 +500,31 @@ export async function startMockEngine(
       const body = (await readBodyJson(request)) as any;
       chatBodies.push(body);
 
+      // Malformed probes reach here too — `messages` may be missing or not even
+      // an array, and measuring the prompt must never be what rejects them.
+      const promptBytes = (
+        Array.isArray(body?.messages) ? body.messages : []
+      ).reduce(
+        (sum: number, m: any) =>
+          sum + (typeof m?.content === "string" ? m.content.length : 0),
+        0,
+      );
+
       if (defects.stallAbovePromptBytes !== undefined) {
         const last = (body.messages ?? []).at(-1);
         const text = typeof last?.content === "string" ? last.content : "";
         if (text.length > defects.stallAbovePromptBytes) await sleep(1_000);
+      }
+
+      if (
+        defects.rejectAbovePromptBytes !== undefined &&
+        promptBytes > defects.rejectAbovePromptBytes
+      ) {
+        return json(
+          res,
+          { error: { message: "context window exceeded" } },
+          400,
+        );
       }
 
       // An empty-body probe must be rejected on validation — that is what
@@ -515,12 +562,31 @@ export async function startMockEngine(
       }
 
       const plan = respondTo(body, defects);
+      if (defects.leakThinkingIntoContent && typeof plan.content === "string") {
+        const scratchpad =
+          "Here's a thinking process:\n\n1.  **Analyze User Input:** " +
+          "the user wants a single number.\n2.  **Compute:** 17 * 3 = 51.\n\n---\n";
+        plan.content =
+          defects.leakThinkingIntoContent === "tagged"
+            ? `<think>${scratchpad}</think>${plan.content}`
+            : `${scratchpad}${plan.content}`;
+      }
       if (
         cachedTokens !== undefined &&
         defects.cacheChangesAnswer &&
         typeof plan.content === "string"
       ) {
         plan.content = "A completely different answer.";
+      }
+      if (
+        cachedTokens !== undefined &&
+        defects.cacheShortensAnswer &&
+        typeof plan.content === "string"
+      ) {
+        plan.content = plan.content.slice(
+          0,
+          Math.max(1, Math.floor(plan.content.length / 3)),
+        );
       }
 
       const n =
@@ -530,7 +596,9 @@ export async function startMockEngine(
 
       const payload = chatCompletion({
         ...plan,
-        inputTokens: 20,
+        inputTokens: defects.bytesPerToken
+          ? Math.max(1, Math.round(promptBytes / defects.bytesPerToken))
+          : 20,
         defects,
         n,
         cachedTokens,

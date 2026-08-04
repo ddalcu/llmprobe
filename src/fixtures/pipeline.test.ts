@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "vitest";
 
+import { runAgentic } from "../agentic/index";
 import {
   ADAPTERS,
   buildConformanceTests,
@@ -88,6 +89,7 @@ async function probeAndRun(
   const run = await runConformance(buildConformanceTests(present), ctx);
 
   return {
+    ctx,
     present,
     results: run.results,
     featureSupport: run.featureSupport,
@@ -370,6 +372,55 @@ describe("pipeline against planted defects", () => {
     expect(run.featureSupport.get("prompt-caching")!.supported).toBe(true);
   });
 
+  test("a cache hit that only stops earlier is not flagged — same answer, shorter", async () => {
+    // "Hi! How" against "Hi! How can I help you today" is one continuation cut
+    // at two different points, not two answers. Speculative decoding makes that
+    // routine: the truncation point follows the draft block boundary, which
+    // differs between a cold prefill and a warm one. Raw string equality calls
+    // it corruption and cries wolf on every MTP engine.
+    const run = await probeAndRun(
+      { promptCache: true, cacheShortensAnswer: true },
+      "full",
+    );
+
+    expect(
+      run.conformance.warnings.find((w) => w.id === "chat-cache-correct"),
+    ).toBeUndefined();
+    expect(find(run.results, "chat-prompt-caching")!.outcome).toBe("pass");
+  });
+
+  test("a scratchpad in content is caught with or without thinking tags", async () => {
+    // The mtplx shape: thinking on, no reasoning channel, chain-of-thought
+    // straight into `content`. The reasoning test cannot see it — that one
+    // asks the model to think out loud, and gives up before its leak check
+    // when there is no channel to compare against.
+    const tagged = await probeAndRun({ leakThinkingIntoContent: "tagged" });
+    expect(failedIds(tagged.results)).toContain("chat-scratchpad-no-tags");
+
+    // Untagged is a warning, not a failure: from outside the engine it looks
+    // the same as a model ignoring "only the number".
+    engine?.stop();
+    const prose = await probeAndRun({ leakThinkingIntoContent: "prose" });
+    expect(failedIds(prose.results)).not.toContain("chat-scratchpad-no-tags");
+    expect(
+      prose.conformance.warnings.find(
+        (w) => w.id === "chat-scratchpad-no-monologue",
+      ),
+    ).toBeDefined();
+  });
+
+  test("a clean engine keeps the scratchpad check quiet", async () => {
+    const run = await probeAndRun({});
+    expect(find(run.results, "chat-reasoning-scratchpad")!.outcome).toBe(
+      "pass",
+    );
+    expect(
+      run.conformance.warnings.find(
+        (w) => w.id === "chat-scratchpad-no-monologue",
+      ),
+    ).toBeUndefined();
+  });
+
   test("prefix reuse across a growing conversation is verified", async () => {
     const run = await probeAndRun({ promptCache: true }, "full");
 
@@ -490,6 +541,22 @@ describe("pipeline depth", () => {
     expect(core.pct).toBe(100);
     expect(fullCore.pct).toBe(100);
     expect(core.total).toBeLessThan(fullCore.total);
+  });
+});
+
+describe("agentic over the wire", () => {
+  test("a model that never engages the workspace fails every task with a named reason — and cannot crash the run", async () => {
+    // The mock model answers everything with prose, never touching the
+    // workspace tools. That must come back as three classified failures on the
+    // agentic card, with the engine's own cards untouched — same two-card
+    // promise as capability, one bar higher.
+    const run = await probeAndRun();
+    const agentic = await runAgentic(run.ctx);
+
+    expect(agentic.total).toBe(3);
+    expect(agentic.passed).toBe(0);
+    expect(agentic.tasks.every((t) => t.failure === "no-tool-call")).toBe(true);
+    expect(run.conformance.pct).toBe(100);
   });
 });
 

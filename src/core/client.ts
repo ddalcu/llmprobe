@@ -191,11 +191,16 @@ export class EngineClient {
    * the wall-clock at which the first frame carrying a generated token lands.
    * That is the only extra thing the benchmark needs beyond total duration.
    */
+  /**
+   * `timeoutMs: null` waits indefinitely. The benchmark uses it: how long a
+   * cold prefill takes is a fact about the model and the machine, and a
+   * deadline picked here only turns a slow box into a fabricated failure.
+   */
   async streamTimed(
     path: string,
     body: unknown,
     headers: Record<string, string> = {},
-    timeoutMs?: number,
+    timeoutMs?: number | null,
   ): Promise<TimedStreamResult> {
     this.assertBudget();
     this.requests += 1;
@@ -209,7 +214,10 @@ export class EngineClient {
         ...headers,
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs ?? this.config.timeoutMs),
+      signal:
+        timeoutMs === null
+          ? undefined
+          : AbortSignal.timeout(timeoutMs ?? this.config.timeoutMs),
     });
 
     const frames: SSEFrame[] = [];

@@ -1,8 +1,11 @@
+import { STEP_SPECULATION_FLOOR } from "../../bench/stats";
 import type {
+  AgenticScore,
   BenchReport,
   BenchStat,
   CapabilityScore,
   ConformanceScore,
+  ContextSpeculative,
   CoverageScore,
   EvalCategory,
   FidelityScore,
@@ -199,6 +202,27 @@ function renderCapability(cap: CapabilityScore, c: Palette): string[] {
   return lines;
 }
 
+function renderAgentic(agentic: AgenticScore, c: Palette): string[] {
+  const headline = `${agentic.passed}/${agentic.total} tasks`;
+  const lines = [
+    spread(c.bold("AGENTIC"), c.bold(headline)),
+    `  ${c.gray("multi-step tool use in a simulated workspace — a harder bar than the floor check, never blended into it")}`,
+  ];
+
+  const width = Math.max(...agentic.tasks.map((t) => t.name.length));
+  for (const task of agentic.tasks) {
+    const icon = task.passed ? c.green("✓") : c.red("✗");
+    const name = task.name.padEnd(width + 2);
+    const steps = c.gray(`${task.steps} ${plural(task.steps, "step")}`);
+    lines.push(`  ${icon} ${name}${steps}`);
+    if (!task.passed && task.detail) {
+      lines.push(`      ${c.red("→")} ${c.gray(task.detail)}`);
+    }
+  }
+
+  return lines;
+}
+
 function renderFidelity(fid: FidelityScore, c: Palette): string[] {
   const lines = [
     spread(c.bold("ENGINE FIDELITY"), c.bold(fmtPct(fid.pct))),
@@ -209,7 +233,9 @@ function renderFidelity(fid: FidelityScore, c: Palette): string[] {
   for (const s of fid.slices) {
     const label = s.label.padEnd(width + 2);
     if (!s.measured) {
-      lines.push(`  ${label}${c.gray("—      not measured")}  ${c.gray(s.detail)}`);
+      lines.push(
+        `  ${label}${c.gray("—      not measured")}  ${c.gray(s.detail)}`,
+      );
       continue;
     }
     const scorePct = Math.round(s.score * 10000) / 100;
@@ -257,6 +283,45 @@ function fmtLatency(ms: number): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms} ms`;
 }
 
+/**
+ * The speculation column of a context rung. Three readings, any of which can be
+ * absent: tokens per decode step (silent when the engine buffers its stream),
+ * the echo-vs-novel ratio (silent when the model did not echo), and the
+ * counting ratio (--full only). When none survived, the rung says why instead
+ * of showing a blank.
+ *
+ * Everything is shown against this rung's own novel rate, because a raw tok/s
+ * at 32k says nothing on its own — the comparison is the measurement.
+ */
+function rungSpeculation(spec: ContextSpeculative | null, c: Palette): string {
+  if (!spec) return "";
+
+  const bits: string[] = [];
+  if (spec.tokensPerStep !== null) {
+    const text = `${spec.tokensPerStep} tok/step`;
+    bits.push(
+      spec.tokensPerStep >= STEP_SPECULATION_FLOOR
+        ? c.green(text)
+        : c.gray(text),
+    );
+  }
+  // How much faster maximally predictable output runs at this same prompt
+  // size — the headroom the draft path still has once the task is realistic.
+  if (spec.ratio !== null) {
+    const text = `${spec.ratio}× ceiling`;
+    bits.push(spec.verdict === "effective" ? c.green(text) : c.gray(text));
+  }
+  if (spec.predictableTokensPerStep !== null) {
+    bits.push(c.gray(`${spec.predictableTokensPerStep} tok/step at ceiling`));
+  }
+
+  if (bits.length === 0) {
+    return c.gray(`  ${spec.note ?? "no speculation signal"}`);
+  }
+  const why = spec.note ? c.gray(` (${spec.note})`) : "";
+  return `  ${bits.join(c.gray(" · "))}${why}`;
+}
+
 function renderBench(bench: BenchReport, c: Palette): string[] {
   const machine = [
     bench.machine.cpu,
@@ -266,10 +331,32 @@ function renderBench(bench: BenchReport, c: Palette): string[] {
     .filter(Boolean)
     .join(" · ");
 
+  // Sits above the figures it qualifies: if the box slowed while they were
+  // being taken, that is the first thing to know about all of them.
+  const drift = bench.loadDrift;
+  const driftLines: string[] = [];
+  if (drift && drift.driftPct !== null) {
+    const sign = drift.driftPct > 0 ? "+" : "";
+    const summary = `${drift.firstTokPerSec} → ${drift.lastTokPerSec} tok/s over ${fmtDuration(drift.elapsedMs)} (${sign}${drift.driftPct}%)`;
+    if (drift.verdict === "steady") {
+      driftLines.push(`  ${c.gray(`sustained load: steady — ${summary}`)}`);
+    } else {
+      const why =
+        drift.verdict === "degraded"
+          ? "the machine slowed while these numbers were taken — thermal throttling or competing load"
+          : "the machine sped up mid-run — the warmup never warmed it, so these read low";
+      driftLines.push(`  ${c.yellow(`⚠ sustained load: ${summary}`)}`);
+      driftLines.push(
+        `  ${c.gray(`  ${why}; treat the figures below as a range`)}`,
+      );
+    }
+  }
+
   const lines = [
     c.bold("PERFORMANCE"),
     `  ${c.gray("informational — not scored; hardware-dependent, same-machine comparisons only")}`,
     `  ${c.gray(`machine: ${machine}`)}`,
+    ...driftLines,
     `  ${"Decode throughput".padEnd(22)}${fmtStat(bench.decodeTokPerSec, "tok/s")}`,
     `  ${"Time to first token".padEnd(22)}${fmtStat(bench.ttftMs, "ms")}`,
   ];
@@ -282,7 +369,7 @@ function renderBench(bench: BenchReport, c: Palette): string[] {
 
   if (bench.contextScaling && bench.contextScaling.length > 0) {
     lines.push(
-      `  ${c.gray("Context scaling  decode · first-token latency vs prompt size")}`,
+      `  ${c.gray("Context scaling  decode · first-token latency · speculation vs prompt size")}`,
     );
     for (const point of bench.contextScaling) {
       const size = point.inputTokens ?? point.targetTokens;
@@ -296,8 +383,61 @@ function renderBench(bench: BenchReport, c: Palette): string[] {
           ? `${point.decodeTokPerSec} tok/s`
           : "n/a"
       ).padEnd(13);
-      const ttft = point.ttftMs !== null ? fmtLatency(point.ttftMs) : "n/a";
-      lines.push(`  ${c.gray(`${sizeLabel}   ${decode}${ttft}`)}`);
+      const ttft = (
+        point.ttftMs !== null ? fmtLatency(point.ttftMs) : "n/a"
+      ).padEnd(10);
+      lines.push(
+        `  ${c.gray(`${sizeLabel}   ${decode}${ttft}`)}${rungSpeculation(point.speculative, c)}`,
+      );
+    }
+  }
+
+  const cache = bench.prefixCache;
+  if (cache) {
+    const detail =
+      cache.verdict === "unknown"
+        ? c.gray("not measurable")
+        : `${cache.speedup}× ${c.gray(`(${fmtLatency(cache.coldTtftMs!)} cold → ${fmtLatency(cache.warmTtftMs!)} warm)`)}`;
+    const label =
+      cache.verdict === "active"
+        ? c.green("active")
+        : cache.verdict === "none"
+          ? c.yellow("not detected")
+          : c.gray("unknown");
+    lines.push(`  ${"Prefix cache".padEnd(22)}${label}  ${detail}`);
+    // usage claiming a hit while the clock says otherwise is the whole point.
+    if (cache.cachedTokens !== null) {
+      lines.push(
+        `  ${c.gray(`  usage reports ${cache.cachedTokens} of ${cache.promptTokens ?? "?"} prompt tokens cached`)}`,
+      );
+    }
+  }
+
+  const batch = bench.batching;
+  if (batch) {
+    const label =
+      batch.verdict === "batched"
+        ? c.green("batched")
+        : batch.verdict === "partial"
+          ? c.yellow("partial")
+          : batch.verdict === "serialized"
+            ? c.yellow("serialized — one slot behind a queue")
+            : c.gray("unknown");
+    lines.push(
+      `  ${`Concurrency (${batch.streams})`.padEnd(22)}${label}${
+        batch.efficiency !== null
+          ? c.gray(`  ${batch.efficiency} efficiency`)
+          : ""
+      }`,
+    );
+    if (batch.aggregateTokPerSec !== null) {
+      const worst =
+        batch.worstTtftMs !== null
+          ? ` · slowest first token ${fmtLatency(batch.worstTtftMs)}`
+          : "";
+      lines.push(
+        `  ${c.gray(`  ${batch.aggregateTokPerSec} tok/s aggregate vs ${batch.singleTokPerSec} alone${worst}`)}`,
+      );
     }
   }
 
@@ -313,6 +453,13 @@ function renderBench(bench: BenchReport, c: Palette): string[] {
     lines.push(
       `  ${c.gray(`  predictable ${spec.predictableTokPerSec} tok/s · novel ${spec.novelTokPerSec} tok/s`)}`,
     );
+    // Read straight off frame arrival gaps — no comparison involved, so it
+    // stands even when the ratio is muddied.
+    const steps =
+      spec.tokensPerStep !== null
+        ? `${spec.tokensPerStep} tokens per decode step`
+        : `tokens per decode step: ${spec.tokensPerStepNote ?? "unavailable"}`;
+    lines.push(`  ${c.gray(`  ${steps}`)}`);
     if (spec.reasoningCaveat) {
       lines.push(
         `  ${c.gray("  (reasoning model — the thinking phase is novel, so this understates real gains)")}`,
@@ -327,7 +474,7 @@ function renderBench(bench: BenchReport, c: Palette): string[] {
 
 export function renderReport(
   report: RunReport,
-  options: { color?: boolean } = {},
+  options: { color?: boolean; benchOnly?: boolean } = {},
 ): string {
   const c = paletteFor(options.color ?? true);
   const rule = "━".repeat(WIDTH);
@@ -340,18 +487,30 @@ export function renderReport(
     .filter(Boolean)
     .join(" · ");
 
+  // --bench-only never ran the scored phases, so their cards would be three
+  // empty sections claiming nothing was found. Absent beats zeroed.
+  const scored = options.benchOnly
+    ? []
+    : [
+        ...renderCoverage(report.coverage, c),
+        "",
+        ...renderConformance(report.conformance, c),
+        "",
+        ...renderCapability(report.capability, c),
+        "",
+      ];
+
   const lines: string[] = [
     rule,
     ` ${c.bold("llmprobe")} ${c.gray("·")} ${target}`,
     rule,
     "",
-    ...renderCoverage(report.coverage, c),
-    "",
-    ...renderConformance(report.conformance, c),
-    "",
-    ...renderCapability(report.capability, c),
-    "",
+    ...scored,
   ];
+
+  if (report.agentic) {
+    lines.push(...renderAgentic(report.agentic, c), "");
+  }
 
   if (report.fidelity) {
     lines.push(...renderFidelity(report.fidelity, c), "");
@@ -363,8 +522,14 @@ export function renderReport(
 
   const footer: string[] = [];
   if (report.usage) {
-    const tokens = report.usage.inputTokens + report.usage.outputTokens;
-    footer.push(`${fmtCount(tokens)} tokens`);
+    const { inputTokens, outputTokens } = report.usage;
+    // Split, because the two are not interchangeable: on a paid endpoint they
+    // are priced differently, and a run dominated by input is a context ladder
+    // while one dominated by output is evals.
+    footer.push(
+      `${fmtCount(inputTokens + outputTokens)} tokens ` +
+        `(${fmtCount(inputTokens)} in · ${fmtCount(outputTokens)} out)`,
+    );
   }
   footer.push(fmtDuration(report.durationMs));
   lines.push(`  ${c.gray(footer.join(" · "))}`);

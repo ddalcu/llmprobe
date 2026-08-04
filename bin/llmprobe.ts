@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync } from "node:fs";
+import { basename } from "node:path";
 import { createInterface } from "node:readline/promises";
 
 import {
@@ -37,6 +38,7 @@ import {
   diffBaseline,
   type JsonReport,
 } from "../src/core/report/json";
+import { renderComparisonHtml } from "../src/core/report/compare";
 import { renderHtml } from "../src/core/report/html";
 import { renderMarkdown } from "../src/core/report/markdown";
 import { renderReport } from "../src/core/report/terminal";
@@ -51,6 +53,7 @@ import {
   scoreConformance,
   scoreCoverage,
 } from "../src/core/score";
+import { runAgentic } from "../src/agentic/index";
 import { runBenchmark } from "../src/bench/index";
 import { runFidelity } from "../src/fidelity/index";
 import { ALL_EVALS } from "../src/evals/index";
@@ -63,11 +66,15 @@ interface Args {
   json: boolean;
   markdown: boolean;
   bench: boolean;
+  /** Run the benchmark and nothing else — no conformance, evals, agentic or fidelity. */
+  benchOnly: boolean;
   timeoutSec: number;
   budget?: number;
   baseline?: string;
   save?: string;
   html?: string;
+  /** Saved reports to put side by side instead of probing an engine. */
+  compare?: string[];
   noColor: boolean;
   help: boolean;
 }
@@ -78,6 +85,7 @@ function parseArgs(argv: string[]): Args {
     json: false,
     markdown: false,
     bench: false,
+    benchOnly: false,
     timeoutSec: 60,
     noColor: false,
     help: false,
@@ -111,6 +119,10 @@ function parseArgs(argv: string[]): Args {
       case "--bench":
         args.bench = true;
         break;
+      case "--bench-only":
+        args.bench = true;
+        args.benchOnly = true;
+        break;
       case "--timeout":
         args.timeoutSec = Number(next());
         break;
@@ -126,6 +138,16 @@ function parseArgs(argv: string[]): Args {
       case "--html":
         args.html = next();
         break;
+      case "--compare": {
+        // Variadic: everything up to the next flag. Comparing two files is the
+        // common case and `--compare a.json b.json` is how people will type it.
+        const files: string[] = [];
+        while (i + 1 < argv.length && !argv[i + 1]!.startsWith("-")) {
+          files.push(argv[++i]!);
+        }
+        args.compare = files;
+        break;
+      }
       case "--no-color":
         args.noColor = true;
         break;
@@ -141,6 +163,22 @@ function parseArgs(argv: string[]): Args {
   return args;
 }
 
+/**
+ * A test slower than this gets its wall clock printed beside the tick. Most
+ * finish in well under a second, so the ones that don't are worth naming —
+ * usually an engine that thinks before every answer, or a cold prefill.
+ */
+const SLOW_TEST_MS = 3_000;
+
+/** Control-flow marker for --bench-only: leave the scored phases unrun. */
+class SkipToBench extends Error {}
+
+/** 16384 → "16.4k". Matches how the report's context table reads. */
+const fmtTokens = (n: number): string =>
+  n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n);
+
+const fmtCount = (n: number): string => n.toLocaleString("en-US");
+
 const HELP = `llmprobe — LLM engine conformance & capability suite
 
 Usage: llmprobe <base-url> [options]
@@ -151,6 +189,7 @@ implements, and separately grades the model's capability.
   Coverage     how much of the standard surface exists (Core / Extended / Frontier)
   Conformance  of what IS implemented, how correct is it (MUST assertions only)
   Capability   below floor / capable / strong (deterministic evals, calibrated for 12B+)
+  Agentic      multi-step tool tasks in a simulated workspace (harder than the floor)
 
 Options:
   -k, --api-key <key>   API key (optional for local engines)
@@ -160,14 +199,19 @@ Options:
       --full            Everything, including the slow tests (long context, caching)
       --bench           Add a performance benchmark: decode tok/s, TTFT, prefill,
                         and an MTP/speculative-decoding probe (informational)
+      --bench-only      Run only the benchmark — no conformance, evals, agentic
+                        or fidelity. Surface discovery still runs; it is free.
       --json            Machine-readable output (also the baseline format)
       --markdown        README-ready report with badges
       --baseline <f>    Diff against a saved run and flag regressions
       --save <f>        Write the JSON report to a file
       --html <f>        Write a self-contained HTML report with charts
+      --compare <f...>  Build one comparison page from saved --save reports
+                        instead of probing. Needs --html; context curves are
+                        overlaid, one coloured line per run.
       --budget <n>      Hard ceiling on total tokens (paid endpoints)
-      --timeout <sec>   Per-request timeout (default: 60; the context-size
-                        benchmark allows 3× this per rung)
+      --timeout <sec>   Per-request timeout (default: 60; --bench requests are
+                        never timed out — a cold prefill takes what it takes)
       --no-color        Disable ANSI colour
   -h, --help            Show this help
 
@@ -178,14 +222,79 @@ Examples:
   llmprobe https://openrouter.ai/api/v1 -k $OPENROUTER_API_KEY
   llmprobe localhost:8080 --save baselines/llama-cpp.json
   llmprobe localhost:8080 --baseline baselines/llama-cpp.json
+  llmprobe --compare a.json b.json c.json --html compare.html
 `;
+
+/**
+ * Build one page from several saved runs. Probes nothing — the reports already
+ * on disk are the whole input, so a comparison costs no tokens and no engine.
+ */
+function runComparison(args: Args): void {
+  const files = args.compare ?? [];
+  const c = paletteFor(!args.noColor);
+
+  if (files.length < 2) {
+    console.error("--compare needs at least two saved JSON reports");
+    process.exit(1);
+  }
+  if (!args.html) {
+    console.error("--compare needs --html <file> to write the comparison to");
+    process.exit(1);
+  }
+
+  const loaded = files.map((file) => {
+    let report: JsonReport;
+    try {
+      report = JSON.parse(readFileSync(file, "utf8")) as JsonReport;
+    } catch (err) {
+      console.error(
+        `could not read ${file}: ${err instanceof Error ? err.message : err}`,
+      );
+      process.exit(1);
+    }
+    if (!report?.target || !report?.coverage) {
+      console.error(`${file} is not an llmprobe --save report`);
+      process.exit(1);
+    }
+    return { file, report };
+  });
+
+  // Prefer the model name; fall back through engine to the filename. Two runs
+  // of the same model get the filename appended so the legend stays readable.
+  const base = loaded.map(
+    ({ file, report }) =>
+      report.target.model || report.target.engine || basename(file, ".json"),
+  );
+  const inputs = loaded.map(({ file, report }, i) => ({
+    label:
+      base.filter((b) => b === base[i]).length > 1
+        ? `${base[i]} (${basename(file, ".json")})`
+        : base[i]!,
+    report,
+  }));
+
+  writeFileSync(args.html, renderComparisonHtml(inputs));
+  console.log(
+    `${c.gray("comparison of")} ${inputs.length} ${c.gray("runs →")} ${args.html}`,
+  );
+}
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
-  if (args.help || !args.target) {
+  if (args.help) {
     console.log(HELP);
-    process.exit(args.target ? 0 : 1);
+    process.exit(0);
+  }
+
+  if (args.compare) {
+    runComparison(args);
+    return;
+  }
+
+  if (!args.target) {
+    console.log(HELP);
+    process.exit(1);
   }
 
   const quiet = args.json || args.markdown;
@@ -394,7 +503,11 @@ async function main(): Promise<void> {
   let unprobed = new Set<string>();
   let budgetHit = false;
 
+  // --bench-only skips straight to the benchmark. Surface discovery above
+  // already ran, because it costs nothing and the benchmark needs to know which
+  // chat-shaped surface to measure through.
   try {
+    if (args.benchOnly) throw new SkipToBench();
     const run = await runConformance(
       buildConformanceTests(present),
       ctx,
@@ -409,7 +522,13 @@ async function main(): Promise<void> {
             : result.outcome === "fail"
               ? c.red("✗")
               : c.yellow("?");
-        log(`  ${icon} ${result.name}`);
+        // Only the slow ones carry a time. Stamping all 267 lines would bury
+        // the outliers, and the outliers are the entire reason to look.
+        const took =
+          result.durationMs !== undefined && result.durationMs >= SLOW_TEST_MS
+            ? c.gray(`  ${(result.durationMs / 1000).toFixed(1)}s`)
+            : "";
+        log(`  ${icon} ${result.name}${took}`);
 
         if (result.outcome === "fail") {
           const failures = result.assertions.filter(
@@ -448,18 +567,74 @@ async function main(): Promise<void> {
       });
     }
   } catch (err) {
-    if (!(err instanceof BudgetExceededError)) throw err;
-    budgetHit = true;
-    log(`\n${c.yellow("⚠")} ${err.message} — stopping early.`);
+    if (err instanceof SkipToBench) {
+      // nothing to do — the phases below are all gated on benchOnly too
+    } else if (err instanceof BudgetExceededError) {
+      budgetHit = true;
+      log(`\n${c.yellow("⚠")} ${err.message} — stopping early.`);
+    } else {
+      throw err;
+    }
   }
 
-  // ── 4b. Fidelity — how faithfully the engine reproduces the model ───────
+  // ── 4b. Agentic — multi-step tool use in a simulated workspace ──────────
+  // A harder bar than the capability floor, reported as its own card and never
+  // blended into the verdict: a capable model with zero agentic tasks should
+  // read as exactly that.
+
+  let agentic: RunReport["agentic"];
+  if (
+    !budgetHit &&
+    !args.benchOnly &&
+    args.depth !== "quick" &&
+    ctx.evalSurface
+  ) {
+    if (featureSupport.get("tools")?.supported === true) {
+      log();
+      log(
+        `${c.gray("agentic (multi-step tool tasks in a simulated workspace)...")}`,
+      );
+      try {
+        agentic = await runAgentic(ctx, (result) => {
+          const icon = result.passed ? c.green("✓") : c.red("✗");
+          const steps = c.gray(
+            `${result.steps} step${result.steps === 1 ? "" : "s"}`,
+          );
+          log(`  ${icon} ${result.name} ${steps}`);
+          if (!result.passed && result.detail) {
+            log(`      ${c.red("→")} ${c.gray(result.detail)}`);
+          }
+        });
+      } catch (err) {
+        if (err instanceof BudgetExceededError) {
+          budgetHit = true;
+          log(`${c.yellow("⚠")} ${err.message}`);
+        } else {
+          log(
+            `${c.yellow("⚠")} agentic failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+    } else {
+      log();
+      log(
+        `${c.gray("agentic skipped — tool calling not available on this engine")}`,
+      );
+    }
+  }
+
+  // ── 4c. Fidelity — how faithfully the engine reproduces the model ───────
   // Scored (a single rankable number) but never gates the exit code: a lossy
   // quant is a legitimate config, not a broken engine. Runs by default; a
   // --quick smoke run skips it.
 
   let fidelity: RunReport["fidelity"];
-  if (!budgetHit && args.depth !== "quick" && ctx.evalSurface) {
+  if (
+    !budgetHit &&
+    !args.benchOnly &&
+    args.depth !== "quick" &&
+    ctx.evalSurface
+  ) {
     log();
     log(`${c.gray("fidelity (cloze battery + greedy self-consistency)...")}`);
 
@@ -496,16 +671,69 @@ async function main(): Promise<void> {
     }
   }
 
-  // ── 4c. Benchmark (opt-in) — informational, never scored ────────────────
+  // ── 4d. Benchmark (opt-in) — informational, never scored ────────────────
 
   let bench: RunReport["bench"];
   if (args.bench && !budgetHit && ctx.evalSurface) {
     log();
     log(`${c.gray("benchmarking (warmup + median of 3)...")}`);
+    const benchStart = {
+      input: client.usage.inputTokens,
+      output: client.usage.outputTokens,
+      requests: client.requests,
+    };
     try {
       bench =
-        (await runBenchmark(ctx, thinks, (label) =>
-          log(`  ${c.gray(label)}`),
+        (await runBenchmark(
+          ctx,
+          thinks,
+          (label) => log(`  ${c.gray(label)}`),
+          // The ladder is the long part — a single 64k rung can run for
+          // minutes — so each one reports its numbers as it lands rather than
+          // leaving the terminal silent until the whole report prints.
+          (point) => {
+            const size = `~${fmtTokens(point.inputTokens ?? point.targetTokens)}`;
+            if (point.note) {
+              log(
+                `    ${c.gray(size.padStart(8))}  ${c.yellow(`✗ ${point.note}`)}`,
+              );
+              return;
+            }
+            const parts = [
+              point.decodeTokPerSec !== null
+                ? `${point.decodeTokPerSec} tok/s decode`
+                : null,
+              point.prefillTokPerSec !== null
+                ? `${point.prefillTokPerSec} tok/s prefill`
+                : null,
+              point.ttftMs !== null
+                ? `${(point.ttftMs / 1000).toFixed(1)}s first token`
+                : null,
+              point.speculative?.tokensPerStep !== null &&
+              point.speculative?.tokensPerStep !== undefined
+                ? `${point.speculative.tokensPerStep} tok/step`
+                : null,
+            ].filter(Boolean);
+            log(
+              `    ${c.bold(size.padStart(8))}  ${c.gray(parts.join(" · "))}`,
+            );
+          },
+          (sample) => {
+            const label = sample.label.padEnd(26);
+            if (sample.error) {
+              log(`  ${c.gray(label)}${c.yellow(sample.error)}`);
+            } else if (sample.warmup) {
+              // The warmup's number is deliberately thrown away — showing it
+              // would invite reading a cold run as a result.
+              log(`  ${c.gray(`${label}discarded`)}`);
+            } else {
+              const value =
+                sample.value !== null
+                  ? `${Math.round(sample.value * 10) / 10} ${sample.unit}`
+                  : "n/a";
+              log(`  ${c.gray(label)}${value}`);
+            }
+          },
         )) ?? undefined;
     } catch (err) {
       if (err instanceof BudgetExceededError) {
@@ -517,6 +745,22 @@ async function main(): Promise<void> {
         );
       }
     }
+
+    // What the benchmark itself cost. The run footer totals everything; this
+    // is the only place the ladder's own bill is visible, and at --full it is
+    // most of the run.
+    const spent = {
+      input: client.usage.inputTokens - benchStart.input,
+      output: client.usage.outputTokens - benchStart.output,
+      requests: client.requests - benchStart.requests,
+    };
+    log(
+      `  ${c.gray(
+        `benchmark used ${fmtCount(spent.input + spent.output)} tokens ` +
+          `(${fmtCount(spent.input)} in · ${fmtCount(spent.output)} out) ` +
+          `over ${fmtCount(spent.requests)} requests`,
+      )}`,
+    );
   }
 
   // ── 5. Score and report ─────────────────────────────────────────────────
@@ -533,6 +777,7 @@ async function main(): Promise<void> {
     coverage: scoreCoverage(entries, credits),
     conformance: scoreConformance(conformanceResults),
     capability: scoreCapability(evalResults),
+    agentic,
     fidelity,
     bench,
     usage: { ...client.usage },
@@ -557,7 +802,9 @@ async function main(): Promise<void> {
     console.log(renderMarkdown(report));
   } else {
     console.log();
-    console.log(renderReport(report, { color: !args.noColor }));
+    console.log(
+      renderReport(report, { color: !args.noColor, benchOnly: args.benchOnly }),
+    );
   }
 
   // ── 6. Baseline diff — this is what makes the suite a ratchet ────────────

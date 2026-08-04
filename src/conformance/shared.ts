@@ -1,10 +1,12 @@
 import type { SurfaceAdapter } from "../core/adapter";
 import {
   approxTextSimilarity,
+  detectReasoningLeak,
   Inconclusive,
   isLengthStyleFinish,
   runConcurrent,
   tryParseJson,
+  Unsupported,
 } from "../core/assert";
 import type { ConformanceTest } from "../core/context";
 import { checkSSEFraming } from "../core/sse";
@@ -33,6 +35,15 @@ import {
  */
 const runNonce =
   Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+/**
+ * The largest draft block a real speculator emits per decode step — MTP,
+ * EAGLE, Medusa and prompt-lookahead all sit well inside this. Used only to
+ * decide whether a max_tokens overshoot is worth naming as speculation rather
+ * than leaving as a bare number.
+ */
+const MAX_SPECULATIVE_BLOCK = 8;
+
 export function sharedTests(
   adapter: SurfaceAdapter,
   /** Only the engine's primary chat-shaped surface claims the shared features. */
@@ -374,11 +385,22 @@ export function sharedTests(
       if (typeof output === "number") {
         // Some engines count a trailing token or two; a small allowance keeps
         // this honest without letting a 200-token response through.
+        //
+        // The usual cause of a near miss is speculative decoding: an engine
+        // that accepts a k-token draft block finishes the block before it
+        // rechecks the limit, so it lands anywhere up to 8 + k - 1 and the
+        // exact figure moves with KV state and load. That is still a real
+        // violation — budget enforcement and paid endpoints depend on this cap
+        // — so the overshoot is named rather than tolerated.
+        const speculative =
+          output > 12 && output <= 8 + MAX_SPECULATIVE_BLOCK
+            ? " — consistent with a speculative draft block overrunning the cap"
+            : "";
         a.must(
           `${s}-max-tokens-respected`,
           "max_tokens caps the output",
           output <= 12,
-          `asked for 8 tokens, got ${output}`,
+          `asked for 8 tokens, got ${output}${speculative}`,
         );
       } else {
         a.should(
@@ -1211,12 +1233,174 @@ export function sharedTests(
 
       // The engine bug this catches: chain-of-thought leaking into the visible
       // content, so every caller renders the model's scratchpad to end users.
+      const leaked = detectReasoningLeak(res.reply.text);
       a.must(
         `${s}-reasoning-not-leaked`,
         "reasoning does not leak into the visible content",
-        !/<think>|<\|thinking\|>/i.test(res.reply.text),
-        "found raw thinking tags inside the assistant content",
+        leaked.tag === null,
+        `found a raw ${leaked.tag} wrapper inside the assistant content`,
       );
+    },
+  });
+
+  // ── scratchpad in content (core) ──────────────────────────────────────────
+
+  tests.push({
+    id: `${s}-reasoning-scratchpad`,
+    name: `${adapter.label}: the answer is an answer, not a scratchpad`,
+    surface: s,
+    tier: "core",
+    async run(ctx, a) {
+      // Deliberately separate from the reasoning test above, for two reasons.
+      // That one asks the model to "think it through", which invites
+      // deliberation into content and so cannot detect a leak; and it gives up
+      // before this check whenever the engine has no reasoning channel — which
+      // is exactly the case where the thinking has nowhere to go but `content`.
+      //
+      // Here the prompt forbids anything but the answer, so a reply that opens
+      // by narrating its own reasoning is the scratchpad reaching the caller.
+      const res = await ctx.send(s, {
+        turns: [
+          {
+            type: "user" as const,
+            text: "What is 17 * 3? Reply with only the number and nothing else.",
+          },
+        ],
+        temperature: 0,
+        maxTokens: 256,
+      });
+      if (res.status !== 200) return;
+
+      const leaked = detectReasoningLeak(res.reply.text);
+      const excerpt = res.reply.text.trim().slice(0, 80).replace(/\s+/g, " ");
+
+      // A wrapper in content can only be the engine failing to strip a channel
+      // it was handed. Nothing else puts `<think>` in an answer.
+      a.must(
+        `${s}-scratchpad-no-tags`,
+        "no thinking wrapper reaches the caller",
+        leaked.tag === null,
+        `found a raw ${leaked.tag} wrapper in the answer: "${excerpt}"`,
+      );
+
+      // Untagged deliberation is the same bug without the markers — but a
+      // model that simply ignores "only the number" looks identical from
+      // outside the engine, so it warns rather than failing.
+      a.should(
+        `${s}-scratchpad-no-monologue`,
+        "the answer does not open with the model's own deliberation",
+        leaked.opener === null,
+        `answer opens with chain-of-thought instead of the number: "${excerpt}"`,
+      );
+    },
+  });
+
+  // ── assistant-history reasoning round-trip (extended) ────────────────────
+
+  tests.push({
+    id: `${s}-reasoning-roundtrip`,
+    name: `${adapter.label}: assistant-history reasoning round-trip`,
+    surface: s,
+    tier: "extended",
+    feature: feature("reasoning-roundtrip"),
+    async run(ctx, a) {
+      if (!adapter.reasoningHistory) {
+        throw new Unsupported("surface has no history-reasoning wire shape");
+      }
+
+      // Agent clients (pi, the vLLM SDK flows, Claude Code) round-trip the
+      // reasoning an engine emitted straight back on the next request's
+      // assistant history — chat as `reasoning_content`, messages as
+      // `thinking` blocks. The de-facto open-engine standard (DeepSeek/vLLM
+      // lineage) is: accept the field and hand it to the chat template, which
+      // decides. Templates that PERSIST reasoning across turns (GLM family,
+      // poolside Laguna) render the empty <think></think> "nothink" signature
+      // instead when a server drops the field — the model thinks on turn 1 of
+      // a session and never again, while every flag reads correct. That drop
+      // is observable black-box as a prompt_tokens delta between two requests
+      // differing only in the history-reasoning field. Templates that STRIP
+      // history reasoning by design (Qwen, Gemma) legitimately show no delta,
+      // so "no delta" reads as feature-unsupported for the loaded model,
+      // never as a conformance violation.
+      const REASONING =
+        "The user asked for two plus two. Two plus two equals four, so the " +
+        "answer to give is the single digit 4, with no other words.";
+      const history = (reasoning?: string) => ({
+        turns: [
+          {
+            type: "user" as const,
+            text: "What is 2 + 2? Reply with just the number.",
+          },
+          { type: "assistant-text" as const, text: "4", reasoning },
+          {
+            type: "user" as const,
+            text: "Add 3 to your last answer. Reply with just the number.",
+          },
+        ],
+        temperature: 0,
+        maxTokens: 64,
+      });
+
+      const accepted = await ctx.send(s, history(REASONING));
+      a.must(
+        `${s}-reasoning-roundtrip-no-5xx`,
+        "round-tripped reasoning never crashes the server",
+        accepted.status < 500,
+        `got HTTP ${accepted.status}: ${accepted.text.slice(0, 200)}`,
+      );
+      if (accepted.status >= 400) {
+        // A 4xx is not a spec violation — the field is an extension, and
+        // OpenAI's own chat surface rejects unknown message fields — but the
+        // engine visibly lacks the feature every reasoning-model agent loop
+        // leans on.
+        return {
+          featureSupported: false,
+          unsupportedDetail: `rejects reasoning on assistant history with HTTP ${accepted.status}`,
+        };
+      }
+      a.schema(
+        `${s}-reasoning-roundtrip-schema`,
+        "response matches the spec schema",
+        adapter.responseSchema,
+        accepted.raw,
+      );
+
+      // Forwarding probe. Run the pair under the surface's standard reasoning
+      // opt-in when one exists: reasoning-persisting templates only render
+      // history reasoning while thinking is ON (laguna renders a bare
+      // </think> otherwise and never reads the field). Falls back to the
+      // plain pair when the opt-in is rejected.
+      let withR = accepted;
+      let withoutR = await ctx.send(s, history(undefined));
+      if (adapter.reasoningOptIn) {
+        const extra = adapter.reasoningOptIn;
+        const r = await ctx.send(s, { ...history(REASONING), extra });
+        const b = await ctx.send(s, { ...history(undefined), extra });
+        if (r.status === 200 && b.status === 200) {
+          withR = r;
+          withoutR = b;
+        }
+      }
+      if (withoutR.status !== 200) return; // baseline failed for unrelated reasons — nothing more to learn
+
+      const pIn = withR.reply.usage.inputTokens;
+      const bIn = withoutR.reply.usage.inputTokens;
+      if (pIn === null || bIn === null) {
+        return {
+          featureSupported: false,
+          unsupportedDetail:
+            "no prompt-token reporting, so forwarding is unobservable",
+        };
+      }
+      if (pIn <= bIn) {
+        return {
+          featureSupported: false,
+          unsupportedDetail:
+            "prompt_tokens identical with and without history reasoning — " +
+            "the field is dropped before the chat template, or this " +
+            "model's template strips history reasoning by design",
+        };
+      }
     },
   });
 
@@ -1274,11 +1458,29 @@ export function sharedTests(
       // is not spec non-conformance. Real corruption diverges wildly and shows
       // up here loudly.
       if (cached > 0) {
+        // Compared on the text the two runs share, not on raw equality. A warm
+        // answer that is a prefix of the cold one is the same continuation
+        // stopped earlier, which speculative decoding makes routine: the
+        // truncation point follows the draft block boundary, and that boundary
+        // lands differently on a warm prefill than a cold one. Corruption
+        // diverges *inside* the shared text; stopping short does not.
+        const cold = first.reply.text;
+        const warm = second.reply.text;
+        const shared = Math.min(cold.length, warm.length);
+        const agrees =
+          cold === warm ||
+          (shared > 0 && cold.slice(0, shared) === warm.slice(0, shared));
+
+        let diverged = 0;
+        while (diverged < shared && cold[diverged] === warm[diverged]) {
+          diverged += 1;
+        }
+
         a.should(
           `${s}-cache-correct`,
           "a cache hit does not change the answer",
-          second.reply.text === first.reply.text,
-          `warm answer differs from cold at temperature 0: "${first.reply.text.slice(0, 40)}" vs "${second.reply.text.slice(0, 40)}"`,
+          agrees,
+          `warm answer diverges from cold at temperature 0 after ${diverged} chars: "${cold.slice(0, 40)}" vs "${warm.slice(0, 40)}"`,
         );
       }
     },

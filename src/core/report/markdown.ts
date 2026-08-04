@@ -134,6 +134,25 @@ export function renderMarkdown(report: RunReport): string {
     }
   }
 
+  if (report.agentic) {
+    const ag = report.agentic;
+    lines.push("");
+    lines.push(`## Agentic — ${ag.passed}/${ag.total} tasks`);
+    lines.push("");
+    lines.push(
+      "_Multi-step tool use in a simulated workspace. A harder bar than the floor check, never blended into it._",
+    );
+    lines.push("");
+    lines.push("| Task | Result | Steps |");
+    lines.push("| --- | --- | --- |");
+    for (const task of ag.tasks) {
+      const result = task.passed
+        ? "✅"
+        : `❌ ${task.detail ?? task.failure ?? "failed"}`;
+      lines.push(`| ${task.name} | ${result} | ${task.steps} |`);
+    }
+  }
+
   if (report.fidelity) {
     const fid = report.fidelity;
     lines.push("");

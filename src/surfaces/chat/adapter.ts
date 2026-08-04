@@ -24,6 +24,8 @@ interface Message {
     function: { name: string; arguments: string };
   }>;
   tool_call_id?: string;
+  /** Round-tripped assistant-history reasoning (DeepSeek/vLLM lineage). */
+  reasoning_content?: string;
 }
 
 function turnToMessage(turn: Turn): Message {
@@ -39,7 +41,15 @@ function turnToMessage(turn: Turn): Message {
         ],
       };
     case "assistant-text":
-      return { role: "assistant", content: turn.text };
+      return turn.reasoning !== undefined
+        ? // Key omitted entirely when absent — templates gate on `is string`,
+          // and an explicit null would still pass `is defined` checks.
+          {
+            role: "assistant",
+            content: turn.text,
+            reasoning_content: turn.reasoning,
+          }
+        : { role: "assistant", content: turn.text };
     case "assistant-tool-call":
       return {
         role: "assistant",
@@ -109,6 +119,7 @@ export const chatAdapter: SurfaceAdapter = {
   chunkSchema: chatCompletionChunkSchema,
 
   reasoningOptIn: { reasoning_effort: "low" },
+  reasoningHistory: true,
 
   buildBody(request: ChatRequest, config: RunConfig): Record<string, unknown> {
     const messages: Message[] = [];

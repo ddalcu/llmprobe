@@ -223,6 +223,45 @@ export const CAPABLE_OVERALL_PCT = 70;
 export const STRONG_OVERALL_PCT = 90;
 export const CATEGORY_FLOOR_PCT = 50;
 
+/**
+ * Agentic — multi-step tool use against a simulated file workspace. The
+ * capability card is a floor check; this card is deliberately above it, and
+ * the two are never blended: a model can be perfectly usable (capable) and
+ * still fail every agentic task, and that should read as exactly that.
+ *
+ * Why a workspace and not a real sandbox: the tools are executed in-process
+ * by llmprobe itself, so grading is a string comparison on the final state —
+ * deterministic, no judge, no code execution, and a task costs a handful of
+ * short requests.
+ */
+export type AgenticFailure =
+  /** Finished (stopped calling tools) but the answer or file state is wrong. */
+  | "wrong-answer"
+  /** Answered without ever touching a tool — priors instead of the workspace. */
+  | "no-tool-call"
+  /** Still calling tools when the step cap ran out. */
+  | "step-limit"
+  /** The engine errored mid-task; says nothing good about either party. */
+  | "engine-error";
+
+export interface AgenticTaskResult {
+  id: string;
+  name: string;
+  passed: boolean;
+  /** Model requests used — the report shows this next to each task. */
+  steps: number;
+  failure?: AgenticFailure;
+  detail?: string;
+}
+
+export interface AgenticScore {
+  tasks: AgenticTaskResult[];
+  /** Whole tasks, pass/fail — with 3 tasks, sample-level pcts would be noise. */
+  passed: number;
+  total: number;
+  pct: number;
+}
+
 export interface RunTarget {
   baseUrl: string;
   model: string;
@@ -253,11 +292,103 @@ export interface SpeculativeResult {
   ratio: number;
   verdict: "effective" | "marginal" | "none";
   /**
+   * Tokens per decode step on the predictable prompt, read off SSE frame
+   * arrival gaps. Independent of the ratio and of any second request: ~1 means
+   * one token per step, above that means drafts are landing.
+   */
+  tokensPerStep: number | null;
+  /** Why there is no tokens-per-step number — buffered stream, no usage, etc. */
+  tokensPerStepNote: string | null;
+  /**
    * True when the model thinks before answering. A reasoning model's "repeat
    * this" still triggers a novel thinking phase, which dilutes the speculative
    * signal — so the ratio understates real gains and gets flagged, not hidden.
    */
   reasoningCaveat: boolean;
+}
+
+/**
+ * Did the machine hold its speed for the length of the run?
+ *
+ * The decode scenario repeated at the very end, minutes of sustained load after
+ * the first one. A drop means thermal throttling or competing load; a rise
+ * means the warmup never warmed it. Either way the figures above it moved while
+ * they were being taken, so this is what turns "same-machine comparisons only"
+ * from a caveat the reader has to remember into one the report can check.
+ */
+export interface LoadDriftResult {
+  firstTokPerSec: number | null;
+  lastTokPerSec: number | null;
+  /** Signed percentage: negative is slower at the end. */
+  driftPct: number | null;
+  /** Sustained load between the two measurements. */
+  elapsedMs: number;
+  verdict: "steady" | "degraded" | "improved" | "unknown";
+}
+
+/**
+ * Does the prefix cache save work, or only report that it did?
+ *
+ * Conformance already checks that `cached_tokens` is reported and that a warm
+ * hit does not change the answer. This is the clock's opinion: the same prompt
+ * twice, time to first token cold versus warm.
+ */
+export interface PrefixCacheResult {
+  coldTtftMs: number | null;
+  warmTtftMs: number | null;
+  /** cold ÷ warm. Above ~2 means the second prefill did not happen. */
+  speedup: number | null;
+  /** What usage claimed was reused, when the engine reports it at all. */
+  cachedTokens: number | null;
+  promptTokens: number | null;
+  verdict: "active" | "none" | "unknown";
+}
+
+/**
+ * Does the engine run concurrent requests together or queue them?
+ *
+ * One burst of N streams against one stream alone. Continuous batching holds
+ * efficiency near 1; a single slot behind a queue pins it at 1/N. Informational
+ * like the rest of the benchmark, and just as hardware-dependent.
+ */
+export interface BatchingResult {
+  streams: number;
+  /** Output tokens over wall clock for a single stream. */
+  singleTokPerSec: number | null;
+  /** Output tokens over wall clock for the whole burst, summed. */
+  aggregateTokPerSec: number | null;
+  /** aggregate ÷ (single × streams). */
+  efficiency: number | null;
+  /** Slowest first token in the burst — where queueing shows up first. */
+  worstTtftMs: number | null;
+  verdict: "batched" | "partial" | "serialized" | "unknown";
+}
+
+/**
+ * Whether speculation still pays at one context length.
+ *
+ * Engines routinely disable or starve a draft path as the KV cache grows, so
+ * "MTP works" measured at 500 tokens says nothing about 32k. Each rung runs a
+ * predictable prompt beside the novel one and reports both the throughput
+ * ratio and the frame-gap step profile.
+ */
+export interface ContextSpeculative {
+  /**
+   * Decode tok/s on maximally predictable output (counting) at this rung — the
+   * ceiling on what speculation can deliver at this context length. Counting is
+   * nowhere in the prompt, so prompt-lookahead cannot serve it and nothing has
+   * to be found first.
+   */
+  predictableTokPerSec: number | null;
+  /** Tokens per decode step on that ceiling run. */
+  predictableTokensPerStep: number | null;
+  /** predictable ÷ coding decode throughput — the headroom left at this size. */
+  ratio: number | null;
+  verdict: "effective" | "marginal" | "none" | null;
+  /** Tokens per decode step on the realistic coding task. Needs no comparison. */
+  tokensPerStep: number | null;
+  /** Why a signal is missing: context unread, buffered stream, etc. */
+  note: string | null;
 }
 
 /** One rung of the context-length ladder — how the engine does at this size. */
@@ -268,6 +399,13 @@ export interface ContextPoint {
   inputTokens: number | null;
   decodeTokPerSec: number | null;
   ttftMs: number | null;
+  /** Prompt tokens over time-to-first-token — how fast this rung was ingested. */
+  prefillTokPerSec: number | null;
+  /**
+   * Does speculative decoding still help at this prompt size? Null when the
+   * rung failed outright.
+   */
+  speculative: ContextSpeculative | null;
   /** Successful runs behind the numbers (1 by default, median of 3 at --full). */
   runs: number;
   /**
@@ -291,7 +429,10 @@ export interface MachineInfo {
 }
 
 export interface BenchReport {
-  /** Steady-state decode throughput, tokens/sec. */
+  /**
+   * Steady-state decode throughput, tokens/sec, measured while generating code
+   * — the workload these engines are actually asked to serve.
+   */
   decodeTokPerSec: BenchStat | null;
   /** Time to first generated token, ms. */
   ttftMs: BenchStat | null;
@@ -300,6 +441,12 @@ export interface BenchReport {
   prefillPromptTokens: number | null;
   /** MTP / speculative-decoding effectiveness, or null if not probed. */
   speculative: SpeculativeResult | null;
+  /** Whether the prefix cache actually skips work, timed rather than reported. */
+  prefixCache: PrefixCacheResult | null;
+  /** Whether concurrent requests are batched or queued. */
+  batching: BatchingResult | null;
+  /** Whether the box held its speed for the whole run — qualifies everything above. */
+  loadDrift: LoadDriftResult | null;
   machine: MachineInfo;
   /**
    * Decode throughput and latency as context grows. The interesting shape:
@@ -391,6 +538,8 @@ export interface RunReport {
   coverage: CoverageScore;
   conformance: ConformanceScore;
   capability: CapabilityScore;
+  /** Agentic card; present unless `--quick`, the engine lacks tools, or the budget ran out first. */
+  agentic?: AgenticScore;
   /** Engine-fidelity card; present unless the run was `--quick`. */
   fidelity?: FidelityScore;
   bench?: BenchReport;

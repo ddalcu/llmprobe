@@ -227,4 +227,63 @@ describe("renderReport", () => {
     // eslint-disable-next-line no-control-regex
     expect(render(fixture())).not.toMatch(/\x1b\[/);
   });
+
+  test("renders the agentic card with per-task outcomes and the failure detail", () => {
+    const out = render(
+      fixture({
+        agentic: {
+          tasks: [
+            {
+              id: "agentic-read",
+              name: "reads the config instead of answering from priors",
+              passed: true,
+              steps: 2,
+            },
+            {
+              id: "agentic-indirect",
+              name: "follows the pointer in build.cfg instead of guessing",
+              passed: false,
+              steps: 5,
+              failure: "wrong-answer",
+              detail: "edited version.txt — the pointer names VERSION",
+            },
+          ],
+          passed: 1,
+          total: 2,
+          pct: 50,
+        },
+      }),
+    );
+
+    expect(out).toContain("AGENTIC");
+    expect(out).toContain("1/2");
+    expect(out).toContain("reads the config instead of answering from priors");
+    expect(out).toMatch(/2 steps/);
+    expect(out).toContain("edited version.txt");
+  });
+
+  test("no agentic card when the section did not run", () => {
+    expect(render(fixture())).not.toContain("AGENTIC");
+  });
+
+  test("--bench-only prints the benchmark alone, not three empty cards", () => {
+    // The scored phases never ran, so rendering them would be three sections
+    // reporting zero — which reads as "the engine failed everything" rather
+    // than "we didn't look".
+    const out = renderReport(fixture(), { color: false, benchOnly: true });
+
+    expect(out).not.toContain("SURFACE COVERAGE");
+    expect(out).not.toContain("ENGINE CONFORMANCE");
+    expect(out).not.toContain("MODEL CAPABILITY");
+    // The target header and the footer still frame the run.
+    expect(out).toContain("llmprobe");
+    expect(out).toContain("gemma-3-12b-it");
+  });
+
+  test("without the flag every card is still rendered", () => {
+    const out = render(fixture());
+    expect(out).toContain("SURFACE COVERAGE");
+    expect(out).toContain("ENGINE CONFORMANCE");
+    expect(out).toContain("MODEL CAPABILITY");
+  });
 });

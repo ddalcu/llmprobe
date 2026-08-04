@@ -58,7 +58,19 @@ function turnToMessage(turn: Turn): Record<string, unknown> {
         ],
       };
     case "assistant-text":
-      return { role: "assistant", content: turn.text };
+      // Round-tripped reasoning rides a `thinking` block ahead of the text,
+      // the shape Claude Code sends history back in. Local engines accept it
+      // without a real signature; `redacted_thinking` is deliberately not
+      // modeled (opaque payload, nothing to round-trip).
+      return turn.reasoning !== undefined
+        ? {
+            role: "assistant",
+            content: [
+              { type: "thinking", thinking: turn.reasoning, signature: "" },
+              { type: "text", text: turn.text },
+            ],
+          }
+        : { role: "assistant", content: turn.text };
     case "assistant-tool-call":
       return {
         role: "assistant",
@@ -135,6 +147,7 @@ export const messagesAdapter: SurfaceAdapter = {
   // Anthropic requires max_tokens > budget_tokens; the probe's retry sends a
   // max_tokens comfortably above this.
   reasoningOptIn: { thinking: { type: "enabled", budget_tokens: 256 } },
+  reasoningHistory: true,
 
   responseSchema: messageSchema,
   chunkSchema: messagesStreamEventSchema,

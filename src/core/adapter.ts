@@ -36,7 +36,15 @@ export interface ToolCall {
 export type Turn =
   | { type: "user"; text: string }
   | { type: "user-image"; text: string; imageDataUrl: string }
-  | { type: "assistant-text"; text: string }
+  /**
+   * `reasoning` is the thinking the engine emitted for this turn, round-tripped
+   * the way agent clients (pi, the vLLM SDK flows) send it back. Chat renders
+   * it as `reasoning_content`, Messages as a `thinking` content block. Engines
+   * serving models whose chat templates persist reasoning across turns (GLM
+   * family, poolside Laguna) starve into never thinking again when a server
+   * drops this field on the floor.
+   */
+  | { type: "assistant-text"; text: string; reasoning?: string }
   | { type: "assistant-tool-call"; call: ToolCall }
   | {
       type: "tool-result";
@@ -176,6 +184,13 @@ export interface SurfaceAdapter {
    * never sent, by the same rule that scores Ollama's native API at zero.
    */
   reasoningOptIn?: Record<string, unknown>;
+  /**
+   * The surface has a wire shape for reasoning on assistant HISTORY turns
+   * (chat: `reasoning_content`; messages: `thinking` blocks). Responses
+   * carries reasoning as separate items keyed by engine-private ids — not
+   * expressible as a plain history turn — so the round-trip check skips it.
+   */
+  reasoningHistory?: boolean;
   /** Extra headers — Anthropic needs `x-api-key` + `anthropic-version`. */
   headers(config: RunConfig): Record<string, string>;
   buildBody(request: ChatRequest, config: RunConfig): Record<string, unknown>;

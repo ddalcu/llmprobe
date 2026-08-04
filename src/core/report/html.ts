@@ -24,13 +24,13 @@ import { CATEGORY_LABELS } from "./terminal";
  * The UMD file sits next to the exported entry but is not in the exports map,
  * so resolve the entry and read its sibling.
  */
-function chartJsBundle(): string {
+export function chartJsBundle(): string {
   const require = createRequire(import.meta.url);
   const path = join(dirname(require.resolve("chart.js")), "chart.umd.js");
   return readFileSync(path, "utf8").replace(/<\/script/g, "<\\/script");
 }
 
-function esc(s: string): string {
+export function esc(s: string): string {
   return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -39,11 +39,11 @@ function esc(s: string): string {
 }
 
 /** JSON for a <script> block — `</script>` inside strings must not end it. */
-function embedJson(value: unknown): string {
+export function embedJson(value: unknown): string {
   return JSON.stringify(value).replace(/</g, "\\u003c");
 }
 
-function fmtTokensK(n: number): string {
+export function fmtTokensK(n: number): string {
   return n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n);
 }
 
@@ -64,7 +64,7 @@ function statTile(label: string, value: string, sub = ""): string {
   </div>`;
 }
 
-const STYLE = `
+export const STYLE = `
   :root {
     color-scheme: light;
     --page: #f9f9f7; --surface: #fcfcfb;
@@ -242,6 +242,34 @@ const CHART_SCRIPT = `
       data: { labels, datasets: [lineDataset(okPoints.map((p) => p.ttftMs))] },
       options: lineOptions("prompt tokens", "time to first token, ms"),
     }));
+
+    // How fast the engine ingests, as the thing it ingests gets bigger. TTFT
+    // rising is expected; prefill tok/s falling is the actual degradation.
+    const prefilled = okPoints.filter((p) => p.prefillTokPerSec !== null);
+    if (prefilled.length > 0) {
+      makeChart("context-prefill-chart", () => ({
+        type: "line",
+        data: {
+          labels: prefilled.map((p) => "~" + fmtK(p.inputTokens ?? p.targetTokens)),
+          datasets: [lineDataset(prefilled.map((p) => p.prefillTokPerSec))],
+        },
+        options: lineOptions("prompt tokens", "prefill tok/s"),
+      }));
+    }
+
+    // Where a draft path stops paying: engines commonly starve speculation as
+    // the KV cache grows, and this curve is where that shows up.
+    const stepped = okPoints.filter((p) => p.speculative && p.speculative.tokensPerStep !== null);
+    if (stepped.length > 0) {
+      makeChart("context-step-chart", () => ({
+        type: "line",
+        data: {
+          labels: stepped.map((p) => "~" + fmtK(p.inputTokens ?? p.targetTokens)),
+          datasets: [lineDataset(stepped.map((p) => p.speculative.tokensPerStep))],
+        },
+        options: lineOptions("prompt tokens", "tokens per decode step"),
+      }));
+    }
   }
 
   const spec = REPORT.bench && REPORT.bench.speculative;
@@ -284,6 +312,7 @@ export function renderHtml(report: JsonReport): string {
   const conf = report.conformance;
   const bench = report.bench;
   const fid = report.fidelity;
+  const agentic = report.agentic;
 
   const badge =
     cap.verdict === "below-floor"
@@ -301,8 +330,23 @@ export function renderHtml(report: JsonReport): string {
       <div class="tile-value">${cap.pct}%</div>
       ${badge}
     </div>`,
+    ...(agentic
+      ? [
+          statTile(
+            "Agentic",
+            `${agentic.passed}/${agentic.total}`,
+            "multi-step tool tasks",
+          ),
+        ]
+      : []),
     ...(fid
-      ? [statTile("Engine fidelity", `${fid.pct}%`, "same-model comparisons only")]
+      ? [
+          statTile(
+            "Engine fidelity",
+            `${fid.pct}%`,
+            "same-model comparisons only",
+          ),
+        ]
       : []),
     ...(bench
       ? [
@@ -382,6 +426,31 @@ export function renderHtml(report: JsonReport): string {
       ${capabilityTable}
     </section>`;
 
+  let agenticSection = "";
+  if (agentic) {
+    const rows = agentic.tasks
+      .map((task) => {
+        const icon = task.passed
+          ? `<span style="color:var(--good-text)">✓</span>`
+          : `<span style="color:var(--critical)">✗</span>`;
+        const detail =
+          !task.passed && task.detail
+            ? `<div class="missing">→ ${esc(task.detail)}</div>`
+            : "";
+        return `<div class="row" style="grid-template-columns: 16px 1fr 70px">
+          ${icon}
+          <span class="row-label">${esc(task.name)}</span>
+          <span class="row-ratio">${task.steps} step${task.steps === 1 ? "" : "s"}</span>
+        </div>${detail}`;
+      })
+      .join("\n");
+
+    agenticSection = `<section>
+      <h2>Agentic <span class="note">— ${agentic.passed}/${agentic.total} tasks · multi-step tool use in a simulated workspace, a harder bar than the floor check</span></h2>
+      ${rows}
+    </section>`;
+  }
+
   let fidelitySection = "";
   if (fid) {
     const rows = fid.slices
@@ -437,6 +506,18 @@ export function renderHtml(report: JsonReport): string {
           <div class="chart-box"><canvas id="context-decode-chart"></canvas></div></div>
         <div><div class="chart-title">Time to first token vs context</div>
           <div class="chart-box"><canvas id="context-ttft-chart"></canvas></div></div>
+        ${
+          scaling.some((p) => p.prefillTokPerSec != null)
+            ? `<div><div class="chart-title">Prefill throughput vs context</div>
+          <div class="chart-box"><canvas id="context-prefill-chart"></canvas></div></div>`
+            : ""
+        }
+        ${
+          scaling.some((p) => p.speculative?.tokensPerStep != null)
+            ? `<div><div class="chart-title">Tokens per decode step vs context</div>
+          <div class="chart-box"><canvas id="context-step-chart"></canvas></div></div>`
+            : ""
+        }
       </div>
       ${failed
         .map(
@@ -445,26 +526,92 @@ export function renderHtml(report: JsonReport): string {
         )
         .join("\n")}
       <table>
-        <tr><th>prompt tokens</th><th>decode tok/s</th><th>first token, ms</th><th>runs</th></tr>
+        <tr><th>prompt tokens</th><th>decode tok/s</th><th>first token, ms</th><th>prefill tok/s</th><th>tok/step</th><th>ceiling ratio</th><th>ceiling tok/step</th><th>runs</th></tr>
         ${scaling
-          .map(
-            (p) =>
-              `<tr><td>~${fmtTokensK(p.inputTokens ?? p.targetTokens)}</td><td>${p.decodeTokPerSec ?? "n/a"}</td><td>${p.ttftMs ?? "n/a"}</td><td>${p.runs}</td></tr>`,
-          )
+          .map((p) => {
+            const spec = p.speculative;
+            const steps =
+              spec?.tokensPerStep ??
+              `<span class="note">${esc(spec?.note ?? "n/a")}</span>`;
+            const ceiling = spec?.ratio ? `${spec.ratio}×` : "n/a";
+            const ceilingStep = spec?.predictableTokensPerStep ?? "n/a";
+            return `<tr><td>~${fmtTokensK(p.inputTokens ?? p.targetTokens)}</td><td>${p.decodeTokPerSec ?? "n/a"}</td><td>${p.ttftMs ?? "n/a"}</td><td>${p.prefillTokPerSec ?? "n/a"}</td><td>${steps}</td><td>${ceiling}</td><td>${ceilingStep}</td><td>${p.runs}</td></tr>`;
+          })
           .join("\n")}
-      </table>`;
+      </table>
+      <div class="fineprint">tok/step is read off SSE frame arrival gaps — ~1 means one token per decode step, above that means a draft path is landing. The measured task is realistic agent work: write code against a synthetic codebase, using a constant planted mid-context. The ceiling columns run maximally predictable output (counting) at the same prompt size, so the gap is the headroom speculation still has there.</div>`;
 
     const spec = bench.speculative;
     const specBlock = spec
       ? `<div style="margin-top:20px"><div class="chart-title">Speculative decoding — ${spec.ratio}× (${spec.verdict})</div>
         <div class="chart-box" style="height:180px;max-width:420px"><canvas id="speculative-chart"></canvas></div>
+        <div class="fineprint">${
+          spec.tokensPerStep !== null
+            ? `${spec.tokensPerStep} tokens per decode step, from SSE frame arrival gaps`
+            : `tokens per decode step unavailable: ${esc(spec.tokensPerStepNote ?? "unknown")}`
+        }</div>
         ${spec.reasoningCaveat ? `<div class="fineprint">reasoning model — the thinking phase is novel, so this understates real gains</div>` : ""}
       </div>`
       : "";
 
+    // Server features: two yes/no facts about the engine, stated as text. No
+    // chart earns its space when the answer is a single word and a ratio.
+    const cache = bench.prefixCache;
+    const batch = bench.batching;
+    const serverRows = [
+      cache
+        ? `<tr><td>Prefix cache</td><td>${esc(cache.verdict)}</td><td>${
+            cache.speedup !== null
+              ? `${cache.speedup}× faster to first token on a repeat (${cache.coldTtftMs} ms cold → ${cache.warmTtftMs} ms warm)`
+              : "not measurable"
+          }${
+            cache.cachedTokens !== null
+              ? ` · usage reports ${cache.cachedTokens} of ${cache.promptTokens ?? "?"} prompt tokens cached`
+              : ""
+          }</td></tr>`
+        : "",
+      batch
+        ? `<tr><td>Concurrency (${batch.streams} streams)</td><td>${esc(batch.verdict)}</td><td>${
+            batch.aggregateTokPerSec !== null
+              ? `${batch.aggregateTokPerSec} tok/s aggregate vs ${batch.singleTokPerSec} tok/s alone · ${batch.efficiency} efficiency${
+                  batch.worstTtftMs !== null
+                    ? ` · slowest first token ${batch.worstTtftMs} ms`
+                    : ""
+                }`
+              : "not measurable"
+          }</td></tr>`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const serverBlock = serverRows
+      ? `<div style="margin-top:20px"><div class="chart-title">Server features</div>
+        <table><tr><th>feature</th><th>verdict</th><th>evidence</th></tr>${serverRows}</table>
+        <div class="fineprint">Prefix cache is timed, not taken on trust: an engine can report cached tokens and re-ingest the prompt anyway, and only the clock sees that. Efficiency is aggregate throughput over what the streams would produce at the single-stream rate — near 1 is continuous batching, near 1/N is one slot behind a queue.</div>
+      </div>`
+      : "";
+
+    // Qualifies every figure below it, so it goes above them.
+    const drift = bench.loadDrift;
+    const driftBlock =
+      drift && drift.driftPct !== null
+        ? `<div class="fineprint">${
+            drift.verdict === "steady"
+              ? `Sustained load: steady — ${drift.firstTokPerSec} → ${drift.lastTokPerSec} tok/s over the run (${drift.driftPct}%).`
+              : `⚠ Sustained load: ${drift.firstTokPerSec} → ${drift.lastTokPerSec} tok/s over the run (${drift.driftPct > 0 ? "+" : ""}${drift.driftPct}%). ${
+                  drift.verdict === "degraded"
+                    ? "The machine slowed while these numbers were taken — thermal throttling or competing load"
+                    : "The machine sped up mid-run — the warmup never warmed it, so these read low"
+                }; treat everything below as a range.`
+          }</div>`
+        : "";
+
     benchSection = `<section>
       <h2>Performance <span class="note">— informational, not scored · ${esc(machine)}</span></h2>
+      ${driftBlock}
       ${scalingCharts}
+      ${serverBlock}
       ${specBlock}
     </section>`;
   }
@@ -509,6 +656,7 @@ export function renderHtml(report: JsonReport): string {
   </section>
 
   ${capabilitySection}
+  ${agenticSection}
   ${fidelitySection}
   ${benchSection}
 
