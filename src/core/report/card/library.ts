@@ -366,6 +366,7 @@ export function syncLibrary(dir: string): SyncLibraryResult {
         href: r.href,
         file: r.src,
       })),
+      { libraryHref: "index.html" },
     ),
   );
 

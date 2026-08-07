@@ -75,6 +75,8 @@ describe("renderComparisonHtml", () => {
     expect(html).toContain("compare-sticky");
     expect(html).toContain("__COMPARE__");
     expect(html).toContain("data-theme-select");
+    expect(html).toContain('href="index.html"');
+    expect(html).toContain("Library");
     expect(html).toContain("alpha-model");
     expect(html).toContain("beta-model");
     expect(html).toContain("Select model A");

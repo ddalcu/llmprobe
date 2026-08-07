@@ -72,11 +72,17 @@ function compareEntry(input: CompareWorkbenchInput, index: number) {
   };
 }
 
+export interface CompareWorkbenchOptions {
+  /** Link back to the model library index (default: index.html). */
+  libraryHref?: string | null;
+}
+
 /**
  * Interactive compare workbench: blank columns, model dropdowns, sticky freeze header.
  */
 export function renderCompareWorkbenchHtml(
   inputs: CompareWorkbenchInput[],
+  options: CompareWorkbenchOptions = {},
 ): string {
   const catalog = inputs.map((input, i) => compareEntry(input, i));
   // Disambiguate duplicate slugs
@@ -86,6 +92,14 @@ export function renderCompareWorkbenchHtml(
     seen.set(entry.slug, n);
     if (n > 1) entry.slug = `${entry.slug}-${n}`;
   }
+
+  const libraryHref =
+    options.libraryHref === null
+      ? null
+      : (options.libraryHref ?? "index.html");
+  const libraryNav = libraryHref
+    ? `<a class="btn" href="${esc(libraryHref)}">← Library</a>`
+    : "";
 
   return `<!DOCTYPE html>
 <html lang="en" data-theme="light">
@@ -109,6 +123,7 @@ export function renderCompareWorkbenchHtml(
       </div>
     </div>
     <nav class="nav-links" aria-label="Compare navigation">
+      ${libraryNav}
       ${themeSwitcherHtml()}
     </nav>
   </header>
