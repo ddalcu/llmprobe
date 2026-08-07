@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { pathToFileURL } from "node:url";
 
 import {
   ADAPTERS,
@@ -260,13 +261,17 @@ Examples:
 /** Open a local HTML file in the default browser (best-effort). */
 function openInBrowser(filePath: string): void {
   const abs = resolve(filePath);
+  const fileUrl = pathToFileURL(abs).href;
+  const opts = { detached: true, stdio: "ignore" as const };
   try {
     if (process.platform === "darwin") {
-      execFile("open", [abs], () => undefined);
+      // Prefer file:// URL so Finder/browser handoff is reliable.
+      execFile("open", [fileUrl], opts, () => undefined)?.unref?.();
     } else if (process.platform === "win32") {
-      execFile("cmd", ["/c", "start", "", abs], () => undefined);
+      execFile("cmd", ["/c", "start", "", fileUrl], opts, () => undefined)?.unref?.(
+      );
     } else {
-      execFile("xdg-open", [abs], () => undefined);
+      execFile("xdg-open", [fileUrl], opts, () => undefined)?.unref?.();
     }
   } catch {
     // Non-fatal: CI / headless environments may lack a browser opener.
