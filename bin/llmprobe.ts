@@ -209,7 +209,8 @@ implements, and separately grades the model's capability.
 Options:
   -k, --api-key <key>   API key (optional for local engines)
   -m, --model <name>    Model to test (default: interactive picker from
-                        /v1/models on a TTY, otherwise the first model)
+                        /v1/models on a TTY; first model if non-interactive.
+                        Required when /v1/models is empty or unreachable)
       --quick           Surface probe + core smoke tests only
       --full            Everything, including the slow tests (long context, caching)
       --bench           Add a performance benchmark: decode tok/s, TTFT, prefill,
@@ -470,6 +471,7 @@ async function main(): Promise<void> {
   let model = args.model ?? "";
   let serverHeader: string | null = null;
   let modelIds: string[] = [];
+  let modelsListError: string | null = null;
   try {
     const res = await fetch(`${baseUrl}/models`, {
       headers: bearerAuth({ apiKey } as RunConfig),
@@ -477,13 +479,21 @@ async function main(): Promise<void> {
     });
     serverHeader = res.headers.get("server");
     if (!model) {
-      const data = (await res.json()) as { data?: Array<{ id?: string }> };
-      modelIds = (data?.data ?? [])
-        .map((m) => m.id)
-        .filter((id): id is string => typeof id === "string" && id.length > 0);
+      if (!res.ok) {
+        modelsListError = `GET ${baseUrl}/models → HTTP ${res.status}`;
+      } else {
+        const data = (await res.json()) as { data?: Array<{ id?: string }> };
+        modelIds = (data?.data ?? [])
+          .map((m) => m.id)
+          .filter((id): id is string => typeof id === "string" && id.length > 0);
+        if (modelIds.length === 0) {
+          modelsListError = `GET ${baseUrl}/models returned no model ids`;
+        }
+      }
     }
-  } catch {
-    // Fall through to the model error below.
+  } catch (err) {
+    modelsListError =
+      err instanceof Error ? err.message : "failed to list /v1/models";
   }
 
   if (!model && modelIds.length > 0) {
@@ -491,6 +501,13 @@ async function main(): Promise<void> {
       !quiet && process.stdin.isTTY === true && process.stdout.isTTY === true;
     if (modelIds.length === 1 || !interactive) {
       model = modelIds[0]!;
+      if (!interactive && modelIds.length > 1) {
+        log(
+          c.gray(
+            `  (non-interactive — using first model: ${model}; pass --model to pick another)`,
+          ),
+        );
+      }
     } else {
       const rl = createInterface({
         input: process.stdin,
@@ -510,7 +527,20 @@ async function main(): Promise<void> {
 
   if (!model) {
     console.error(
-      `\n${c.red("Error:")} could not determine a model — pass one with --model.`,
+      `\n${c.red("Error:")} could not determine a model — pass one with --model <id>.`,
+    );
+    if (modelsListError) {
+      console.error(c.gray(`  ${modelsListError}`));
+    }
+    console.error(
+      c.gray(
+        "  Tip: list models with curl, e.g. curl -s http://localhost:8080/v1/models",
+      ),
+    );
+    console.error(
+      c.gray(
+        "  Example: llmprobe localhost:8080 --model my-model --library runs/report-card",
+      ),
     );
     process.exit(2);
   }

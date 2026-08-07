@@ -1,6 +1,0 @@
-# Library outputs are generated locally — do not commit probe results.
-# Rebuild: llmprobe --library runs/report-card
-*
-!.gitignore
-!README.md
-!generate.mjs

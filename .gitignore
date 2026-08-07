@@ -4,6 +4,15 @@ dist/
 bin/dist/
 .astro/
 __pycache__/
-.env.local.DS_Store
+.env.local
 .DS_Store
 .claude/
+
+# Local probe dumps under runs/ (keep personal results out of git)
+runs/**/*.json
+runs/**/*.html
+
+# Product library stub — only docs + rebuild wrapper are tracked
+runs/report-card/*
+!runs/report-card/README.md
+!runs/report-card/generate.mjs

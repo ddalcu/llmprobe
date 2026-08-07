@@ -10,13 +10,23 @@ Implementation lives in product code: `src/core/report/card/`.
 ```bash
 npm run build:cli
 
-# Probe and create the library in one shot
-llmprobe localhost:8080 --library runs/report-card
+# Probe and create the library in one shot (pass --model if picker can't list)
+llmprobe localhost:8080 --model <id> --library runs/report-card
 
 # Or save JSON elsewhere, then rebuild
-llmprobe localhost:8080 --save runs/report-card/my-engine.json
+llmprobe localhost:8080 --model <id> --save runs/report-card/my-engine.json
 llmprobe --library runs/report-card
 ```
+
+If you see “could not determine a model”, the engine didn’t return usable
+`/v1/models` ids (or the environment isn’t a TTY). List them and pass
+`--model` explicitly:
+
+```bash
+curl -s http://localhost:8080/v1/models
+llmprobe localhost:8080 --model Your-Model-Id --library runs/report-card
+```
+
 
 After the first successful sync you get (gitignored):
 
