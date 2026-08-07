@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFile } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -45,6 +46,7 @@ import { renderHtml } from "../src/core/report/html";
 import {
   ingestReportIntoLibrary,
   isLibraryDir,
+  libraryIndexHrefFrom,
   LibraryEmptyError,
   resolveLibraryDir,
   syncLibrary,
@@ -87,6 +89,8 @@ interface Args {
   library?: string;
   /** Saved reports to put side by side instead of probing an engine. */
   compare?: string[];
+  /** Do not open the HTML report in a browser after --html. */
+  noOpen: boolean;
   noColor: boolean;
   help: boolean;
 }
@@ -99,6 +103,7 @@ function parseArgs(argv: string[]): Args {
     bench: false,
     benchOnly: false,
     timeoutSec: 60,
+    noOpen: false,
     noColor: false,
     help: false,
   };
@@ -152,6 +157,9 @@ function parseArgs(argv: string[]): Args {
         break;
       case "--library":
         args.library = next();
+        break;
+      case "--no-open":
+        args.noOpen = true;
         break;
       case "--compare": {
         // Variadic: everything up to the next flag. Comparing two files is the
@@ -221,12 +229,12 @@ Options:
       --markdown        README-ready report with badges
       --baseline <f>    Diff against a saved run and flag regressions
       --save <f>        Write the JSON report to a file
-      --html <f>        Write a self-contained report card (themes, drill-downs)
-      --library <dir>   Model library directory: ingest this run, rebuild
-                        index.html, compare.html, and per-model cards from all
-                        *.json saves in the dir. Also: llmprobe --library <dir>
-                        rebuilds without probing. Auto-syncs when --save/--html
-                        already point into a dir that has library.json.
+      --html <f>        Write a report card and auto-maintain a model library
+                        beside it (<dir>/report-card/), update past runs, and
+                        open the card in your browser (see --no-open)
+      --library <dir>   Explicit library directory (optional with --html).
+                        Also: llmprobe --library <dir> rebuilds without probing
+      --no-open         Do not open the HTML report in a browser after --html
       --compare <f...>  Interactive compare workbench from saved --save reports
                         instead of probing. Needs --html. Pick models per column;
                         sticky freeze header while scrolling.
@@ -243,10 +251,27 @@ Examples:
   llmprobe https://openrouter.ai/api/v1 -k $OPENROUTER_API_KEY
   llmprobe localhost:8080 --save baselines/llama-cpp.json
   llmprobe localhost:8080 --baseline baselines/llama-cpp.json
-  llmprobe localhost:8080 --library runs/report-card
+  llmprobe localhost:8080 --html runs/my-run.html  # library + browser open
+  llmprobe localhost:8080 --model X --html runs/out.html --no-open
   llmprobe --library runs/report-card              # rebuild library only
   llmprobe --compare a.json b.json c.json --html compare.html
 `;
+
+/** Open a local HTML file in the default browser (best-effort). */
+function openInBrowser(filePath: string): void {
+  const abs = resolve(filePath);
+  try {
+    if (process.platform === "darwin") {
+      execFile("open", [abs], () => undefined);
+    } else if (process.platform === "win32") {
+      execFile("cmd", ["/c", "start", "", abs], () => undefined);
+    } else {
+      execFile("xdg-open", [abs], () => undefined);
+    }
+  } catch {
+    // Non-fatal: CI / headless environments may lack a browser opener.
+  }
+}
 
 /**
  * Build one page from several saved runs. Probes nothing — the reports already
@@ -485,7 +510,9 @@ async function main(): Promise<void> {
         const data = (await res.json()) as { data?: Array<{ id?: string }> };
         modelIds = (data?.data ?? [])
           .map((m) => m.id)
-          .filter((id): id is string => typeof id === "string" && id.length > 0);
+          .filter(
+            (id): id is string => typeof id === "string" && id.length > 0,
+          );
         if (modelIds.length === 0) {
           modelsListError = `GET ${baseUrl}/models returned no model ids`;
         }
@@ -1029,13 +1056,21 @@ async function main(): Promise<void> {
     };
   }
 
-  if (args.save) writeFileSync(args.save, `${JSON.stringify(json, null, 2)}\n`);
+  if (args.save) {
+    mkdirSync(dirname(resolve(args.save)), { recursive: true });
+    writeFileSync(args.save, `${JSON.stringify(json, null, 2)}\n`);
+    log(`${c.gray("json report →")} ${args.save}`);
+  }
 
+  // --html always maintains a model library so ← Library and past runs work
+  // without a separate --library flag. Explicit --library still wins.
   const libraryDir = resolveLibraryDir({
     library: args.library,
     save: args.save,
     html: args.html,
   });
+
+  let openedHtml: string | null = null;
 
   if (libraryDir) {
     mkdirSync(libraryDir, { recursive: true });
@@ -1050,33 +1085,45 @@ async function main(): Promise<void> {
       slug: modelSlug,
     } = ingestReportIntoLibrary(libraryDir, json, { preferredFileName });
     const libraryCard = join(libraryDir, `${modelSlug}.html`);
-    // Standalone --html still written when requested (may differ from library card).
+
     if (args.html) {
-      const inLibrary = resolve(dirname(args.html)) === resolve(libraryDir);
+      mkdirSync(dirname(resolve(args.html)), { recursive: true });
+      const libraryHref = libraryIndexHrefFrom(args.html, libraryDir);
       writeFileSync(
         args.html,
         renderHtml(json, {
           ...baselineContext,
-          // Always offer a way back when this run is part of a library.
-          libraryHref: inLibrary ? "index.html" : undefined,
+          libraryHref,
           label: preferredFileName,
         }),
       );
       log(`${c.gray("html report →")} ${args.html}`);
-      if (!inLibrary) {
+      if (resolve(args.html) !== resolve(libraryCard)) {
         log(
-          `${c.gray("  (library card →")} ${libraryCard}${c.gray("; open library →")} ${join(libraryDir, "index.html")}${c.gray(")")}`,
+          `${c.gray("  library card →")} ${libraryCard}${c.gray(" · library →")} ${join(libraryDir, "index.html")}`,
         );
       }
-    } else {
+      openedHtml = args.html;
+    } else if (args.library) {
+      // Explicit library-only probe: open the library card for this model.
       log(`${c.gray("html report →")} ${libraryCard}`);
+      openedHtml = libraryCard;
     }
+
     if (!quiet) {
       logLibrarySync(c, sync, { ingested: `${modelSlug} · ${jsonPath}` });
     }
   } else if (args.html) {
+    // Unreachable when resolveLibraryDir always defaults from --html; keep safe.
+    mkdirSync(dirname(resolve(args.html)), { recursive: true });
     writeFileSync(args.html, renderHtml(json, baselineContext));
     log(`${c.gray("html report →")} ${args.html}`);
+    openedHtml = args.html;
+  }
+
+  if (openedHtml && !args.noOpen && !quiet) {
+    openInBrowser(openedHtml);
+    log(`${c.gray("opened →")} ${resolve(openedHtml)}`);
   }
 
   if (args.json) {

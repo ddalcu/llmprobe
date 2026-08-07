@@ -1,59 +1,42 @@
 # Model library (local output)
 
-Empty stub directory for an llmprobe **model library**. No sample probe data is
-shipped here — run your own probes to populate it.
+Empty stub for an llmprobe **model library**. No sample probe data is shipped.
 
-Implementation lives in product code: `src/core/report/card/`.
-
-## First-time setup
+You usually **do not** need to pass `--library` yourself. Any probe with
+`--html` auto-creates and updates a library next to the HTML file:
 
 ```bash
 npm run build:cli
 
-# Probe and create the library in one shot (pass --model if picker can't list)
-llmprobe localhost:8080 --model <id> --library runs/report-card
+# First run from an empty runs/ — builds library, cards, and opens the browser
+llmprobe localhost:8080 --model <id> --html runs/my-run-1.html
 
-# Or save JSON elsewhere, then rebuild
-llmprobe localhost:8080 --model <id> --save runs/report-card/my-engine.json
-llmprobe --library runs/report-card
+# Later runs add models to the same library
+llmprobe localhost:8080 --model <id> --html runs/my-run-2.html
 ```
 
-If you see “could not determine a model”, the engine didn’t return usable
-`/v1/models` ids (or the environment isn’t a TTY). List them and pass
-`--model` explicitly:
+That produces (gitignored):
+
+| Path                            | Role                                                          |
+| ------------------------------- | ------------------------------------------------------------- |
+| `runs/my-run-1.html`            | This run’s report card (← Library → `report-card/index.html`) |
+| `runs/report-card/index.html`   | Ranking table of **all** past + current runs                  |
+| `runs/report-card/compare.html` | Interactive multi-model compare                               |
+| `runs/report-card/<slug>.html`  | Library copy of each model card                               |
+| `runs/report-card/<slug>.json`  | Ingested probe JSON                                           |
+| `runs/report-card/library.json` | Catalog                                                       |
+
+## Optional commands
 
 ```bash
-curl -s http://localhost:8080/v1/models
-llmprobe localhost:8080 --model Your-Model-Id --library runs/report-card
-```
-
-
-After the first successful sync you get (gitignored):
-
-| File | Role |
-|------|------|
-| `index.html` | Ranking table, search, multi-select compare |
-| `compare.html` | Interactive compare workbench |
-| `<model-slug>.html` | Per-run report cards |
-| `<model-slug>.json` | Ingested `--save` copies |
-| `library.json` | Catalog marker (enables auto-sync) |
-
-## Rebuild
-
-```bash
+# Explicit library dir / rebuild without probing
 llmprobe --library runs/report-card
-# same:
 node runs/report-card/generate.mjs
+
+# Probe without opening a browser (CI)
+llmprobe localhost:8080 --model <id> --html runs/out.html --no-open
 ```
-
-Unique probe JSON in the **parent** folder (`runs/*.json`) is adopted on rebuild
-and copied into this directory.
-
-## Auto-sync
-
-Once `library.json` exists, any later `--save` / `--html` into this directory
-refreshes the library without re-passing `--library`.
 
 ## Themes
 
-Light (default) · Dark · Cyber — header dropdown; stored in `localStorage`.
+Light (default) · Dark · Cyber — header dropdown (`localStorage`).

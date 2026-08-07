@@ -7,7 +7,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 
 import type { JsonReport } from "../json";
 import { normalizeJsonReport } from "../json";
@@ -436,8 +436,14 @@ export function isLibraryDir(dir: string): boolean {
 }
 
 /**
- * Infer a library directory from --save / --html paths when they already
- * point into an existing library, or when --library is set.
+ * Infer a library directory for auto-sync.
+ *
+ * Priority:
+ * 1. Explicit `--library`
+ * 2. Parent of `--save` / `--html` if it already has `library.json`
+ * 3. With `--html`: `<html-dir>/report-card` (or the html dir itself when it
+ *    is already named `report-card`) so a bare `--html runs/foo.html` builds
+ *    a full library under `runs/report-card/` without extra flags
  */
 export function resolveLibraryDir(options: {
   library?: string;
@@ -451,5 +457,30 @@ export function resolveLibraryDir(options: {
     const parent = resolve(p, "..");
     if (isLibraryDir(parent)) return parent;
   }
+
+  if (options.html) {
+    const htmlDir = dirname(resolve(options.html));
+    if (basename(htmlDir) === "report-card" || isLibraryDir(htmlDir)) {
+      return htmlDir;
+    }
+    return join(htmlDir, "report-card");
+  }
+
   return null;
+}
+
+/**
+ * Relative href from an HTML file to the library index (so ← Library works
+ * whether the card lives in the library dir or next to it).
+ */
+export function libraryIndexHrefFrom(
+  htmlPath: string,
+  libraryDir: string,
+): string {
+  const fromDir = dirname(resolve(htmlPath));
+  const index = join(resolve(libraryDir), "index.html");
+  let rel = relative(fromDir, index);
+  if (!rel || rel === "index.html") return "index.html";
+  // Browsers want forward slashes in file URLs / relative links
+  return rel.split("\\").join("/");
 }

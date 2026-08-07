@@ -7,6 +7,7 @@ import type { JsonReport } from "../json";
 import {
   ingestReportIntoLibrary,
   isLibraryDir,
+  libraryIndexHrefFrom,
   LibraryEmptyError,
   resolveLibraryDir,
   syncLibrary,
@@ -104,6 +105,24 @@ describe("library auto-sync", () => {
       }),
     ).toBe(resolve(dir));
     expect(resolveLibraryDir({ save: "/tmp/no-lib/m.json" })).toBeNull();
+  });
+
+  test("resolveLibraryDir auto-creates report-card beside --html", () => {
+    expect(resolveLibraryDir({ html: "runs/my-run-1.html" })).toBe(
+      resolve("runs/report-card"),
+    );
+    expect(resolveLibraryDir({ html: "/tmp/out/report-card/model.html" })).toBe(
+      resolve("/tmp/out/report-card"),
+    );
+  });
+
+  test("libraryIndexHrefFrom is relative so ← Library works from sibling cards", () => {
+    expect(libraryIndexHrefFrom("runs/my-run-1.html", "runs/report-card")).toBe(
+      "report-card/index.html",
+    );
+    expect(
+      libraryIndexHrefFrom("runs/report-card/model.html", "runs/report-card"),
+    ).toBe("index.html");
   });
 
   test("adopts probe JSON from the parent directory when the library is empty", () => {
