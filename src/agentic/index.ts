@@ -1,5 +1,5 @@
 import type { Turn } from "../core/adapter";
-import { BudgetExceededError } from "../core/client";
+import { BudgetExceededError, TargetUnreachableError } from "../core/client";
 import type { RunContext } from "../core/context";
 import type { AgenticScore, AgenticTaskResult } from "../core/outcome";
 import {
@@ -173,6 +173,8 @@ export async function runAgenticTask(
       ).reply;
     } catch (err) {
       if (err instanceof BudgetExceededError) throw err;
+      // The target is gone — the remaining tasks would only measure a corpse.
+      if (err instanceof TargetUnreachableError) throw err;
       return {
         ...base,
         passed: false,

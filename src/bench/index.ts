@@ -1,7 +1,7 @@
 import { arch, cpus, platform, totalmem } from "node:os";
 
 import { tryParseJson } from "../core/assert";
-import { BudgetExceededError } from "../core/client";
+import { BudgetExceededError, TargetUnreachableError } from "../core/client";
 import type { RunContext } from "../core/context";
 import type {
   BatchingResult,
@@ -347,6 +347,10 @@ async function timedRun(
     );
   } catch (err) {
     if (err instanceof BudgetExceededError) throw err;
+    // A crashed server must not become a published throughput number. Recording
+    // this as one more failed sample is how a decode rate got charted for a
+    // process that had already died.
+    if (err instanceof TargetUnreachableError) throw err;
     return failedSample(err instanceof Error ? err.message : String(err));
   }
 

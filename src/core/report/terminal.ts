@@ -89,7 +89,7 @@ function renderCoverage(coverage: CoverageScore, c: Palette): string[] {
     // Never let "we skipped the check" read as "the engine lacks it".
     if (tier.unprobed.length > 0) {
       lines.push(
-        `            ${c.gray(`? ${tier.unprobed.join(", ")} — not probed at this depth`)}`,
+        `            ${c.gray(`? ${tier.unprobed.join(", ")} — not probed in this run`)}`,
       );
     }
   }
@@ -248,7 +248,7 @@ function renderFidelity(fid: FidelityScore, c: Palette): string[] {
   if (fid.firstDivergence) {
     const d = fid.firstDivergence;
     lines.push(
-      `  ${c.yellow(`⚠ greedy runs diverged at char ${d.charIndex}`)} ${c.gray(`(${d.itemId}, ${d.runs} runs) — non-determinism at temperature 0`)}`,
+      `  ${c.yellow(`⚠ greedy runs diverged at char ${d.charIndex}`)} ${c.gray(`(${d.itemId}, run ${d.run} of ${d.runs}) — non-determinism at temperature 0`)}`,
     );
   }
 
@@ -511,8 +511,19 @@ export function renderReport(
     ` ${c.bold("llmprobe")} ${c.gray("·")} ${target}`,
     rule,
     "",
-    ...scored,
   ];
+
+  // Above the cards, not below them: a reader who stops at the first number has
+  // to have already been told the run did not finish.
+  if (report.incomplete) {
+    lines.push(
+      ` ${c.red("✗ INCOMPLETE RUN")} ${c.gray("— the cards below are partial")}`,
+      ` ${c.gray(report.incomplete)}`,
+      "",
+    );
+  }
+
+  lines.push(...scored);
 
   if (report.agentic) {
     lines.push(...renderAgentic(report.agentic, c), "");

@@ -465,7 +465,7 @@ export function renderHtml(report: JsonReport): string {
     if (fid.firstDivergence) {
       const d = fid.firstDivergence;
       notes.push(
-        `<div class="missing">✗ greedy runs diverged at char ${d.charIndex} (${esc(d.itemId)}, ${d.runs} runs) — non-determinism at temperature 0</div>`,
+        `<div class="missing">✗ greedy runs diverged at char ${d.charIndex} (${esc(d.itemId)}, run ${d.run} of ${d.runs}) — non-determinism at temperature 0</div>`,
       );
     }
     if (fid.unmeasured.length > 0) {

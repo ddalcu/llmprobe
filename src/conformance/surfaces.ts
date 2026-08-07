@@ -644,9 +644,27 @@ export const messagesOnlyTests: ConformanceTest[] = [
         return;
       }
 
-      if (!/alpha/i.test(res.reply.text)) {
+      // The engine can only be judged on a stop it was actually given the
+      // chance to cut. A weak model that answers "Alpha is a Greek letter
+      // often used to denote..." and runs into max_tokens never emits `beta`
+      // at all — checking only that "alpha" appeared waves that through and
+      // then blames the engine for not implementing stop_sequence. Seen on
+      // Llama-3.2-3B and Mistral-7B; the other ten families reached it fine.
+      // Three ways the engine can be judged fairly: it said the stop fired, the
+      // model emitted the sequence and the engine failed to cut it, or the text
+      // stops exactly where the cut belongs (a real cut wearing the wrong
+      // stop_reason — the bug this check exists for).
+      const cutWhereExpected =
+        res.reply.finishReason !== "max_tokens" &&
+        /^alpha\W*$/i.test(res.reply.text.trim());
+      const reachedStop =
+        res.reply.finishReason === "stop_sequence" ||
+        /beta/i.test(res.reply.text) ||
+        cutWhereExpected;
+
+      if (!/alpha/i.test(res.reply.text) || !reachedStop) {
         throw new Inconclusive(
-          "the model did not echo the phrase, so the stop sequence was never reachable",
+          `the model never emitted the stop sequence (finish_reason "${res.reply.finishReason}"), so the cut was never reachable`,
         );
       }
 

@@ -4,6 +4,7 @@ import {
   type DeterminismObservation,
   firstContentToken,
   isConsistent,
+  topMargin,
   type ItemObservation,
   scoreFidelity,
 } from "./index";
@@ -13,25 +14,100 @@ const item = (over: Partial<ItemObservation> = {}): ItemObservation => ({
   correct: true,
   hard: true,
   topProb: 1,
+  margin: 0.5,
   consistent: true,
   ...over,
 });
 
-const det = (over: Partial<DeterminismObservation> = {}): DeterminismObservation => ({
+const det = (
+  over: Partial<DeterminismObservation> = {},
+): DeterminismObservation => ({
   id: "d",
   runs: 3,
   identical: true,
   firstDivergenceChar: null,
+  divergedRun: null,
   ...over,
+});
+
+describe("topMargin", () => {
+  it("is the gap to the runner-up, whatever order the top-k arrived in", () => {
+    // Engines legitimately return top_logprobs unsorted; assuming order here
+    // would report the gap to an arbitrary alternative.
+    const ft = firstContentToken({
+      content: [
+        {
+          token: "Paris",
+          logprob: Math.log(0.8),
+          top_logprobs: [
+            { token: "Lyon", logprob: Math.log(0.05) },
+            { token: "Paris", logprob: Math.log(0.8) },
+            { token: "Nice", logprob: Math.log(0.1) },
+          ],
+        },
+      ],
+    })!;
+
+    expect(topMargin(ft)).toBeCloseTo(0.7, 5);
+  });
+
+  it("has no answer without a runner-up", () => {
+    const ft = firstContentToken({
+      content: [{ token: "Paris", logprob: -0.05 }],
+    })!;
+    expect(topMargin(ft)).toBeNull();
+  });
+});
+
+describe("fidelity measurements", () => {
+  it("carries the continuous numbers the graded slices round away", () => {
+    // Confidence saturates at 0.9, so 0.94 and 0.99 both score 1.0. Anyone
+    // ranking engines needs the raw values, and they must not have to parse
+    // them back out of a human-readable detail string.
+    const score = scoreFidelity(
+      [
+        item({ id: "a", topProb: 0.94, margin: 0.9 }),
+        item({ id: "b", topProb: 0.99, margin: 0.98 }),
+        item({ id: "easy", hard: false, topProb: 0.5, margin: 0.1 }),
+      ],
+      [det()],
+      { reasoningCaveat: false },
+    );
+
+    // Means follow the Confidence slice: harder items only, so the number
+    // matches the one on the card.
+    expect(score.measurements.meanTopProb).toBeCloseTo(0.965, 5);
+    expect(score.measurements.meanMargin).toBeCloseTo(0.94, 5);
+    expect(score.slices.find((s) => s.id === "confidence")!.score).toBe(1);
+
+    // Every item is still there, so any other subset can be recomputed.
+    expect(score.measurements.items).toHaveLength(3);
+    expect(score.measurements.items[2]).toMatchObject({
+      id: "easy",
+      hard: false,
+      topProb: 0.5,
+    });
+  });
+
+  it("reports no logprobs as null, never as zero", () => {
+    const score = scoreFidelity(
+      [item({ topProb: null, margin: null, consistent: null })],
+      [det()],
+      { reasoningCaveat: false },
+    );
+
+    // A zero here would read as "maximally unconfident engine" in someone
+    // else's spreadsheet.
+    expect(score.measurements.meanTopProb).toBeNull();
+    expect(score.measurements.meanMargin).toBeNull();
+  });
 });
 
 describe("scoreFidelity", () => {
   it("a perfect engine scores 100", () => {
-    const score = scoreFidelity(
-      [item(), item(), item()],
-      [det(), det()],
-      { reasoningCaveat: false },
-    );
+    const score = scoreFidelity([item(), item(), item()], [det(), det()], {
+      reasoningCaveat: false,
+    });
     expect(score.pct).toBe(100);
     expect(score.unmeasured).toEqual([]);
     expect(score.firstDivergence).toBeNull();
@@ -100,13 +176,28 @@ describe("scoreFidelity", () => {
     const score = scoreFidelity(
       [item()],
       [
-        det({ id: "a", identical: false, firstDivergenceChar: 120 }),
-        det({ id: "b", identical: false, firstDivergenceChar: 40 }),
+        det({
+          id: "a",
+          identical: false,
+          firstDivergenceChar: 120,
+          divergedRun: 3,
+        }),
+        det({
+          id: "b",
+          identical: false,
+          firstDivergenceChar: 40,
+          divergedRun: 2,
+        }),
         det({ id: "c" }),
       ],
       { reasoningCaveat: false },
     );
-    expect(score.firstDivergence).toEqual({ itemId: "b", charIndex: 40, runs: 3 });
+    expect(score.firstDivergence).toEqual({
+      itemId: "b",
+      charIndex: 40,
+      run: 2,
+      runs: 3,
+    });
     // 2 of 3 prompts split → determinism 1/3.
     const determinism = score.slices.find((s) => s.id === "determinism");
     expect(determinism?.score).toBeCloseTo(1 / 3, 2);
@@ -145,7 +236,11 @@ describe("firstContentToken", () => {
   it("skips a leading whitespace token to reach the real answer", () => {
     const ft = firstContentToken({
       content: [
-        { token: "\n", logprob: 0, top_logprobs: [{ token: "\n", logprob: 0 }] },
+        {
+          token: "\n",
+          logprob: 0,
+          top_logprobs: [{ token: "\n", logprob: 0 }],
+        },
         {
           token: "Paris",
           logprob: -0.2,
@@ -165,29 +260,35 @@ describe("isConsistent", () => {
 
   it("passes when the emitted token is the numeric argmax", () => {
     expect(
-      isConsistent(ft(-0.05, [
-        { token: "a", logprob: -0.05 },
-        { token: "b", logprob: -3.1 },
-      ])),
+      isConsistent(
+        ft(-0.05, [
+          { token: "a", logprob: -0.05 },
+          { token: "b", logprob: -3.1 },
+        ]),
+      ),
     ).toBe(true);
   });
 
   it("tolerates an unsorted top-k (engines legitimately return it unordered)", () => {
     // Argmax is last in the list; a sorted-order assumption would false-fail.
     expect(
-      isConsistent(ft(-0.1, [
-        { token: "b", logprob: -2.4 },
-        { token: "a", logprob: -0.1 },
-      ])),
+      isConsistent(
+        ft(-0.1, [
+          { token: "b", logprob: -2.4 },
+          { token: "a", logprob: -0.1 },
+        ]),
+      ),
     ).toBe(true);
   });
 
   it("fails when the emitted token is NOT the argmax (a real bug)", () => {
     expect(
-      isConsistent(ft(-1.8, [
-        { token: "a", logprob: -0.1 },
-        { token: "x", logprob: -1.8 },
-      ])),
+      isConsistent(
+        ft(-1.8, [
+          { token: "a", logprob: -0.1 },
+          { token: "x", logprob: -1.8 },
+        ]),
+      ),
     ).toBe(false);
   });
 

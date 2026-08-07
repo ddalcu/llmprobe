@@ -74,15 +74,17 @@ Two rules follow from that:
 
 - **Unknown fields are always tolerated.** Engines legitimately add their own (llama.cpp emits timings, Ollama its own metadata). Rejecting them would be a false positive.
 - **Silently ignoring a requested parameter is a MUST failure.** An engine that accepts `logprobs: true`, returns `200 OK`, and sends no logprobs is worse than one that cleanly returns `400` — the caller cannot detect it. That costs Coverage (the feature isn't really there) _and_ Conformance (pretending it is, is a trap). It's the one place we deliberately charge twice.
+- **A parameter is checked on the streaming path too.** Logprobs are the case that proves it: an engine can return them non-streaming and drop them entirely with `stream: true`. The content deltas are byte-identical either way, so no output check can see it, and asking for logprobs disables speculative decoding — the engine pays for them and delivers nothing. So the streamed entries are compared to the non-streamed ones for the same greedy request, token for token and value for value, which also catches a partial drain or an off-by-one.
 
 Ollama's native `/api/chat` is detected and shown as a credit line, and scores exactly zero. We reward standards, not native APIs.
 
 ## Honest outcomes
 
-Two states most suites don't have:
+Three states most suites don't have:
 
 - **`unsupported`** — not implemented. Costs Coverage, leaves the Conformance denominator alone.
 - **`inconclusive`** — the engine was never exercised because the model wouldn't cooperate. You cannot check that `tool_calls` serializes correctly if the model never emits a tool call. Rather than guess, the result leaves the denominator and gets printed loudly.
+- **`unreachable`** — the target stopped answering: connection refused, reset, or hung up. Neither the engine nor the model said anything, so it scores nothing at all. Three in a row stops the run, and the report says where it stopped and how many checks never ran. A process that dies at check 35 must never read as an engine that implements nothing, or as a model that cannot name a chemical symbol.
 
 To keep `inconclusive` rare, engine tests **force the model's hand** wherever the spec allows: `tool_choice: "required"`, a named function, `max_tokens: 1` for finish-reason checks, temperature 0. Model variance is designed _out_ of the engine score.
 
@@ -243,7 +245,11 @@ llmprobe localhost:8080 --baseline baselines/llama-cpp-b4321.json
 # REGRESSED chat-finish-is-length: pass → expected length/max_tokens, got "stop"
 ```
 
+The saved JSON also carries the fidelity card's raw numbers under `fidelity.measurements`: mean top-1 probability, mean gap to the runner-up, and both per battery item. The graded slices are floor checks and saturate on purpose — a healthy engine reads 100 — so anyone separating two healthy engines, or correlating against an external benchmark, wants the continuous values. They cost nothing extra to produce: the logprobs were already fetched. Nulls stay null, because a zero would read as a maximally unconfident engine.
+
 Exit code is non-zero on any `MUST` failure, regression, or exhausted budget, so it works as a CI gate. **The model's score never affects the exit code** — llmprobe gates on the engine, not on how clever the model is.
+
+A run that stopped because the target died exits `2`, not `1`: the cards are partial, the baseline diff is skipped, and a benchmark cut short by a dead server is discarded rather than published. Exit `1` means the engine failed a `MUST`, and a crashed process has not earned that verdict.
 
 ## What gets checked
 
@@ -271,7 +277,7 @@ npm run typecheck
 npm run probe -- localhost:8080 --full
 ```
 
-The test suite drives the entire pipeline — probe, run, score, report — against a mock engine in `src/fixtures/mock-engine.ts` with switchable defects. Each planted defect (a stream missing `[DONE]`, a lying `finish_reason`, tool arguments serialized as an object, a silently-ignored `logprobs`) has a test demanding the report name it. A conformance suite nobody has run against a known-broken engine is just a well-formatted opinion.
+The test suite drives the entire pipeline — probe, run, score, report — against a mock engine in `src/fixtures/mock-engine.ts` with switchable defects. Each planted defect (a stream missing `[DONE]`, a lying `finish_reason`, tool arguments serialized as an object, a silently-ignored `logprobs`, logprobs dropped only while streaming, a process that dies mid-run) has a test demanding the report name it. A conformance suite nobody has run against a known-broken engine is just a well-formatted opinion.
 
 ### Layout
 

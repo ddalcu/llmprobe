@@ -174,7 +174,7 @@ export function renderMarkdown(report: RunReport): string {
       const d = fid.firstDivergence;
       lines.push("");
       lines.push(
-        `> ⚠️ Greedy runs diverged at char ${d.charIndex} (\`${d.itemId}\`, ${d.runs} runs) — non-determinism at temperature 0.`,
+        `> ⚠️ Greedy runs diverged at char ${d.charIndex} (\`${d.itemId}\`, run ${d.run} of ${d.runs}) — non-determinism at temperature 0.`,
       );
     }
     if (fid.reasoningCaveat) {

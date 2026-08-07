@@ -13,6 +13,8 @@ import type {
 export interface JsonReport {
   version: 1;
   target: RunReport["target"];
+  /** Set when the target died mid-run; every score below is partial. */
+  incomplete?: string;
   coverage: {
     byTier: RunReport["coverage"]["byTier"];
     credits: RunReport["coverage"]["credits"];
@@ -72,6 +74,7 @@ export function buildJsonReport(
   return {
     version: 1,
     target: report.target,
+    ...(report.incomplete ? { incomplete: report.incomplete } : {}),
     coverage: {
       byTier: report.coverage.byTier,
       credits: report.coverage.credits,

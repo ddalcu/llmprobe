@@ -32,6 +32,76 @@ export class BudgetExceededError extends Error {
   }
 }
 
+/**
+ * The target stopped answering at the transport level — refused, reset, or hung
+ * up mid-response.
+ *
+ * This is deliberately NOT an engine fault. A process that died at check 35
+ * scored as 267 failed assertions reads as "this engine implements almost
+ * nothing"; the truth is that nobody was listening. The runner turns this into
+ * its own outcome and stops the run rather than charting a corpse.
+ */
+export class TargetUnreachableError extends Error {
+  constructor(
+    readonly path: string,
+    cause: unknown,
+  ) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    super(`target unreachable at ${path}: ${detail}`);
+    this.name = "TargetUnreachableError";
+    this.cause = cause;
+  }
+}
+
+const TRANSPORT_CODES = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ECONNABORTED",
+  "ENOTFOUND",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "EPIPE",
+  "EAI_AGAIN",
+  "UND_ERR_SOCKET",
+]);
+
+const TRANSPORT_MESSAGES =
+  /socket hang up|fetch failed|other side closed|connection closed|network error/i;
+
+function causeChain(err: unknown): unknown[] {
+  const chain: unknown[] = [];
+  for (let e = err, depth = 0; e && depth < 5; depth += 1) {
+    chain.push(e);
+    e = (e as { cause?: unknown }).cause;
+  }
+  return chain;
+}
+
+/**
+ * Did the request fail because the target is gone, rather than because it
+ * answered badly or slowly?
+ *
+ * A timeout is explicitly *not* one of these: a model that thinks for two
+ * minutes is slow, not dead, and aborting a run over it would be worse than the
+ * bug this exists to fix.
+ */
+export function isTransportFailure(err: unknown): boolean {
+  const chain = causeChain(err).filter(
+    (e): e is { name?: string; code?: string; message?: string } =>
+      typeof e === "object" && e !== null,
+  );
+
+  if (chain.some((e) => e.name === "TimeoutError" || e.name === "AbortError")) {
+    return false;
+  }
+
+  return chain.some(
+    (e) =>
+      (typeof e.code === "string" && TRANSPORT_CODES.has(e.code)) ||
+      (typeof e.message === "string" && TRANSPORT_MESSAGES.test(e.message)),
+  );
+}
+
 export interface HttpResult {
   status: number;
   headers: Headers;
@@ -92,6 +162,19 @@ export class EngineClient {
       this.usage.outputTokens += outputTokens;
   }
 
+  /**
+   * A refused, reset, or hung-up connection is the target being gone, not the
+   * engine answering badly — the callers upstream need to tell those apart.
+   */
+  private async transport<T>(path: string, run: () => Promise<T>): Promise<T> {
+    try {
+      return await run();
+    } catch (err) {
+      if (isTransportFailure(err)) throw new TargetUnreachableError(path, err);
+      throw err;
+    }
+  }
+
   async request(
     method: "GET" | "POST",
     path: string,
@@ -110,25 +193,27 @@ export class EngineClient {
     const isForm = options.body instanceof FormData;
 
     const start = Date.now();
-    const response = await fetch(this.url(path), {
-      method,
-      headers: {
-        ...(method === "POST" && !isForm
-          ? { "Content-Type": "application/json" }
-          : {}),
-        ...(options.headers ?? {}),
-      },
-      body:
-        options.body === undefined
-          ? undefined
-          : isForm
-            ? (options.body as FormData)
-            : JSON.stringify(options.body),
-      signal: AbortSignal.timeout(options.timeoutMs ?? this.config.timeoutMs),
-    });
+    const response = await this.transport(path, () =>
+      fetch(this.url(path), {
+        method,
+        headers: {
+          ...(method === "POST" && !isForm
+            ? { "Content-Type": "application/json" }
+            : {}),
+          ...(options.headers ?? {}),
+        },
+        body:
+          options.body === undefined
+            ? undefined
+            : isForm
+              ? (options.body as FormData)
+              : JSON.stringify(options.body),
+        signal: AbortSignal.timeout(options.timeoutMs ?? this.config.timeoutMs),
+      }),
+    );
     const durationMs = Date.now() - start;
 
-    const text = await response.text();
+    const text = await this.transport(path, () => response.text());
     let json: unknown;
     try {
       json = JSON.parse(text);
@@ -159,18 +244,20 @@ export class EngineClient {
     this.requests += 1;
 
     const start = Date.now();
-    const response = await fetch(this.url(path), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "text/event-stream",
-        ...headers,
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(this.config.timeoutMs),
-    });
+    const response = await this.transport(path, () =>
+      fetch(this.url(path), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+          ...headers,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(this.config.timeoutMs),
+      }),
+    );
 
-    const raw = await response.text();
+    const raw = await this.transport(path, () => response.text());
     const durationMs = Date.now() - start;
 
     return {
@@ -206,19 +293,21 @@ export class EngineClient {
     this.requests += 1;
 
     const startMs = Date.now();
-    const response = await fetch(this.url(path), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "text/event-stream",
-        ...headers,
-      },
-      body: JSON.stringify(body),
-      signal:
-        timeoutMs === null
-          ? undefined
-          : AbortSignal.timeout(timeoutMs ?? this.config.timeoutMs),
-    });
+    const response = await this.transport(path, () =>
+      fetch(this.url(path), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+          ...headers,
+        },
+        body: JSON.stringify(body),
+        signal:
+          timeoutMs === null
+            ? undefined
+            : AbortSignal.timeout(timeoutMs ?? this.config.timeoutMs),
+      }),
+    );
 
     const frames: SSEFrame[] = [];
     const frameTimesMs: number[] = [];
@@ -245,7 +334,7 @@ export class EngineClient {
 
     if (reader) {
       for (;;) {
-        const { done, value } = await reader.read();
+        const { done, value } = await this.transport(path, () => reader.read());
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
         raw += chunk;
