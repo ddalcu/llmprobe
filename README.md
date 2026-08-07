@@ -177,9 +177,40 @@ Surface discovery is free: it probes with empty-body POSTs, which every engine r
 
 **Catch-all servers.** Not every engine 404s a path it doesn't have. LM Studio answers _every_ unknown path with `HTTP 200` and `{"error":"Unexpected endpoint or method. (POST /v1/images/generations)"}` — so a status-only probe credits it with audio, images, and endpoints it has never heard of. llmprobe first asks for an endpoint that cannot exist, fingerprints whatever the server says, and reads any matching reply as absent. Coverage is the number people quote; getting this wrong would have been the most damaging bug in the tool.
 
-## HTML report (`--html`)
+## HTML report & model library (`--html`)
 
-`--html report.html` writes a single self-contained page: the three cards, capability bars, and (with `--bench`) context-scaling and speculative-decoding charts. Chart.js is inlined, so the file opens offline and you can attach it to an issue or a PR as-is. Every chart's data is also in the page as a plain table, and it follows your system's light or dark mode.
+`--html` writes a self-contained **report card** (Coverage / Conformance / Capability first, plus Agentic and Fidelity, with drill-downs and Light/Dark/Cyber themes). It also auto-maintains a **model library** beside the file (`<html-dir>/report-card/`) so past and current runs show up in one ranking table, and opens the card in your browser when the run finishes.
+
+**Always rebuild (or use the probe script) so you get the latest code:**
+
+```bash
+# Preferred — rebuilds then runs
+npm run probe -- 127.0.0.1:8080 -k pass --model <id> --html runs/my-run-3.html
+
+# Or explicitly
+npm run build:cli
+npx llmprobe 127.0.0.1:8080 -k pass --model <id> --html runs/my-run-3.html
+```
+
+You should see logs like:
+
+```text
+html report → runs/my-run-3.html
+  library card → runs/report-card/...
+library 3 models → .../runs/report-card
+opened → /full/path/runs/my-run-3.html
+```
+
+Then:
+
+- Browser opens the **model report card**
+- **← Library** goes to the ranking table (all past + new runs)
+
+Skip browser (CI): add `--no-open`.
+
+From an empty `runs/` folder, a single successful `--html` run creates the library (`index.html`, `compare.html`, per-model cards and JSON). Later probes with `--html` update `library.json` and the table so returning to the library shows history.
+
+Optional: `--library <dir>` forces a specific library path, or rebuilds without probing (`llmprobe --library runs/report-card`).
 
 ```bash
 llmprobe localhost:8080 --bench --html report.html
