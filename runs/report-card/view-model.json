@@ -1,0 +1,2887 @@
+{
+  "version": 1,
+  "defaultView": "user",
+  "identity": {
+    "model": "Laguna-XS-2.1-NVFP4-mlx",
+    "engine": null,
+    "baseUrl": "http://127.0.0.1:8080/v1",
+    "subtitle": "http://127.0.0.1:8080/v1",
+    "meta": [
+      {
+        "key": "duration",
+        "value": "399s"
+      }
+    ]
+  },
+  "engineHealth": {
+    "corePct": 100,
+    "coreSupported": "9/9",
+    "conformancePct": 93.6,
+    "conformanceRatio": "176/188",
+    "mustViolations": 12,
+    "tone": "caution",
+    "summary": "Engine has 12 MUST violations — fix server correctness before blaming the model.",
+    "label": "Engine health",
+    "value": "Core 100% · Conf 93.6%"
+  },
+  "views": {
+    "user": {
+      "id": "user",
+      "title": "User / Capability",
+      "question": "Is this setup usable for my agent and tool workflows?",
+      "conclusion": "strong at 100% across 8 categories. Agentic 3/3 tasks. No measured category fell below the floor. Engine has 12 MUST violations — fix server correctness before blaming the model.",
+      "signals": [
+        {
+          "label": "Capability",
+          "value": "100% · strong",
+          "detail": "8 categories",
+          "tone": "good"
+        },
+        {
+          "label": "Agentic",
+          "value": "3/3",
+          "detail": "100% of tasks",
+          "tone": "good"
+        },
+        {
+          "label": "Engine health",
+          "value": "Core 100% · Conf 93.6%",
+          "detail": "Engine has 12 MUST violations — fix server correctness before blaming the model.",
+          "tone": "caution"
+        }
+      ],
+      "findings": [
+        {
+          "kind": "critical",
+          "label": "chat-logprobs-not-ignored",
+          "detail": "chat-logprobs — accepted `logprobs: true` with HTTP 200 but returned no logprobs — a silent no-op is worse than a clean rejection",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-schema",
+          "detail": "responses-basic — completed_at: Invalid input; incomplete_details: Invalid input; instructions: Invalid input; output.0: Invalid input; truncation: Expected 'auto' | 'disabled', received null (+12 more)",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-sse-missing-done",
+          "detail": "responses-streaming — stream never sent the terminal `data: [DONE]` sentinel",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-stream-chunk-schema",
+          "detail": "responses-streaming — <root>: Invalid input",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-stream-chunk-schema",
+          "detail": "responses-streaming — <root>: Invalid input",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-finish-is-length",
+          "detail": "responses-finish-length — expected length/max_tokens, got \"completed\"",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-tool-none-suppressed",
+          "detail": "responses-tool-choice-none — got 1 tool call(s) despite tool_choice: \"none\"",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "messages-tool-none-suppressed",
+          "detail": "messages-tool-choice-none — got 1 tool call(s) despite tool_choice: \"none\"",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "chat-n-not-ignored",
+          "detail": "chat-n-choices — accepted n: 2 with HTTP 200 but returned 1 choice(s) — a silent no-op is worse than a clean rejection",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-background-queued",
+          "detail": "responses-background — background request returned status \"completed\" — it was run synchronously",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "messages-starts",
+          "detail": "messages-event-order — first event was \"ping\"",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "messages-stop-reason",
+          "detail": "messages-stop-sequence-echo — stop_reason was \"end_turn\"",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "caution",
+          "label": "Extended coverage gaps",
+          "detail": "logprobs",
+          "tags": [
+            "engine",
+            "coverage",
+            "extended"
+          ]
+        },
+        {
+          "kind": "caution",
+          "label": "Frontier coverage gaps",
+          "detail": "images/generations, images/edits, MCP tools, n>1 choices, rate limiting",
+          "tags": [
+            "engine",
+            "coverage",
+            "frontier"
+          ]
+        },
+        {
+          "kind": "caution",
+          "label": "4 conformance checks inconclusive",
+          "detail": "Model did not exercise the path — not counted as pass or fail",
+          "tags": [
+            "engine",
+            "conformance",
+            "inconclusive"
+          ]
+        },
+        {
+          "kind": "note",
+          "label": "Frontier not probed",
+          "detail": "prompt caching",
+          "tags": [
+            "engine",
+            "coverage",
+            "unprobed",
+            "frontier"
+          ]
+        }
+      ],
+      "sections": [
+        {
+          "id": "engine-health",
+          "title": "Engine health",
+          "note": "Compact — full detail in Engine view",
+          "density": "hero",
+          "domain": "engine",
+          "data": {
+            "corePct": 100,
+            "coreSupported": "9/9",
+            "conformancePct": 93.6,
+            "conformanceRatio": "176/188",
+            "mustViolations": 12,
+            "tone": "caution",
+            "summary": "Engine has 12 MUST violations — fix server correctness before blaming the model.",
+            "label": "Engine health",
+            "value": "Core 100% · Conf 93.6%"
+          }
+        },
+        {
+          "id": "capability",
+          "title": "Model capability",
+          "note": "100% · strong",
+          "density": "body",
+          "domain": "model",
+          "data": {
+            "measured": true,
+            "pct": 100,
+            "verdict": "strong",
+            "categories": [
+              {
+                "category": "tool-selection",
+                "label": "Tool selection",
+                "pct": 100,
+                "passed": 6,
+                "total": 6,
+                "belowFloor": false
+              },
+              {
+                "category": "tool-restraint",
+                "label": "Tool restraint",
+                "pct": 100,
+                "passed": 6,
+                "total": 6,
+                "belowFloor": false
+              },
+              {
+                "category": "tool-args",
+                "label": "Tool argument fidelity",
+                "pct": 100,
+                "passed": 6,
+                "total": 6,
+                "belowFloor": false
+              },
+              {
+                "category": "multiturn",
+                "label": "Multi-turn state",
+                "pct": 100,
+                "passed": 3,
+                "total": 3,
+                "belowFloor": false
+              },
+              {
+                "category": "instructions",
+                "label": "Instruction following",
+                "pct": 100,
+                "passed": 3,
+                "total": 3,
+                "belowFloor": false
+              },
+              {
+                "category": "json-discipline",
+                "label": "JSON discipline",
+                "pct": 100,
+                "passed": 6,
+                "total": 6,
+                "belowFloor": false
+              },
+              {
+                "category": "reasoning",
+                "label": "Basic reasoning",
+                "pct": 100,
+                "passed": 3,
+                "total": 3,
+                "belowFloor": false
+              },
+              {
+                "category": "knowledge",
+                "label": "Basic knowledge",
+                "pct": 100,
+                "passed": 3,
+                "total": 3,
+                "belowFloor": false
+              }
+            ],
+            "weakCategories": [],
+            "unmeasured": [],
+            "floorPct": 50,
+            "evals": [
+              {
+                "id": "eval-tool-select-weather",
+                "category": "tool-selection",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-tool-select-time",
+                "category": "tool-selection",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-tool-restraint-chitchat",
+                "category": "tool-restraint",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-tool-restraint-knowledge",
+                "category": "tool-restraint",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-tool-args-typed",
+                "category": "tool-args",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-tool-args-enum",
+                "category": "tool-args",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-multiturn-recall",
+                "category": "multiturn",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-multiturn-tool-result",
+                "category": "multiturn",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-multiturn-system",
+                "category": "multiturn",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-instructions-exact",
+                "category": "instructions",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-instructions-negative",
+                "category": "instructions",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-instructions-length",
+                "category": "instructions",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-json-no-fences",
+                "category": "json-discipline",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-json-nested",
+                "category": "json-discipline",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-long-context-needle",
+                "category": "long-context",
+                "passed": 0,
+                "total": 0,
+                "outcome": "skipped"
+              },
+              {
+                "id": "eval-reasoning-arithmetic",
+                "category": "reasoning",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-reasoning-transitive",
+                "category": "reasoning",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-reasoning-counting",
+                "category": "reasoning",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-knowledge-capital",
+                "category": "knowledge",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-knowledge-symbol",
+                "category": "knowledge",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-knowledge-author",
+                "category": "knowledge",
+                "passed": 1,
+                "total": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "agentic",
+          "title": "Agentic work",
+          "note": "3/3 tasks",
+          "density": "body",
+          "domain": "model",
+          "data": {
+            "measured": true,
+            "passed": 3,
+            "total": 3,
+            "pct": 100,
+            "tasks": [
+              {
+                "id": "agentic-read",
+                "name": "reads the config instead of answering from priors",
+                "passed": true,
+                "steps": 3,
+                "failure": null,
+                "failureGloss": null,
+                "detail": null
+              },
+              {
+                "id": "agentic-edit",
+                "name": "finds where the port really lives and edits only that",
+                "passed": true,
+                "steps": 6,
+                "failure": null,
+                "failureGloss": null,
+                "detail": null
+              },
+              {
+                "id": "agentic-indirect",
+                "name": "follows the pointer in build.cfg instead of guessing",
+                "passed": true,
+                "steps": 5,
+                "failure": null,
+                "failureGloss": null,
+                "detail": null
+              }
+            ],
+            "failureCounts": {},
+            "failureGloss": {
+              "no-tool-call": "Answered without using tools (priors / guess)",
+              "wrong-answer": "Used tools but final state or answer was wrong",
+              "step-limit": "Hit the step cap before finishing cleanly",
+              "engine-error": "Engine/API error during the agent loop"
+            }
+          }
+        },
+        {
+          "id": "performance",
+          "title": "Performance",
+          "note": "scope not recorded",
+          "density": "collapsed",
+          "domain": "deploy",
+          "data": {
+            "measured": false,
+            "decodeTokPerSec": null,
+            "ttftMs": null,
+            "prefillTokPerSec": null,
+            "contextScaling": null,
+            "speculative": null,
+            "machine": null,
+            "loadDrift": null,
+            "prefixCache": null,
+            "batching": null
+          }
+        },
+        {
+          "id": "coverage",
+          "title": "Surface coverage",
+          "note": "Per tier; missing standards listed on purpose",
+          "density": "collapsed",
+          "domain": "engine",
+          "data": {
+            "tiers": [
+              {
+                "tier": "core",
+                "pct": 100,
+                "ratio": "9/9",
+                "missing": [],
+                "unprobed": []
+              },
+              {
+                "tier": "extended",
+                "pct": 92.9,
+                "ratio": "13/14",
+                "missing": [
+                  "logprobs"
+                ],
+                "unprobed": []
+              },
+              {
+                "tier": "frontier",
+                "pct": 44.4,
+                "ratio": "4/9",
+                "missing": [
+                  "images/generations",
+                  "images/edits",
+                  "MCP tools",
+                  "n>1 choices",
+                  "rate limiting"
+                ],
+                "unprobed": [
+                  "prompt caching"
+                ]
+              }
+            ],
+            "credits": []
+          }
+        },
+        {
+          "id": "conformance",
+          "title": "Engine conformance",
+          "note": "MUST assertions on implemented surfaces only",
+          "density": "collapsed",
+          "domain": "engine",
+          "data": {
+            "pct": 93.6,
+            "passed": 176,
+            "total": 188,
+            "surfaces": [
+              {
+                "surface": "models",
+                "passed": 4,
+                "total": 4,
+                "pct": 100
+              },
+              {
+                "surface": "chat",
+                "passed": 61,
+                "total": 63,
+                "pct": 96.8
+              },
+              {
+                "surface": "responses",
+                "passed": 54,
+                "total": 61,
+                "pct": 88.5
+              },
+              {
+                "surface": "messages",
+                "passed": 54,
+                "total": 57,
+                "pct": 94.7
+              },
+              {
+                "surface": "completions",
+                "passed": 3,
+                "total": 3,
+                "pct": 100
+              }
+            ],
+            "failures": [
+              {
+                "test": "chat-logprobs",
+                "surface": "chat",
+                "assertion": "chat-logprobs-not-ignored",
+                "message": "accepted `logprobs: true` with HTTP 200 but returned no logprobs — a silent no-op is worse than a clean rejection"
+              },
+              {
+                "test": "responses-basic",
+                "surface": "responses",
+                "assertion": "responses-schema",
+                "message": "completed_at: Invalid input; incomplete_details: Invalid input; instructions: Invalid input; output.0: Invalid input; truncation: Expected 'auto' | 'disabled', received null (+12 more)"
+              },
+              {
+                "test": "responses-streaming",
+                "surface": "responses",
+                "assertion": "responses-sse-missing-done",
+                "message": "stream never sent the terminal `data: [DONE]` sentinel"
+              },
+              {
+                "test": "responses-streaming",
+                "surface": "responses",
+                "assertion": "responses-stream-chunk-schema",
+                "message": "<root>: Invalid input"
+              },
+              {
+                "test": "responses-streaming",
+                "surface": "responses",
+                "assertion": "responses-stream-chunk-schema",
+                "message": "<root>: Invalid input"
+              },
+              {
+                "test": "responses-finish-length",
+                "surface": "responses",
+                "assertion": "responses-finish-is-length",
+                "message": "expected length/max_tokens, got \"completed\""
+              },
+              {
+                "test": "responses-tool-choice-none",
+                "surface": "responses",
+                "assertion": "responses-tool-none-suppressed",
+                "message": "got 1 tool call(s) despite tool_choice: \"none\""
+              },
+              {
+                "test": "messages-tool-choice-none",
+                "surface": "messages",
+                "assertion": "messages-tool-none-suppressed",
+                "message": "got 1 tool call(s) despite tool_choice: \"none\""
+              },
+              {
+                "test": "chat-n-choices",
+                "surface": "chat",
+                "assertion": "chat-n-not-ignored",
+                "message": "accepted n: 2 with HTTP 200 but returned 1 choice(s) — a silent no-op is worse than a clean rejection"
+              },
+              {
+                "test": "responses-background",
+                "surface": "responses",
+                "assertion": "responses-background-queued",
+                "message": "background request returned status \"completed\" — it was run synchronously"
+              },
+              {
+                "test": "messages-event-order",
+                "surface": "messages",
+                "assertion": "messages-starts",
+                "message": "first event was \"ping\""
+              },
+              {
+                "test": "messages-stop-sequence-echo",
+                "surface": "messages",
+                "assertion": "messages-stop-reason",
+                "message": "stop_reason was \"end_turn\""
+              }
+            ],
+            "outcomes": {
+              "pass": 69,
+              "fail": 10,
+              "unsupported": 8,
+              "inconclusive": 4,
+              "skipped": 13,
+              "other": 0
+            },
+            "warnings": [],
+            "nits": [],
+            "inconclusive": []
+          }
+        },
+        {
+          "id": "fidelity",
+          "title": "Engine fidelity",
+          "note": "100% · same-model comparisons only",
+          "density": "collapsed",
+          "domain": "engine",
+          "data": {
+            "measured": true,
+            "pct": 100,
+            "slices": [
+              {
+                "id": "correctness",
+                "label": "Correctness",
+                "score": 1,
+                "weight": 0.4,
+                "detail": "36/36 items answered correctly",
+                "measured": true
+              },
+              {
+                "id": "confidence",
+                "label": "Confidence",
+                "score": 0,
+                "weight": 0.25,
+                "detail": "engine returned no logprobs",
+                "measured": false,
+                "unmeasuredReason": "engine returned no logprobs"
+              },
+              {
+                "id": "determinism",
+                "label": "Determinism",
+                "score": 1,
+                "weight": 0.25,
+                "detail": "3/3 greedy prompts reproduced byte-for-byte",
+                "measured": true
+              },
+              {
+                "id": "consistency",
+                "label": "Logprob consistency",
+                "score": 0,
+                "weight": 0.1,
+                "detail": "engine returned no top-k logprobs",
+                "measured": false,
+                "unmeasuredReason": "engine returned no top-k logprobs"
+              }
+            ],
+            "firstDivergence": null,
+            "unmeasured": [
+              "Confidence",
+              "Logprob consistency"
+            ]
+          }
+        }
+      ]
+    },
+    "engine": {
+      "id": "engine",
+      "title": "Engine / Harness",
+      "question": "What is missing, broken, or regressed in the engine?",
+      "conclusion": "Repair targets: 12 exercised MUST violations. Findings name the assertions and missing features.",
+      "signals": [
+        {
+          "label": "Core coverage",
+          "value": "100%",
+          "detail": "9/9",
+          "tone": "good"
+        },
+        {
+          "label": "Conformance",
+          "value": "93.6%",
+          "detail": "176/188 MUST",
+          "tone": "critical"
+        },
+        {
+          "label": "MUST violations",
+          "value": "12",
+          "detail": "exercised assertions",
+          "tone": "critical"
+        },
+        {
+          "label": "Inconclusive",
+          "value": "4",
+          "detail": "not pass, not fail",
+          "tone": "caution"
+        },
+        {
+          "label": "Extended",
+          "value": "92.9%",
+          "detail": "missing logprobs",
+          "tone": "neutral"
+        },
+        {
+          "label": "Frontier",
+          "value": "44.4%",
+          "detail": "4/9",
+          "tone": "neutral"
+        }
+      ],
+      "findings": [
+        {
+          "kind": "critical",
+          "label": "chat-logprobs-not-ignored",
+          "detail": "chat-logprobs — accepted `logprobs: true` with HTTP 200 but returned no logprobs — a silent no-op is worse than a clean rejection",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-schema",
+          "detail": "responses-basic — completed_at: Invalid input; incomplete_details: Invalid input; instructions: Invalid input; output.0: Invalid input; truncation: Expected 'auto' | 'disabled', received null (+12 more)",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-sse-missing-done",
+          "detail": "responses-streaming — stream never sent the terminal `data: [DONE]` sentinel",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-stream-chunk-schema",
+          "detail": "responses-streaming — <root>: Invalid input",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-stream-chunk-schema",
+          "detail": "responses-streaming — <root>: Invalid input",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-finish-is-length",
+          "detail": "responses-finish-length — expected length/max_tokens, got \"completed\"",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-tool-none-suppressed",
+          "detail": "responses-tool-choice-none — got 1 tool call(s) despite tool_choice: \"none\"",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "messages-tool-none-suppressed",
+          "detail": "messages-tool-choice-none — got 1 tool call(s) despite tool_choice: \"none\"",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "chat-n-not-ignored",
+          "detail": "chat-n-choices — accepted n: 2 with HTTP 200 but returned 1 choice(s) — a silent no-op is worse than a clean rejection",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-background-queued",
+          "detail": "responses-background — background request returned status \"completed\" — it was run synchronously",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "messages-starts",
+          "detail": "messages-event-order — first event was \"ping\"",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "messages-stop-reason",
+          "detail": "messages-stop-sequence-echo — stop_reason was \"end_turn\"",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "caution",
+          "label": "Extended coverage gaps",
+          "detail": "logprobs",
+          "tags": [
+            "engine",
+            "coverage",
+            "extended"
+          ]
+        },
+        {
+          "kind": "caution",
+          "label": "Frontier coverage gaps",
+          "detail": "images/generations, images/edits, MCP tools, n>1 choices, rate limiting",
+          "tags": [
+            "engine",
+            "coverage",
+            "frontier"
+          ]
+        },
+        {
+          "kind": "caution",
+          "label": "4 conformance checks inconclusive",
+          "detail": "Model did not exercise the path — not counted as pass or fail",
+          "tags": [
+            "engine",
+            "conformance",
+            "inconclusive"
+          ]
+        },
+        {
+          "kind": "note",
+          "label": "Frontier not probed",
+          "detail": "prompt caching",
+          "tags": [
+            "engine",
+            "coverage",
+            "unprobed",
+            "frontier"
+          ]
+        }
+      ],
+      "sections": [
+        {
+          "id": "coverage",
+          "title": "Surface coverage",
+          "note": "Per tier; missing standards listed on purpose",
+          "density": "body",
+          "domain": "engine",
+          "data": {
+            "tiers": [
+              {
+                "tier": "core",
+                "pct": 100,
+                "ratio": "9/9",
+                "missing": [],
+                "unprobed": []
+              },
+              {
+                "tier": "extended",
+                "pct": 92.9,
+                "ratio": "13/14",
+                "missing": [
+                  "logprobs"
+                ],
+                "unprobed": []
+              },
+              {
+                "tier": "frontier",
+                "pct": 44.4,
+                "ratio": "4/9",
+                "missing": [
+                  "images/generations",
+                  "images/edits",
+                  "MCP tools",
+                  "n>1 choices",
+                  "rate limiting"
+                ],
+                "unprobed": [
+                  "prompt caching"
+                ]
+              }
+            ],
+            "credits": []
+          }
+        },
+        {
+          "id": "conformance",
+          "title": "Engine conformance",
+          "note": "MUST assertions on implemented surfaces only",
+          "density": "body",
+          "domain": "engine",
+          "data": {
+            "pct": 93.6,
+            "passed": 176,
+            "total": 188,
+            "surfaces": [
+              {
+                "surface": "models",
+                "passed": 4,
+                "total": 4,
+                "pct": 100
+              },
+              {
+                "surface": "chat",
+                "passed": 61,
+                "total": 63,
+                "pct": 96.8
+              },
+              {
+                "surface": "responses",
+                "passed": 54,
+                "total": 61,
+                "pct": 88.5
+              },
+              {
+                "surface": "messages",
+                "passed": 54,
+                "total": 57,
+                "pct": 94.7
+              },
+              {
+                "surface": "completions",
+                "passed": 3,
+                "total": 3,
+                "pct": 100
+              }
+            ],
+            "failures": [
+              {
+                "test": "chat-logprobs",
+                "surface": "chat",
+                "assertion": "chat-logprobs-not-ignored",
+                "message": "accepted `logprobs: true` with HTTP 200 but returned no logprobs — a silent no-op is worse than a clean rejection"
+              },
+              {
+                "test": "responses-basic",
+                "surface": "responses",
+                "assertion": "responses-schema",
+                "message": "completed_at: Invalid input; incomplete_details: Invalid input; instructions: Invalid input; output.0: Invalid input; truncation: Expected 'auto' | 'disabled', received null (+12 more)"
+              },
+              {
+                "test": "responses-streaming",
+                "surface": "responses",
+                "assertion": "responses-sse-missing-done",
+                "message": "stream never sent the terminal `data: [DONE]` sentinel"
+              },
+              {
+                "test": "responses-streaming",
+                "surface": "responses",
+                "assertion": "responses-stream-chunk-schema",
+                "message": "<root>: Invalid input"
+              },
+              {
+                "test": "responses-streaming",
+                "surface": "responses",
+                "assertion": "responses-stream-chunk-schema",
+                "message": "<root>: Invalid input"
+              },
+              {
+                "test": "responses-finish-length",
+                "surface": "responses",
+                "assertion": "responses-finish-is-length",
+                "message": "expected length/max_tokens, got \"completed\""
+              },
+              {
+                "test": "responses-tool-choice-none",
+                "surface": "responses",
+                "assertion": "responses-tool-none-suppressed",
+                "message": "got 1 tool call(s) despite tool_choice: \"none\""
+              },
+              {
+                "test": "messages-tool-choice-none",
+                "surface": "messages",
+                "assertion": "messages-tool-none-suppressed",
+                "message": "got 1 tool call(s) despite tool_choice: \"none\""
+              },
+              {
+                "test": "chat-n-choices",
+                "surface": "chat",
+                "assertion": "chat-n-not-ignored",
+                "message": "accepted n: 2 with HTTP 200 but returned 1 choice(s) — a silent no-op is worse than a clean rejection"
+              },
+              {
+                "test": "responses-background",
+                "surface": "responses",
+                "assertion": "responses-background-queued",
+                "message": "background request returned status \"completed\" — it was run synchronously"
+              },
+              {
+                "test": "messages-event-order",
+                "surface": "messages",
+                "assertion": "messages-starts",
+                "message": "first event was \"ping\""
+              },
+              {
+                "test": "messages-stop-sequence-echo",
+                "surface": "messages",
+                "assertion": "messages-stop-reason",
+                "message": "stop_reason was \"end_turn\""
+              }
+            ],
+            "outcomes": {
+              "pass": 69,
+              "fail": 10,
+              "unsupported": 8,
+              "inconclusive": 4,
+              "skipped": 13,
+              "other": 0
+            },
+            "warnings": [],
+            "nits": [],
+            "inconclusive": []
+          }
+        },
+        {
+          "id": "fidelity",
+          "title": "Engine fidelity",
+          "note": "100% · same-model comparisons only",
+          "density": "body",
+          "domain": "engine",
+          "data": {
+            "measured": true,
+            "pct": 100,
+            "slices": [
+              {
+                "id": "correctness",
+                "label": "Correctness",
+                "score": 1,
+                "weight": 0.4,
+                "detail": "36/36 items answered correctly",
+                "measured": true
+              },
+              {
+                "id": "confidence",
+                "label": "Confidence",
+                "score": 0,
+                "weight": 0.25,
+                "detail": "engine returned no logprobs",
+                "measured": false,
+                "unmeasuredReason": "engine returned no logprobs"
+              },
+              {
+                "id": "determinism",
+                "label": "Determinism",
+                "score": 1,
+                "weight": 0.25,
+                "detail": "3/3 greedy prompts reproduced byte-for-byte",
+                "measured": true
+              },
+              {
+                "id": "consistency",
+                "label": "Logprob consistency",
+                "score": 0,
+                "weight": 0.1,
+                "detail": "engine returned no top-k logprobs",
+                "measured": false,
+                "unmeasuredReason": "engine returned no top-k logprobs"
+              }
+            ],
+            "firstDivergence": null,
+            "unmeasured": [
+              "Confidence",
+              "Logprob consistency"
+            ]
+          }
+        },
+        {
+          "id": "capability",
+          "title": "Model capability",
+          "note": "100% · strong",
+          "density": "collapsed",
+          "domain": "model",
+          "data": {
+            "measured": true,
+            "pct": 100,
+            "verdict": "strong",
+            "categories": [
+              {
+                "category": "tool-selection",
+                "label": "Tool selection",
+                "pct": 100,
+                "passed": 6,
+                "total": 6,
+                "belowFloor": false
+              },
+              {
+                "category": "tool-restraint",
+                "label": "Tool restraint",
+                "pct": 100,
+                "passed": 6,
+                "total": 6,
+                "belowFloor": false
+              },
+              {
+                "category": "tool-args",
+                "label": "Tool argument fidelity",
+                "pct": 100,
+                "passed": 6,
+                "total": 6,
+                "belowFloor": false
+              },
+              {
+                "category": "multiturn",
+                "label": "Multi-turn state",
+                "pct": 100,
+                "passed": 3,
+                "total": 3,
+                "belowFloor": false
+              },
+              {
+                "category": "instructions",
+                "label": "Instruction following",
+                "pct": 100,
+                "passed": 3,
+                "total": 3,
+                "belowFloor": false
+              },
+              {
+                "category": "json-discipline",
+                "label": "JSON discipline",
+                "pct": 100,
+                "passed": 6,
+                "total": 6,
+                "belowFloor": false
+              },
+              {
+                "category": "reasoning",
+                "label": "Basic reasoning",
+                "pct": 100,
+                "passed": 3,
+                "total": 3,
+                "belowFloor": false
+              },
+              {
+                "category": "knowledge",
+                "label": "Basic knowledge",
+                "pct": 100,
+                "passed": 3,
+                "total": 3,
+                "belowFloor": false
+              }
+            ],
+            "weakCategories": [],
+            "unmeasured": [],
+            "floorPct": 50,
+            "evals": [
+              {
+                "id": "eval-tool-select-weather",
+                "category": "tool-selection",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-tool-select-time",
+                "category": "tool-selection",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-tool-restraint-chitchat",
+                "category": "tool-restraint",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-tool-restraint-knowledge",
+                "category": "tool-restraint",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-tool-args-typed",
+                "category": "tool-args",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-tool-args-enum",
+                "category": "tool-args",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-multiturn-recall",
+                "category": "multiturn",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-multiturn-tool-result",
+                "category": "multiturn",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-multiturn-system",
+                "category": "multiturn",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-instructions-exact",
+                "category": "instructions",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-instructions-negative",
+                "category": "instructions",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-instructions-length",
+                "category": "instructions",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-json-no-fences",
+                "category": "json-discipline",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-json-nested",
+                "category": "json-discipline",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-long-context-needle",
+                "category": "long-context",
+                "passed": 0,
+                "total": 0,
+                "outcome": "skipped"
+              },
+              {
+                "id": "eval-reasoning-arithmetic",
+                "category": "reasoning",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-reasoning-transitive",
+                "category": "reasoning",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-reasoning-counting",
+                "category": "reasoning",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-knowledge-capital",
+                "category": "knowledge",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-knowledge-symbol",
+                "category": "knowledge",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-knowledge-author",
+                "category": "knowledge",
+                "passed": 1,
+                "total": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "agentic",
+          "title": "Agentic work",
+          "note": "3/3 tasks",
+          "density": "collapsed",
+          "domain": "model",
+          "data": {
+            "measured": true,
+            "passed": 3,
+            "total": 3,
+            "pct": 100,
+            "tasks": [
+              {
+                "id": "agentic-read",
+                "name": "reads the config instead of answering from priors",
+                "passed": true,
+                "steps": 3,
+                "failure": null,
+                "failureGloss": null,
+                "detail": null
+              },
+              {
+                "id": "agentic-edit",
+                "name": "finds where the port really lives and edits only that",
+                "passed": true,
+                "steps": 6,
+                "failure": null,
+                "failureGloss": null,
+                "detail": null
+              },
+              {
+                "id": "agentic-indirect",
+                "name": "follows the pointer in build.cfg instead of guessing",
+                "passed": true,
+                "steps": 5,
+                "failure": null,
+                "failureGloss": null,
+                "detail": null
+              }
+            ],
+            "failureCounts": {},
+            "failureGloss": {
+              "no-tool-call": "Answered without using tools (priors / guess)",
+              "wrong-answer": "Used tools but final state or answer was wrong",
+              "step-limit": "Hit the step cap before finishing cleanly",
+              "engine-error": "Engine/API error during the agent loop"
+            }
+          }
+        },
+        {
+          "id": "performance",
+          "title": "Performance",
+          "note": "scope not recorded",
+          "density": "collapsed",
+          "domain": "deploy",
+          "data": {
+            "measured": false,
+            "decodeTokPerSec": null,
+            "ttftMs": null,
+            "prefillTokPerSec": null,
+            "contextScaling": null,
+            "speculative": null,
+            "machine": null,
+            "loadDrift": null,
+            "prefixCache": null,
+            "batching": null
+          }
+        }
+      ]
+    },
+    "model-maker": {
+      "id": "model-maker",
+      "title": "Model maker",
+      "question": "Does this model clear the practical floor for tool use and multi-step agents?",
+      "conclusion": "strong (100%). Agentic bar: 3/3. Engine score is independent of this grade.",
+      "signals": [
+        {
+          "label": "Capability",
+          "value": "100% · strong",
+          "detail": "8 categories",
+          "tone": "good"
+        },
+        {
+          "label": "Agentic",
+          "value": "3/3",
+          "detail": "multi-step workspace tasks",
+          "tone": "good"
+        },
+        {
+          "label": "Below floor",
+          "value": "0",
+          "detail": "none",
+          "tone": "good"
+        },
+        {
+          "label": "Unmeasured",
+          "value": "0",
+          "detail": "none required missing",
+          "tone": "neutral"
+        }
+      ],
+      "findings": [
+        {
+          "kind": "critical",
+          "label": "chat-logprobs-not-ignored",
+          "detail": "chat-logprobs — accepted `logprobs: true` with HTTP 200 but returned no logprobs — a silent no-op is worse than a clean rejection",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-schema",
+          "detail": "responses-basic — completed_at: Invalid input; incomplete_details: Invalid input; instructions: Invalid input; output.0: Invalid input; truncation: Expected 'auto' | 'disabled', received null (+12 more)",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-sse-missing-done",
+          "detail": "responses-streaming — stream never sent the terminal `data: [DONE]` sentinel",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-stream-chunk-schema",
+          "detail": "responses-streaming — <root>: Invalid input",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-stream-chunk-schema",
+          "detail": "responses-streaming — <root>: Invalid input",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-finish-is-length",
+          "detail": "responses-finish-length — expected length/max_tokens, got \"completed\"",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-tool-none-suppressed",
+          "detail": "responses-tool-choice-none — got 1 tool call(s) despite tool_choice: \"none\"",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "messages-tool-none-suppressed",
+          "detail": "messages-tool-choice-none — got 1 tool call(s) despite tool_choice: \"none\"",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "chat-n-not-ignored",
+          "detail": "chat-n-choices — accepted n: 2 with HTTP 200 but returned 1 choice(s) — a silent no-op is worse than a clean rejection",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-background-queued",
+          "detail": "responses-background — background request returned status \"completed\" — it was run synchronously",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "messages-starts",
+          "detail": "messages-event-order — first event was \"ping\"",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "messages-stop-reason",
+          "detail": "messages-stop-sequence-echo — stop_reason was \"end_turn\"",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "caution",
+          "label": "Extended coverage gaps",
+          "detail": "logprobs",
+          "tags": [
+            "engine",
+            "coverage",
+            "extended"
+          ]
+        },
+        {
+          "kind": "caution",
+          "label": "Frontier coverage gaps",
+          "detail": "images/generations, images/edits, MCP tools, n>1 choices, rate limiting",
+          "tags": [
+            "engine",
+            "coverage",
+            "frontier"
+          ]
+        },
+        {
+          "kind": "caution",
+          "label": "4 conformance checks inconclusive",
+          "detail": "Model did not exercise the path — not counted as pass or fail",
+          "tags": [
+            "engine",
+            "conformance",
+            "inconclusive"
+          ]
+        },
+        {
+          "kind": "note",
+          "label": "Frontier not probed",
+          "detail": "prompt caching",
+          "tags": [
+            "engine",
+            "coverage",
+            "unprobed",
+            "frontier"
+          ]
+        }
+      ],
+      "sections": [
+        {
+          "id": "capability",
+          "title": "Model capability",
+          "note": "100% · strong",
+          "density": "body",
+          "domain": "model",
+          "data": {
+            "measured": true,
+            "pct": 100,
+            "verdict": "strong",
+            "categories": [
+              {
+                "category": "tool-selection",
+                "label": "Tool selection",
+                "pct": 100,
+                "passed": 6,
+                "total": 6,
+                "belowFloor": false
+              },
+              {
+                "category": "tool-restraint",
+                "label": "Tool restraint",
+                "pct": 100,
+                "passed": 6,
+                "total": 6,
+                "belowFloor": false
+              },
+              {
+                "category": "tool-args",
+                "label": "Tool argument fidelity",
+                "pct": 100,
+                "passed": 6,
+                "total": 6,
+                "belowFloor": false
+              },
+              {
+                "category": "multiturn",
+                "label": "Multi-turn state",
+                "pct": 100,
+                "passed": 3,
+                "total": 3,
+                "belowFloor": false
+              },
+              {
+                "category": "instructions",
+                "label": "Instruction following",
+                "pct": 100,
+                "passed": 3,
+                "total": 3,
+                "belowFloor": false
+              },
+              {
+                "category": "json-discipline",
+                "label": "JSON discipline",
+                "pct": 100,
+                "passed": 6,
+                "total": 6,
+                "belowFloor": false
+              },
+              {
+                "category": "reasoning",
+                "label": "Basic reasoning",
+                "pct": 100,
+                "passed": 3,
+                "total": 3,
+                "belowFloor": false
+              },
+              {
+                "category": "knowledge",
+                "label": "Basic knowledge",
+                "pct": 100,
+                "passed": 3,
+                "total": 3,
+                "belowFloor": false
+              }
+            ],
+            "weakCategories": [],
+            "unmeasured": [],
+            "floorPct": 50,
+            "evals": [
+              {
+                "id": "eval-tool-select-weather",
+                "category": "tool-selection",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-tool-select-time",
+                "category": "tool-selection",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-tool-restraint-chitchat",
+                "category": "tool-restraint",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-tool-restraint-knowledge",
+                "category": "tool-restraint",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-tool-args-typed",
+                "category": "tool-args",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-tool-args-enum",
+                "category": "tool-args",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-multiturn-recall",
+                "category": "multiturn",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-multiturn-tool-result",
+                "category": "multiturn",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-multiturn-system",
+                "category": "multiturn",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-instructions-exact",
+                "category": "instructions",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-instructions-negative",
+                "category": "instructions",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-instructions-length",
+                "category": "instructions",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-json-no-fences",
+                "category": "json-discipline",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-json-nested",
+                "category": "json-discipline",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-long-context-needle",
+                "category": "long-context",
+                "passed": 0,
+                "total": 0,
+                "outcome": "skipped"
+              },
+              {
+                "id": "eval-reasoning-arithmetic",
+                "category": "reasoning",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-reasoning-transitive",
+                "category": "reasoning",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-reasoning-counting",
+                "category": "reasoning",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-knowledge-capital",
+                "category": "knowledge",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-knowledge-symbol",
+                "category": "knowledge",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-knowledge-author",
+                "category": "knowledge",
+                "passed": 1,
+                "total": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "agentic",
+          "title": "Agentic work",
+          "note": "3/3 tasks",
+          "density": "body",
+          "domain": "model",
+          "data": {
+            "measured": true,
+            "passed": 3,
+            "total": 3,
+            "pct": 100,
+            "tasks": [
+              {
+                "id": "agentic-read",
+                "name": "reads the config instead of answering from priors",
+                "passed": true,
+                "steps": 3,
+                "failure": null,
+                "failureGloss": null,
+                "detail": null
+              },
+              {
+                "id": "agentic-edit",
+                "name": "finds where the port really lives and edits only that",
+                "passed": true,
+                "steps": 6,
+                "failure": null,
+                "failureGloss": null,
+                "detail": null
+              },
+              {
+                "id": "agentic-indirect",
+                "name": "follows the pointer in build.cfg instead of guessing",
+                "passed": true,
+                "steps": 5,
+                "failure": null,
+                "failureGloss": null,
+                "detail": null
+              }
+            ],
+            "failureCounts": {},
+            "failureGloss": {
+              "no-tool-call": "Answered without using tools (priors / guess)",
+              "wrong-answer": "Used tools but final state or answer was wrong",
+              "step-limit": "Hit the step cap before finishing cleanly",
+              "engine-error": "Engine/API error during the agent loop"
+            }
+          }
+        },
+        {
+          "id": "reproducibility",
+          "title": "How to read this grade",
+          "note": "Deterministic, no LLM-as-judge",
+          "density": "body",
+          "domain": "model",
+          "data": {
+            "temperature": 0,
+            "engine": null,
+            "model": "Laguna-XS-2.1-NVFP4-mlx",
+            "baseUrl": "http://127.0.0.1:8080/v1",
+            "disclaimer": "Capability and Agentic grade the model under temperature 0 with deterministic checks. Coverage and Conformance grade the engine independently — a weak engine cannot be rescued by a strong model, and vice versa."
+          }
+        },
+        {
+          "id": "engine-health",
+          "title": "Engine health",
+          "note": "Compact — full detail in Engine view",
+          "density": "collapsed",
+          "domain": "engine",
+          "data": {
+            "corePct": 100,
+            "coreSupported": "9/9",
+            "conformancePct": 93.6,
+            "conformanceRatio": "176/188",
+            "mustViolations": 12,
+            "tone": "caution",
+            "summary": "Engine has 12 MUST violations — fix server correctness before blaming the model.",
+            "label": "Engine health",
+            "value": "Core 100% · Conf 93.6%"
+          }
+        },
+        {
+          "id": "coverage",
+          "title": "Surface coverage",
+          "note": "Per tier; missing standards listed on purpose",
+          "density": "collapsed",
+          "domain": "engine",
+          "data": {
+            "tiers": [
+              {
+                "tier": "core",
+                "pct": 100,
+                "ratio": "9/9",
+                "missing": [],
+                "unprobed": []
+              },
+              {
+                "tier": "extended",
+                "pct": 92.9,
+                "ratio": "13/14",
+                "missing": [
+                  "logprobs"
+                ],
+                "unprobed": []
+              },
+              {
+                "tier": "frontier",
+                "pct": 44.4,
+                "ratio": "4/9",
+                "missing": [
+                  "images/generations",
+                  "images/edits",
+                  "MCP tools",
+                  "n>1 choices",
+                  "rate limiting"
+                ],
+                "unprobed": [
+                  "prompt caching"
+                ]
+              }
+            ],
+            "credits": []
+          }
+        },
+        {
+          "id": "conformance",
+          "title": "Engine conformance",
+          "note": "MUST assertions on implemented surfaces only",
+          "density": "collapsed",
+          "domain": "engine",
+          "data": {
+            "pct": 93.6,
+            "passed": 176,
+            "total": 188,
+            "surfaces": [
+              {
+                "surface": "models",
+                "passed": 4,
+                "total": 4,
+                "pct": 100
+              },
+              {
+                "surface": "chat",
+                "passed": 61,
+                "total": 63,
+                "pct": 96.8
+              },
+              {
+                "surface": "responses",
+                "passed": 54,
+                "total": 61,
+                "pct": 88.5
+              },
+              {
+                "surface": "messages",
+                "passed": 54,
+                "total": 57,
+                "pct": 94.7
+              },
+              {
+                "surface": "completions",
+                "passed": 3,
+                "total": 3,
+                "pct": 100
+              }
+            ],
+            "failures": [
+              {
+                "test": "chat-logprobs",
+                "surface": "chat",
+                "assertion": "chat-logprobs-not-ignored",
+                "message": "accepted `logprobs: true` with HTTP 200 but returned no logprobs — a silent no-op is worse than a clean rejection"
+              },
+              {
+                "test": "responses-basic",
+                "surface": "responses",
+                "assertion": "responses-schema",
+                "message": "completed_at: Invalid input; incomplete_details: Invalid input; instructions: Invalid input; output.0: Invalid input; truncation: Expected 'auto' | 'disabled', received null (+12 more)"
+              },
+              {
+                "test": "responses-streaming",
+                "surface": "responses",
+                "assertion": "responses-sse-missing-done",
+                "message": "stream never sent the terminal `data: [DONE]` sentinel"
+              },
+              {
+                "test": "responses-streaming",
+                "surface": "responses",
+                "assertion": "responses-stream-chunk-schema",
+                "message": "<root>: Invalid input"
+              },
+              {
+                "test": "responses-streaming",
+                "surface": "responses",
+                "assertion": "responses-stream-chunk-schema",
+                "message": "<root>: Invalid input"
+              },
+              {
+                "test": "responses-finish-length",
+                "surface": "responses",
+                "assertion": "responses-finish-is-length",
+                "message": "expected length/max_tokens, got \"completed\""
+              },
+              {
+                "test": "responses-tool-choice-none",
+                "surface": "responses",
+                "assertion": "responses-tool-none-suppressed",
+                "message": "got 1 tool call(s) despite tool_choice: \"none\""
+              },
+              {
+                "test": "messages-tool-choice-none",
+                "surface": "messages",
+                "assertion": "messages-tool-none-suppressed",
+                "message": "got 1 tool call(s) despite tool_choice: \"none\""
+              },
+              {
+                "test": "chat-n-choices",
+                "surface": "chat",
+                "assertion": "chat-n-not-ignored",
+                "message": "accepted n: 2 with HTTP 200 but returned 1 choice(s) — a silent no-op is worse than a clean rejection"
+              },
+              {
+                "test": "responses-background",
+                "surface": "responses",
+                "assertion": "responses-background-queued",
+                "message": "background request returned status \"completed\" — it was run synchronously"
+              },
+              {
+                "test": "messages-event-order",
+                "surface": "messages",
+                "assertion": "messages-starts",
+                "message": "first event was \"ping\""
+              },
+              {
+                "test": "messages-stop-sequence-echo",
+                "surface": "messages",
+                "assertion": "messages-stop-reason",
+                "message": "stop_reason was \"end_turn\""
+              }
+            ],
+            "outcomes": {
+              "pass": 69,
+              "fail": 10,
+              "unsupported": 8,
+              "inconclusive": 4,
+              "skipped": 13,
+              "other": 0
+            },
+            "warnings": [],
+            "nits": [],
+            "inconclusive": []
+          }
+        },
+        {
+          "id": "fidelity",
+          "title": "Engine fidelity",
+          "note": "100% · same-model comparisons only",
+          "density": "collapsed",
+          "domain": "engine",
+          "data": {
+            "measured": true,
+            "pct": 100,
+            "slices": [
+              {
+                "id": "correctness",
+                "label": "Correctness",
+                "score": 1,
+                "weight": 0.4,
+                "detail": "36/36 items answered correctly",
+                "measured": true
+              },
+              {
+                "id": "confidence",
+                "label": "Confidence",
+                "score": 0,
+                "weight": 0.25,
+                "detail": "engine returned no logprobs",
+                "measured": false,
+                "unmeasuredReason": "engine returned no logprobs"
+              },
+              {
+                "id": "determinism",
+                "label": "Determinism",
+                "score": 1,
+                "weight": 0.25,
+                "detail": "3/3 greedy prompts reproduced byte-for-byte",
+                "measured": true
+              },
+              {
+                "id": "consistency",
+                "label": "Logprob consistency",
+                "score": 0,
+                "weight": 0.1,
+                "detail": "engine returned no top-k logprobs",
+                "measured": false,
+                "unmeasuredReason": "engine returned no top-k logprobs"
+              }
+            ],
+            "firstDivergence": null,
+            "unmeasured": [
+              "Confidence",
+              "Logprob consistency"
+            ]
+          }
+        },
+        {
+          "id": "performance",
+          "title": "Performance",
+          "note": "scope not recorded",
+          "density": "collapsed",
+          "domain": "deploy",
+          "data": {
+            "measured": false,
+            "decodeTokPerSec": null,
+            "ttftMs": null,
+            "prefillTokPerSec": null,
+            "contextScaling": null,
+            "speculative": null,
+            "machine": null,
+            "loadDrift": null,
+            "prefixCache": null,
+            "batching": null
+          }
+        }
+      ]
+    },
+    "overview": {
+      "id": "overview",
+      "title": "Overview",
+      "question": "What did this run measure, fully and separately?",
+      "conclusion": "Core coverage 100% · Conformance 93.6% · Capability 100% · strong · Agentic 3/3. Cards stay independent — never averaged.",
+      "signals": [
+        {
+          "label": "Coverage (Core)",
+          "value": "100%",
+          "tone": "good"
+        },
+        {
+          "label": "Conformance",
+          "value": "93.6%",
+          "tone": "critical"
+        },
+        {
+          "label": "Capability",
+          "value": "100% · strong",
+          "tone": "good"
+        },
+        {
+          "label": "Agentic",
+          "value": "3/3",
+          "tone": "neutral"
+        },
+        {
+          "label": "Engine health",
+          "value": "Core 100% · Conf 93.6%",
+          "tone": "caution"
+        }
+      ],
+      "findings": [
+        {
+          "kind": "critical",
+          "label": "chat-logprobs-not-ignored",
+          "detail": "chat-logprobs — accepted `logprobs: true` with HTTP 200 but returned no logprobs — a silent no-op is worse than a clean rejection",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-schema",
+          "detail": "responses-basic — completed_at: Invalid input; incomplete_details: Invalid input; instructions: Invalid input; output.0: Invalid input; truncation: Expected 'auto' | 'disabled', received null (+12 more)",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-sse-missing-done",
+          "detail": "responses-streaming — stream never sent the terminal `data: [DONE]` sentinel",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-stream-chunk-schema",
+          "detail": "responses-streaming — <root>: Invalid input",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-stream-chunk-schema",
+          "detail": "responses-streaming — <root>: Invalid input",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-finish-is-length",
+          "detail": "responses-finish-length — expected length/max_tokens, got \"completed\"",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-tool-none-suppressed",
+          "detail": "responses-tool-choice-none — got 1 tool call(s) despite tool_choice: \"none\"",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "messages-tool-none-suppressed",
+          "detail": "messages-tool-choice-none — got 1 tool call(s) despite tool_choice: \"none\"",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "chat-n-not-ignored",
+          "detail": "chat-n-choices — accepted n: 2 with HTTP 200 but returned 1 choice(s) — a silent no-op is worse than a clean rejection",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "responses-background-queued",
+          "detail": "responses-background — background request returned status \"completed\" — it was run synchronously",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "messages-starts",
+          "detail": "messages-event-order — first event was \"ping\"",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "critical",
+          "label": "messages-stop-reason",
+          "detail": "messages-stop-sequence-echo — stop_reason was \"end_turn\"",
+          "tags": [
+            "engine",
+            "conformance",
+            "must"
+          ]
+        },
+        {
+          "kind": "caution",
+          "label": "Extended coverage gaps",
+          "detail": "logprobs",
+          "tags": [
+            "engine",
+            "coverage",
+            "extended"
+          ]
+        },
+        {
+          "kind": "caution",
+          "label": "Frontier coverage gaps",
+          "detail": "images/generations, images/edits, MCP tools, n>1 choices, rate limiting",
+          "tags": [
+            "engine",
+            "coverage",
+            "frontier"
+          ]
+        },
+        {
+          "kind": "caution",
+          "label": "4 conformance checks inconclusive",
+          "detail": "Model did not exercise the path — not counted as pass or fail",
+          "tags": [
+            "engine",
+            "conformance",
+            "inconclusive"
+          ]
+        },
+        {
+          "kind": "note",
+          "label": "Frontier not probed",
+          "detail": "prompt caching",
+          "tags": [
+            "engine",
+            "coverage",
+            "unprobed",
+            "frontier"
+          ]
+        }
+      ],
+      "sections": [
+        {
+          "id": "coverage",
+          "title": "Surface coverage",
+          "note": "Per tier; missing standards listed on purpose",
+          "density": "body",
+          "domain": "engine",
+          "data": {
+            "tiers": [
+              {
+                "tier": "core",
+                "pct": 100,
+                "ratio": "9/9",
+                "missing": [],
+                "unprobed": []
+              },
+              {
+                "tier": "extended",
+                "pct": 92.9,
+                "ratio": "13/14",
+                "missing": [
+                  "logprobs"
+                ],
+                "unprobed": []
+              },
+              {
+                "tier": "frontier",
+                "pct": 44.4,
+                "ratio": "4/9",
+                "missing": [
+                  "images/generations",
+                  "images/edits",
+                  "MCP tools",
+                  "n>1 choices",
+                  "rate limiting"
+                ],
+                "unprobed": [
+                  "prompt caching"
+                ]
+              }
+            ],
+            "credits": []
+          }
+        },
+        {
+          "id": "conformance",
+          "title": "Engine conformance",
+          "note": "MUST assertions on implemented surfaces only",
+          "density": "body",
+          "domain": "engine",
+          "data": {
+            "pct": 93.6,
+            "passed": 176,
+            "total": 188,
+            "surfaces": [
+              {
+                "surface": "models",
+                "passed": 4,
+                "total": 4,
+                "pct": 100
+              },
+              {
+                "surface": "chat",
+                "passed": 61,
+                "total": 63,
+                "pct": 96.8
+              },
+              {
+                "surface": "responses",
+                "passed": 54,
+                "total": 61,
+                "pct": 88.5
+              },
+              {
+                "surface": "messages",
+                "passed": 54,
+                "total": 57,
+                "pct": 94.7
+              },
+              {
+                "surface": "completions",
+                "passed": 3,
+                "total": 3,
+                "pct": 100
+              }
+            ],
+            "failures": [
+              {
+                "test": "chat-logprobs",
+                "surface": "chat",
+                "assertion": "chat-logprobs-not-ignored",
+                "message": "accepted `logprobs: true` with HTTP 200 but returned no logprobs — a silent no-op is worse than a clean rejection"
+              },
+              {
+                "test": "responses-basic",
+                "surface": "responses",
+                "assertion": "responses-schema",
+                "message": "completed_at: Invalid input; incomplete_details: Invalid input; instructions: Invalid input; output.0: Invalid input; truncation: Expected 'auto' | 'disabled', received null (+12 more)"
+              },
+              {
+                "test": "responses-streaming",
+                "surface": "responses",
+                "assertion": "responses-sse-missing-done",
+                "message": "stream never sent the terminal `data: [DONE]` sentinel"
+              },
+              {
+                "test": "responses-streaming",
+                "surface": "responses",
+                "assertion": "responses-stream-chunk-schema",
+                "message": "<root>: Invalid input"
+              },
+              {
+                "test": "responses-streaming",
+                "surface": "responses",
+                "assertion": "responses-stream-chunk-schema",
+                "message": "<root>: Invalid input"
+              },
+              {
+                "test": "responses-finish-length",
+                "surface": "responses",
+                "assertion": "responses-finish-is-length",
+                "message": "expected length/max_tokens, got \"completed\""
+              },
+              {
+                "test": "responses-tool-choice-none",
+                "surface": "responses",
+                "assertion": "responses-tool-none-suppressed",
+                "message": "got 1 tool call(s) despite tool_choice: \"none\""
+              },
+              {
+                "test": "messages-tool-choice-none",
+                "surface": "messages",
+                "assertion": "messages-tool-none-suppressed",
+                "message": "got 1 tool call(s) despite tool_choice: \"none\""
+              },
+              {
+                "test": "chat-n-choices",
+                "surface": "chat",
+                "assertion": "chat-n-not-ignored",
+                "message": "accepted n: 2 with HTTP 200 but returned 1 choice(s) — a silent no-op is worse than a clean rejection"
+              },
+              {
+                "test": "responses-background",
+                "surface": "responses",
+                "assertion": "responses-background-queued",
+                "message": "background request returned status \"completed\" — it was run synchronously"
+              },
+              {
+                "test": "messages-event-order",
+                "surface": "messages",
+                "assertion": "messages-starts",
+                "message": "first event was \"ping\""
+              },
+              {
+                "test": "messages-stop-sequence-echo",
+                "surface": "messages",
+                "assertion": "messages-stop-reason",
+                "message": "stop_reason was \"end_turn\""
+              }
+            ],
+            "outcomes": {
+              "pass": 69,
+              "fail": 10,
+              "unsupported": 8,
+              "inconclusive": 4,
+              "skipped": 13,
+              "other": 0
+            },
+            "warnings": [],
+            "nits": [],
+            "inconclusive": []
+          }
+        },
+        {
+          "id": "capability",
+          "title": "Model capability",
+          "note": "100% · strong",
+          "density": "body",
+          "domain": "model",
+          "data": {
+            "measured": true,
+            "pct": 100,
+            "verdict": "strong",
+            "categories": [
+              {
+                "category": "tool-selection",
+                "label": "Tool selection",
+                "pct": 100,
+                "passed": 6,
+                "total": 6,
+                "belowFloor": false
+              },
+              {
+                "category": "tool-restraint",
+                "label": "Tool restraint",
+                "pct": 100,
+                "passed": 6,
+                "total": 6,
+                "belowFloor": false
+              },
+              {
+                "category": "tool-args",
+                "label": "Tool argument fidelity",
+                "pct": 100,
+                "passed": 6,
+                "total": 6,
+                "belowFloor": false
+              },
+              {
+                "category": "multiturn",
+                "label": "Multi-turn state",
+                "pct": 100,
+                "passed": 3,
+                "total": 3,
+                "belowFloor": false
+              },
+              {
+                "category": "instructions",
+                "label": "Instruction following",
+                "pct": 100,
+                "passed": 3,
+                "total": 3,
+                "belowFloor": false
+              },
+              {
+                "category": "json-discipline",
+                "label": "JSON discipline",
+                "pct": 100,
+                "passed": 6,
+                "total": 6,
+                "belowFloor": false
+              },
+              {
+                "category": "reasoning",
+                "label": "Basic reasoning",
+                "pct": 100,
+                "passed": 3,
+                "total": 3,
+                "belowFloor": false
+              },
+              {
+                "category": "knowledge",
+                "label": "Basic knowledge",
+                "pct": 100,
+                "passed": 3,
+                "total": 3,
+                "belowFloor": false
+              }
+            ],
+            "weakCategories": [],
+            "unmeasured": [],
+            "floorPct": 50,
+            "evals": [
+              {
+                "id": "eval-tool-select-weather",
+                "category": "tool-selection",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-tool-select-time",
+                "category": "tool-selection",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-tool-restraint-chitchat",
+                "category": "tool-restraint",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-tool-restraint-knowledge",
+                "category": "tool-restraint",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-tool-args-typed",
+                "category": "tool-args",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-tool-args-enum",
+                "category": "tool-args",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-multiturn-recall",
+                "category": "multiturn",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-multiturn-tool-result",
+                "category": "multiturn",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-multiturn-system",
+                "category": "multiturn",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-instructions-exact",
+                "category": "instructions",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-instructions-negative",
+                "category": "instructions",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-instructions-length",
+                "category": "instructions",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-json-no-fences",
+                "category": "json-discipline",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-json-nested",
+                "category": "json-discipline",
+                "passed": 3,
+                "total": 3
+              },
+              {
+                "id": "eval-long-context-needle",
+                "category": "long-context",
+                "passed": 0,
+                "total": 0,
+                "outcome": "skipped"
+              },
+              {
+                "id": "eval-reasoning-arithmetic",
+                "category": "reasoning",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-reasoning-transitive",
+                "category": "reasoning",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-reasoning-counting",
+                "category": "reasoning",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-knowledge-capital",
+                "category": "knowledge",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-knowledge-symbol",
+                "category": "knowledge",
+                "passed": 1,
+                "total": 1
+              },
+              {
+                "id": "eval-knowledge-author",
+                "category": "knowledge",
+                "passed": 1,
+                "total": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "agentic",
+          "title": "Agentic work",
+          "note": "3/3 tasks",
+          "density": "body",
+          "domain": "model",
+          "data": {
+            "measured": true,
+            "passed": 3,
+            "total": 3,
+            "pct": 100,
+            "tasks": [
+              {
+                "id": "agentic-read",
+                "name": "reads the config instead of answering from priors",
+                "passed": true,
+                "steps": 3,
+                "failure": null,
+                "failureGloss": null,
+                "detail": null
+              },
+              {
+                "id": "agentic-edit",
+                "name": "finds where the port really lives and edits only that",
+                "passed": true,
+                "steps": 6,
+                "failure": null,
+                "failureGloss": null,
+                "detail": null
+              },
+              {
+                "id": "agentic-indirect",
+                "name": "follows the pointer in build.cfg instead of guessing",
+                "passed": true,
+                "steps": 5,
+                "failure": null,
+                "failureGloss": null,
+                "detail": null
+              }
+            ],
+            "failureCounts": {},
+            "failureGloss": {
+              "no-tool-call": "Answered without using tools (priors / guess)",
+              "wrong-answer": "Used tools but final state or answer was wrong",
+              "step-limit": "Hit the step cap before finishing cleanly",
+              "engine-error": "Engine/API error during the agent loop"
+            }
+          }
+        },
+        {
+          "id": "fidelity",
+          "title": "Engine fidelity",
+          "note": "100% · same-model comparisons only",
+          "density": "body",
+          "domain": "engine",
+          "data": {
+            "measured": true,
+            "pct": 100,
+            "slices": [
+              {
+                "id": "correctness",
+                "label": "Correctness",
+                "score": 1,
+                "weight": 0.4,
+                "detail": "36/36 items answered correctly",
+                "measured": true
+              },
+              {
+                "id": "confidence",
+                "label": "Confidence",
+                "score": 0,
+                "weight": 0.25,
+                "detail": "engine returned no logprobs",
+                "measured": false,
+                "unmeasuredReason": "engine returned no logprobs"
+              },
+              {
+                "id": "determinism",
+                "label": "Determinism",
+                "score": 1,
+                "weight": 0.25,
+                "detail": "3/3 greedy prompts reproduced byte-for-byte",
+                "measured": true
+              },
+              {
+                "id": "consistency",
+                "label": "Logprob consistency",
+                "score": 0,
+                "weight": 0.1,
+                "detail": "engine returned no top-k logprobs",
+                "measured": false,
+                "unmeasuredReason": "engine returned no top-k logprobs"
+              }
+            ],
+            "firstDivergence": null,
+            "unmeasured": [
+              "Confidence",
+              "Logprob consistency"
+            ]
+          }
+        },
+        {
+          "id": "performance",
+          "title": "Performance",
+          "note": "scope not recorded",
+          "density": "collapsed",
+          "domain": "deploy",
+          "data": {
+            "measured": false,
+            "decodeTokPerSec": null,
+            "ttftMs": null,
+            "prefillTokPerSec": null,
+            "contextScaling": null,
+            "speculative": null,
+            "machine": null,
+            "loadDrift": null,
+            "prefixCache": null,
+            "batching": null
+          }
+        }
+      ]
+    }
+  },
+  "principles": {
+    "neverBlend": "Coverage, Conformance, Capability, and Agentic are independent cards. Never average them.",
+    "benchInformational": "Performance never affects scores or exit codes.",
+    "outcomeHonesty": "fail ≠ unsupported ≠ inconclusive ≠ not measured ≠ unprobed."
+  }
+}

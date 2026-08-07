@@ -36,6 +36,8 @@ import { paletteFor } from "../src/core/report/colors";
 import {
   buildJsonReport,
   diffBaseline,
+  type ReportPhase,
+  type ReportRunScope,
   type JsonReport,
 } from "../src/core/report/json";
 import { renderComparisonHtml } from "../src/core/report/compare";
@@ -784,15 +786,160 @@ async function main(): Promise<void> {
     durationMs: Date.now() - startedAt,
   };
 
+  const phase = (
+    status: ReportPhase,
+    reason?: string,
+  ): { status: ReportPhase; reason?: string } => ({ status, reason });
+  const runScope: ReportRunScope = {
+    depth: args.depth,
+    mode: args.benchOnly ? "bench-only" : "probe",
+    startedAt: new Date(startedAt).toISOString(),
+    phases: {
+      coverage: phase(
+        unprobed.size > 0 ? "partial" : "measured",
+        unprobed.size > 0
+          ? `${unprobed.size} items were not probed`
+          : undefined,
+      ),
+      conformance: phase(
+        args.benchOnly
+          ? "not-run"
+          : budgetHit
+            ? "interrupted"
+            : args.depth === "quick"
+              ? "partial"
+              : conformanceResults.length > 0
+                ? "measured"
+                : "unavailable",
+        args.benchOnly
+          ? "benchmark-only run"
+          : budgetHit
+            ? "token budget exhausted"
+            : args.depth === "quick"
+              ? "quick depth omits slow conformance checks"
+              : conformanceResults.length > 0
+                ? undefined
+                : "no conformance results",
+      ),
+      capability: phase(
+        args.benchOnly || args.depth === "quick"
+          ? "not-run"
+          : budgetHit
+            ? "interrupted"
+            : evalResults.length > 0
+              ? "measured"
+              : "unavailable",
+        args.benchOnly
+          ? "benchmark-only run"
+          : args.depth === "quick"
+            ? "quick depth omits capability evals"
+            : budgetHit
+              ? "token budget exhausted"
+              : evalResults.length > 0
+                ? undefined
+                : "no capability evals",
+      ),
+      agentic: phase(
+        agentic
+          ? "measured"
+          : args.benchOnly || args.depth === "quick"
+            ? "not-run"
+            : budgetHit
+              ? "interrupted"
+              : !ctx.evalSurface ||
+                  featureSupport.get("tools")?.supported !== true
+                ? "unavailable"
+                : "failed",
+        agentic
+          ? undefined
+          : args.benchOnly
+            ? "benchmark-only run"
+            : args.depth === "quick"
+              ? "quick depth omits agentic tasks"
+              : budgetHit
+                ? "token budget exhausted"
+                : !ctx.evalSurface
+                  ? "no chat-shaped evaluation surface"
+                  : featureSupport.get("tools")?.supported !== true
+                    ? "tool calling unavailable"
+                    : "agentic phase did not produce a score",
+      ),
+      fidelity: phase(
+        fidelity
+          ? "measured"
+          : args.benchOnly || args.depth === "quick"
+            ? "not-run"
+            : budgetHit
+              ? "interrupted"
+              : !ctx.evalSurface
+                ? "unavailable"
+                : "failed",
+        fidelity
+          ? undefined
+          : args.benchOnly
+            ? "benchmark-only run"
+            : args.depth === "quick"
+              ? "quick depth omits fidelity"
+              : budgetHit
+                ? "token budget exhausted"
+                : !ctx.evalSurface
+                  ? "no chat-shaped evaluation surface"
+                  : "fidelity phase did not produce a score",
+      ),
+      performance: phase(
+        bench
+          ? "measured"
+          : !args.bench
+            ? "not-run"
+            : budgetHit
+              ? "interrupted"
+              : !ctx.evalSurface
+                ? "unavailable"
+                : "failed",
+        bench
+          ? undefined
+          : !args.bench
+            ? "benchmark not requested"
+            : budgetHit
+              ? "token budget exhausted"
+              : !ctx.evalSurface
+                ? "no chat-shaped evaluation surface"
+                : "benchmark did not produce a report",
+      ),
+    },
+    budget: { limitTokens: args.budget, exhausted: budgetHit },
+  };
+
   const json = buildJsonReport(report, {
     entries,
     conformance: conformanceResults,
     evals: evalResults,
+    run: runScope,
   });
+
+  let baselineContext: Parameters<typeof renderHtml>[1] | undefined;
+  let baselineDiff: ReturnType<typeof diffBaseline> | undefined;
+  if (args.baseline) {
+    const baseline = JSON.parse(
+      readFileSync(args.baseline, "utf8"),
+    ) as JsonReport;
+    baselineDiff = diffBaseline(baseline, json);
+    baselineContext = {
+      baseline: {
+        label: args.baseline,
+        regressions: baselineDiff.regressions.map(
+          (item) => `${item.id}: ${item.before} → ${item.after}`,
+        ),
+        improvements: baselineDiff.improvements.map(
+          (item) => `${item.id}: ${item.before} → ${item.after}`,
+        ),
+      },
+    };
+  }
 
   if (args.save) writeFileSync(args.save, `${JSON.stringify(json, null, 2)}\n`);
   if (args.html) {
-    writeFileSync(args.html, renderHtml(json));
+    writeFileSync(args.html, renderHtml(json, baselineContext));
     log(`${c.gray("html report →")} ${args.html}`);
   }
 
@@ -812,10 +959,7 @@ async function main(): Promise<void> {
   let regressed = false;
 
   if (args.baseline) {
-    const baseline = JSON.parse(
-      readFileSync(args.baseline, "utf8"),
-    ) as JsonReport;
-    const { regressions, improvements } = diffBaseline(baseline, json);
+    const { regressions, improvements } = baselineDiff!;
     regressed = regressions.length > 0;
 
     if (!quiet) {

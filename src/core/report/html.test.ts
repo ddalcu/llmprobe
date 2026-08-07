@@ -164,6 +164,11 @@ describe("renderHtml", () => {
     expect(html).toContain("context window exceeded");
     expect(html).toContain("✗ responses");
     expect(html).toContain("✓ capable");
+    expect(html).toContain("Model evaluation");
+    expect(html).toContain("Deployment readiness");
+    expect(html).toContain("Engine diagnostics");
+    expect(html).toContain("Engine conformance");
+    expect(html).toContain('href="#model"');
   });
 
   test("a hostile model name cannot break out of markup or scripts", () => {
@@ -179,5 +184,34 @@ describe("renderHtml", () => {
     expect(html).not.toContain('id="context-decode-chart"');
     expect(html).not.toContain('id="speculative-chart"');
     expect(html).toContain('id="capability-chart"');
+  });
+
+  test("keeps an unmeasured quick-style report explicit", () => {
+    const report = sampleReport();
+    report.version = 2;
+    report.capability = {
+      ...report.capability,
+      pct: 0,
+      verdict: "below-floor",
+      categories: [],
+      unmeasured: ["tool-selection", "tool-restraint"],
+    };
+    report.run = {
+      depth: "quick",
+      mode: "probe",
+      startedAt: "2026-08-06T12:00:00.000Z",
+      phases: {
+        coverage: { status: "partial", reason: "quick depth" },
+        conformance: { status: "partial", reason: "quick depth" },
+        capability: { status: "not-run", reason: "quick depth" },
+        agentic: { status: "not-run", reason: "quick depth" },
+        fidelity: { status: "not-run", reason: "quick depth" },
+        performance: { status: "not-run", reason: "not requested" },
+      },
+    };
+    const html = renderHtml(report);
+    expect(html).toContain("Model evidence was not-run");
+    expect(html).toContain("quick depth");
+    expect(html).not.toContain("Model evidence was 0%");
   });
 });
