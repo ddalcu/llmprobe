@@ -1,27 +1,29 @@
-import type { JsonReport } from "./json";
+import { normalizeJsonReport, type JsonReport } from "./json";
 import { STYLE, chartJsBundle, embedJson, esc, fmtTokensK } from "./html";
+import {
+  PERSPECTIVES,
+  buildPerspectiveInsights,
+  type Perspective,
+} from "./insights";
+import {
+  renderCompareWorkbenchHtml,
+  type CompareWorkbenchOptions,
+} from "./card/compare-workbench";
 
 /**
  * One page comparing several saved runs.
  *
- * The unit of comparison is a `--save` JSON, so anything already on disk can be
- * put side by side without re-running: two engines on one model, one engine
- * across models, or the same pair before and after a change.
- *
- * Two rules the single-run report does not need:
- *
- *  - Context curves overlay on a *logarithmic, numeric* x-axis rather than
- *    shared category labels. Runs land on different actual token counts (506
- *    here, 540 there) and may not even share rungs, so plotting by position
- *    would silently align points that are not the same size.
- *  - Performance figures are only comparable on identical hardware, and here
- *    that is checkable rather than a caveat: the machines are read out of the
- *    reports and a mismatch is stated at the top of the page.
+ * Default output is the interactive model-picker workbench (blank columns,
+ * dropdowns, sticky freeze header). Benchmark curve overlays remain available
+ * via `renderBenchmarkComparisonHtml` for deep performance diffs.
  */
 
 export interface ComparisonInput {
   label: string;
   report: JsonReport;
+  /** Optional link to a single-run HTML report for this input. */
+  href?: string | null;
+  file?: string;
 }
 
 /**
@@ -384,7 +386,11 @@ function scoreRows(): ScoreRow[] {
   ];
 }
 
-function scorecard(inputs: ComparisonInput[]): string {
+function scorecard(
+  inputs: ComparisonInput[],
+  timingComparable = true,
+  fidelityComparable = true,
+): string {
   const swatch = (i: number): string =>
     `<span class="swatch" style="background:${color(i)}"></span>`;
 
@@ -395,7 +401,15 @@ function scorecard(inputs: ComparisonInput[]): string {
 
     // Ranking needs at least two runs to have measured the thing. One value
     // and a column of n/a is not a comparison.
-    const comparable = present.length >= 2;
+    const timingRow =
+      /Decode|token|Prefill|Speculative|step|cache|Concurrency|Sustained/i.test(
+        row.label,
+      );
+    const fidelityRow = row.label === "Fidelity";
+    const comparable =
+      present.length >= 2 &&
+      (timingComparable || !timingRow) &&
+      (fidelityComparable || !fidelityRow);
     const best = comparable
       ? row.better === "higher"
         ? Math.max(...present)
@@ -596,7 +610,33 @@ const COMPARE_SCRIPT = `
   });
 `;
 
-export function renderComparisonHtml(inputs: ComparisonInput[]): string {
+/** Interactive compare workbench (default for `--compare`). */
+export function renderComparisonHtml(
+  inputs: ComparisonInput[],
+  options: CompareWorkbenchOptions = {},
+): string {
+  return renderCompareWorkbenchHtml(
+    inputs.map((input) => ({
+      label: input.label,
+      report: normalizeJsonReport(input.report),
+      href: input.href,
+      file: input.file,
+    })),
+    options,
+  );
+}
+
+/**
+ * Legacy scorecard + context-curve overlay compare (bench-focused).
+ * Kept for tests and callers that need overlaid performance series.
+ */
+export function renderBenchmarkComparisonHtml(
+  inputs: ComparisonInput[],
+): string {
+  inputs = inputs.map((input) => ({
+    ...input,
+    report: normalizeJsonReport(input.report),
+  }));
   const charts = buildCharts(inputs);
 
   // Timings only mean something on identical hardware. With the machines in
@@ -604,6 +644,8 @@ export function renderComparisonHtml(inputs: ComparisonInput[]): string {
   const machines = inputs.map(machineOf);
   const known = machines.filter((m): m is string => m !== null);
   const mixed = new Set(known).size > 1;
+  const sameModel =
+    new Set(inputs.map((input) => input.report.target.model)).size === 1;
   const machineNote = mixed
     ? `<div class="missing">⚠ These runs are from different machines — coverage, conformance and capability still compare, but every timing below does not.</div>`
     : known.length > 0
@@ -640,15 +682,83 @@ export function renderComparisonHtml(inputs: ComparisonInput[]): string {
     )
     .join("\n");
 
+  const perspectives = (Object.keys(PERSPECTIVES) as Perspective[])
+    .map((perspective) => {
+      const definition = PERSPECTIVES[perspective];
+      const rows = inputs
+        .map((input) => {
+          const insight = buildPerspectiveInsights(input.report, perspective);
+          const primary = insight.signals
+            .slice(0, 3)
+            .map((signal) => `${signal.label}: ${signal.value}`)
+            .join(" · ");
+          return `<tr><td>${esc(input.label)}</td><td style="text-align:left">${esc(insight.conclusion)}</td><td style="text-align:left">${esc(primary)}</td></tr>`;
+        })
+        .join("\n");
+      const categories = [
+        ...new Set(
+          inputs.flatMap((input) =>
+            input.report.capability.categories.map(
+              (category) => category.category,
+            ),
+          ),
+        ),
+      ];
+      const categoryMatrix =
+        perspective === "model" && categories.length > 0
+          ? `<details><summary>capability category matrix</summary><table><tr><th>category</th>${inputs.map((input) => `<th>${esc(input.label)}</th>`).join("")}</tr>${categories
+              .map(
+                (category) =>
+                  `<tr><td>${esc(category)}</td>${inputs
+                    .map((input) => {
+                      const value = input.report.capability.categories.find(
+                        (item) => item.category === category,
+                      );
+                      return `<td>${value ? `${value.pct}% (${value.passed}/${value.total})` : "not measured"}</td>`;
+                    })
+                    .join("")}</tr>`,
+              )
+              .join("")}</table></details>`
+          : "";
+      return `<section class="perspective-compare" data-view="${perspective}"><h2>${esc(definition.label)} <span class="note">— ${esc(definition.question)}</span></h2><table><tr><th>run</th><th style="text-align:left">evidence-led conclusion</th><th style="text-align:left">signals</th></tr>${rows}</table>${categoryMatrix}</section>`;
+    })
+    .join("\n");
+
+  const evidence = inputs
+    .map((input) => {
+      const mustFailures = input.report.conformance.results.reduce(
+        (count, result) =>
+          count +
+          result.failures.filter((failure) => failure.severity === "MUST")
+            .length,
+        0,
+      );
+      const core = input.report.coverage.byTier.find(
+        (tier) => tier.tier === "core",
+      );
+      return `<tr><td>${esc(input.label)}</td><td>${mustFailures}</td><td>${core?.missing.length ?? 0}</td><td>${input.report.conformance.inconclusive?.length ?? 0}</td></tr>`;
+    })
+    .join("\n");
+
   return `<title>llmprobe — comparison of ${inputs.length} runs</title>
 <style>${STYLE}${COMPARE_STYLE}</style>
 <main>
   <header>
     <h1>llmprobe comparison</h1>
     <div class="sub">${inputs.length} runs side by side</div>
+    <nav class="perspectives" aria-label="Dashboard perspective"><a href="#model" data-perspective="model">Model evaluation</a><a href="#deploy" data-perspective="deploy">Deployment readiness</a><a href="#engine" data-perspective="engine">Engine diagnostics</a></nav>
   </header>
 
-  <section>
+  ${perspectives}
+
+  <section class="perspective-compare" data-view="engine">
+    <h2>Engine reference <span class="note">— choose a run to inspect regressions and improvements</span></h2>
+    <label for="reference-run">Reference run </label><select id="reference-run">${inputs.map((input, index) => `<option value="${index}">${esc(input.label)}</option>`).join("")}</select>
+    <div id="reference-delta" class="fineprint">Select a reference to compare supported surfaces and MUST outcomes.</div>
+    <table><tr><th>run</th><th>MUST violations</th><th>Core gaps</th><th>inconclusive</th></tr>${evidence}</table>
+  </section>
+
+  <section class="compare-section" data-view-order="deploy,engine,model">
     <h2>Runs</h2>
     <table>
       <tr><th>label</th><th style="text-align:left">target</th><th style="text-align:left">machine</th></tr>
@@ -657,19 +767,28 @@ export function renderComparisonHtml(inputs: ComparisonInput[]): string {
     ${machineNote}
   </section>
 
-  <section>
+  <section class="compare-section" data-view-order="deploy,model,engine">
     <h2>Scorecard</h2>
-    ${scorecard(inputs)}
-    <div class="fineprint">Coverage, conformance and capability are hardware-independent. Everything from decode downwards is not.</div>
+    ${scorecard(inputs, !mixed, sameModel)}
+    <div class="fineprint">Coverage, conformance and capability are hardware-independent. Timings require identical hardware; fidelity requires the same model identifier.</div>
   </section>
 
-  ${perfSection}
+  <div class="compare-section" data-view-order="deploy,model,engine">${perfSection}</div>
 </main>
 <script>${chartJsBundle()}</script>
 <script>
 const LABELS = ${embedJson(inputs.map((i) => i.label))};
 const COLORS = ${embedJson(inputs.map((_, i) => color(i)))};
 const SPECS = ${embedJson(charts)};
+const REPORTS = ${embedJson(inputs.map((input) => input.report))};
+const perspectiveLinks = [...document.querySelectorAll("[data-perspective]")];
+const perspectivePanels = [...document.querySelectorAll(".perspective-compare")];
+const ordered = [...document.querySelectorAll(".compare-section")];
+function setPerspective(name) { const chosen = ["model","deploy","engine"].includes(name) ? name : "model"; perspectiveLinks.forEach((link) => { const active = link.dataset.perspective === chosen; link.classList.toggle("active", active); link.setAttribute("aria-current", active ? "page" : "false"); }); perspectivePanels.forEach((panel) => panel.hidden = panel.dataset.view && panel.dataset.view !== chosen); const main = document.querySelector("main"); ordered.sort((a,b) => { const rank = (el) => { const values = (el.dataset.viewOrder || "").split(","); const index = values.indexOf(chosen); return index < 0 ? 99 : index; }; return rank(a)-rank(b); }).forEach((el) => main?.appendChild(el)); }
+setPerspective(location.hash.slice(1)); window.addEventListener("hashchange", () => setPerspective(location.hash.slice(1)));
+const reference = document.getElementById("reference-run"); const delta = document.getElementById("reference-delta");
+function showDelta() { const base = REPORTS[Number(reference?.value || 0)]; if (!base || !delta) return; const lines = []; REPORTS.forEach((report, index) => { if (report === base) return; const before = new Map(base.conformance.results.map(result => [result.id, result.outcome])); const regressions = report.conformance.results.filter(result => before.get(result.id) === "pass" && result.outcome === "fail").length; const improvements = report.conformance.results.filter(result => before.get(result.id) === "fail" && result.outcome === "pass").length; const oldCoverage = new Map((base.coverage.entries || []).map(entry => [entry.id, entry.supported])); const coverageRegressions = (report.coverage.entries || []).filter(entry => oldCoverage.get(entry.id) === true && entry.supported === false).length; const coverageImprovements = (report.coverage.entries || []).filter(entry => oldCoverage.get(entry.id) === false && entry.supported === true).length; lines.push(LABELS[index] + ": " + regressions + " conformance regression" + (regressions === 1 ? "" : "s") + ", " + improvements + " improvement" + (improvements === 1 ? "" : "s") + ", " + coverageRegressions + " coverage regression" + (coverageRegressions === 1 ? "" : "s") + ", " + coverageImprovements + " coverage improvement" + (coverageImprovements === 1 ? "" : "s")); }); delta.textContent = lines.length ? lines.join(" · ") : "No comparison rows beyond the selected reference."; }
+reference?.addEventListener("change", showDelta); showDelta();
 ${COMPARE_SCRIPT}
 </script>`;
 }

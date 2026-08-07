@@ -2,8 +2,33 @@ import type {
   ConformanceResult,
   CoverageEntry,
   EvalResult,
+  EvalCategory,
   RunReport,
 } from "../outcome";
+
+export type ReportPhase =
+  | "measured"
+  | "partial"
+  | "not-run"
+  | "unavailable"
+  | "interrupted"
+  | "failed";
+
+export interface ReportRunScope {
+  depth: "quick" | "default" | "full";
+  mode: "probe" | "bench-only";
+  startedAt: string;
+  phases: Record<
+    | "coverage"
+    | "conformance"
+    | "capability"
+    | "agentic"
+    | "fidelity"
+    | "performance",
+    { status: ReportPhase; reason?: string }
+  >;
+  budget?: { limitTokens?: number; exhausted: boolean };
+}
 
 /**
  * The stable machine-readable shape. This doubles as the baseline format, so
@@ -11,7 +36,9 @@ import type {
  * treat it as an interface, not an implementation detail.
  */
 export interface JsonReport {
-  version: 1;
+  /** v1 reports remain readable; writers emit v2. */
+  version: 1 | 2;
+  run?: ReportRunScope;
   target: RunReport["target"];
   /** Set when the target died mid-run; every score below is partial. */
   incomplete?: string;
@@ -20,8 +47,11 @@ export interface JsonReport {
     credits: RunReport["coverage"]["credits"];
     entries: Array<{
       id: string;
+      label?: string;
+      kind?: string;
       tier: string;
       supported: boolean;
+      probed?: boolean;
       detail?: string;
     }>;
   };
@@ -30,14 +60,23 @@ export interface JsonReport {
     passed: number;
     total: number;
     bySurface: RunReport["conformance"]["bySurface"];
+    inconclusive?: Array<{ id: string; name?: string; reason?: string }>;
+    warnings?: Array<{ id: string; label?: string; message?: string }>;
+    nits?: Array<{ id: string; label?: string; message?: string }>;
     results: Array<{
       id: string;
+      name?: string;
       surface: string;
       outcome: string;
       reason?: string;
       /** Wall clock for this test, so a slow one is findable after the fact. */
       durationMs?: number;
-      failures: Array<{ id: string; severity: string; message?: string }>;
+      failures: Array<{
+        id: string;
+        label?: string;
+        severity: string;
+        message?: string;
+      }>;
     }>;
   };
   capability: {
@@ -45,12 +84,15 @@ export interface JsonReport {
     verdict: RunReport["capability"]["verdict"];
     categories: RunReport["capability"]["categories"];
     weakCategories: RunReport["capability"]["weakCategories"];
+    unmeasured?: EvalCategory[];
     evals: Array<{
       id: string;
+      name?: string;
       category: string;
       passed: number;
       total: number;
       outcome?: string;
+      failures?: string[];
     }>;
   };
   /** Agentic card; present unless --quick, no tools, or the budget ran out. */
@@ -69,10 +111,12 @@ export function buildJsonReport(
     entries: CoverageEntry[];
     conformance: ConformanceResult[];
     evals: EvalResult[];
+    run?: ReportRunScope;
   },
 ): JsonReport {
   return {
-    version: 1,
+    version: 2,
+    run: details.run,
     target: report.target,
     ...(report.incomplete ? { incomplete: report.incomplete } : {}),
     coverage: {
@@ -80,8 +124,11 @@ export function buildJsonReport(
       credits: report.coverage.credits,
       entries: details.entries.map((e) => ({
         id: e.item.id,
+        label: e.item.label,
+        kind: e.item.kind,
         tier: e.item.tier,
         supported: e.supported,
+        probed: e.probed,
         detail: e.detail,
       })),
     },
@@ -90,15 +137,36 @@ export function buildJsonReport(
       passed: report.conformance.passed,
       total: report.conformance.total,
       bySurface: report.conformance.bySurface,
+      inconclusive: report.conformance.inconclusive.map((result) => ({
+        id: result.id,
+        name: result.name,
+        reason: result.reason,
+      })),
+      warnings: report.conformance.warnings.map((assertion) => ({
+        id: assertion.id,
+        label: assertion.label,
+        message: assertion.message,
+      })),
+      nits: report.conformance.nits.map((assertion) => ({
+        id: assertion.id,
+        label: assertion.label,
+        message: assertion.message,
+      })),
       results: details.conformance.map((r) => ({
         id: r.id,
+        name: r.name,
         surface: r.surface,
         outcome: r.outcome,
         reason: r.reason,
         durationMs: r.durationMs,
         failures: r.assertions
           .filter((a) => !a.passed)
-          .map((a) => ({ id: a.id, severity: a.severity, message: a.message })),
+          .map((a) => ({
+            id: a.id,
+            label: a.label,
+            severity: a.severity,
+            message: a.message,
+          })),
       })),
     },
     capability: {
@@ -106,12 +174,17 @@ export function buildJsonReport(
       verdict: report.capability.verdict,
       categories: report.capability.categories,
       weakCategories: report.capability.weakCategories,
+      unmeasured: report.capability.unmeasured,
       evals: details.evals.map((e) => ({
         id: e.id,
+        name: e.name,
         category: e.category,
         passed: e.samples.filter((s) => s.passed).length,
         total: e.samples.length,
         outcome: e.outcome,
+        failures: e.samples
+          .filter((s) => !s.passed && s.message)
+          .map((s) => s.message!),
       })),
     },
     agentic: report.agentic,
@@ -119,6 +192,60 @@ export function buildJsonReport(
     bench: report.bench,
     usage: report.usage,
     durationMs: report.durationMs,
+  };
+}
+
+/**
+ * Normalize reports written before the dashboard scope metadata existed.
+ * Unknown v1 facts stay unknown; they are never promoted to "measured".
+ */
+export function normalizeJsonReport(input: JsonReport): JsonReport {
+  if (input.version === 2 && input.run) return input;
+
+  const hasCapability = input.capability.categories.length > 0;
+  const hasConformance = input.conformance.total > 0;
+  const hasBench = Boolean(input.bench);
+  const startedAt = new Date().toISOString();
+  const phase = (
+    status: ReportPhase,
+    reason?: string,
+  ): { status: ReportPhase; reason?: string } => ({ status, reason });
+
+  return {
+    ...input,
+    version: 2,
+    run: {
+      depth: "default",
+      mode: "probe",
+      startedAt,
+      phases: {
+        coverage: phase("measured", "v1 did not record probe depth"),
+        conformance: phase(
+          hasConformance ? "measured" : "not-run",
+          hasConformance
+            ? "v1 did not record probe depth"
+            : "no conformance results",
+        ),
+        capability: phase(
+          hasCapability ? "measured" : "not-run",
+          hasCapability
+            ? "v1 did not record probe depth"
+            : "no capability evals",
+        ),
+        agentic: phase(
+          input.agentic ? "measured" : "not-run",
+          input.agentic ? undefined : "not present in v1 report",
+        ),
+        fidelity: phase(
+          input.fidelity ? "measured" : "not-run",
+          input.fidelity ? undefined : "not present in v1 report",
+        ),
+        performance: phase(
+          hasBench ? "measured" : "not-run",
+          hasBench ? undefined : "benchmark not run",
+        ),
+      },
+    },
   };
 }
 
