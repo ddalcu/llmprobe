@@ -40,6 +40,8 @@ export interface JsonReport {
   version: 1 | 2;
   run?: ReportRunScope;
   target: RunReport["target"];
+  /** Set when the target died mid-run; every score below is partial. */
+  incomplete?: string;
   coverage: {
     byTier: RunReport["coverage"]["byTier"];
     credits: RunReport["coverage"]["credits"];
@@ -116,6 +118,7 @@ export function buildJsonReport(
     version: 2,
     run: details.run,
     target: report.target,
+    ...(report.incomplete ? { incomplete: report.incomplete } : {}),
     coverage: {
       byTier: report.coverage.byTier,
       credits: report.coverage.credits,

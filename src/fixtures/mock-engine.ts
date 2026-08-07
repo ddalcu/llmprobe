@@ -19,8 +19,22 @@ import type { AddressInfo } from "node:net";
 export interface MockDefects {
   /** Omit the terminal `data: [DONE]` sentinel from streams. */
   noDoneSentinel?: boolean;
+  /**
+   * Die like a crashed process: after N chat requests, drop the connection on
+   * every request from then on. The point is what the *report* does with it —
+   * a dead socket must not read as an engine that implements nothing.
+   */
+  dieAfterChatRequests?: number;
   /** Accept `logprobs: true`, return 200, send no logprobs. The silent no-op. */
   silentlyIgnoreLogprobs?: boolean;
+  /**
+   * Full logprobs without `stream`, none at all with it. The shipped bug: the
+   * SSE chunk template simply had no `logprobs` field, so the engine computed
+   * them (and gave up speculative decoding to do it) and then dropped them.
+   */
+  dropStreamingLogprobs?: boolean;
+  /** Stream all but the last logprob entry — a partial drain. */
+  truncateStreamingLogprobs?: boolean;
   /** Spread probability mass thin — the signature of a degraded quant. */
   flatLogprobs?: boolean;
   /** Vary output run-to-run even at temperature 0 — a non-deterministic kernel. */
@@ -201,8 +215,10 @@ function buildLogprobs(
   topK: number,
   defects: MockDefects,
 ): { content: Array<Record<string, unknown>> } {
-  const firstWord = (content ?? "").trim().split(/\s+/)[0];
-  const token = (firstWord && firstWord.slice(0, 16)) || "x";
+  // One entry per streamed piece: real engines emit one per token, and a
+  // single-entry response cannot tell a partial drain from a total one.
+  const pieces = (content ?? "").match(/.{1,4}/gs) ?? [];
+  const token = pieces[0] ?? "x";
   // -0.05 ⇒ p≈0.95 (faithful); -1.4 ⇒ p≈0.25 (flat, like a degraded quant).
   const topLogprob = defects.flatLogprobs ? -1.4 : -0.05;
   const entry: Record<string, unknown> = { token, logprob: topLogprob };
@@ -215,7 +231,15 @@ function buildLogprobs(
       { token: "~d", logprob: topLogprob - 5.1 },
     ].slice(0, topK);
   }
-  return { content: [entry] };
+
+  return {
+    content: [
+      entry,
+      ...pieces
+        .slice(1)
+        .map((piece, i) => ({ token: piece, logprob: -0.1 - i * 0.01 })),
+    ],
+  };
 }
 
 /** How many tokens a reasoning model burns before it writes anything visible. */
@@ -359,12 +383,33 @@ function streamFor(
     `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }] })}`,
   );
 
+  // Logprobs ride along per chunk, covering that chunk's tokens — never
+  // repeated whole on every frame, and never only on the last one.
+  const allEntries: Array<Record<string, unknown>> =
+    defects.dropStreamingLogprobs ? [] : (choice.logprobs?.content ?? []);
+  const entries = defects.truncateStreamingLogprobs
+    ? allEntries.slice(0, -1)
+    : allEntries;
+  let nextEntry = 0;
+
   const content: string | null = choice.message.content;
   if (typeof content === "string") {
     // Split into a couple of deltas so reassembly is actually exercised.
     for (const piece of content.match(/.{1,4}/gs) ?? []) {
+      const entry = entries[nextEntry];
+      nextEntry += 1;
       frames.push(
-        `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { content: piece }, finish_reason: null }] })}`,
+        `data: ${JSON.stringify({
+          ...base,
+          choices: [
+            {
+              index: 0,
+              delta: { content: piece },
+              ...(entry ? { logprobs: { content: [entry] } } : {}),
+              finish_reason: null,
+            },
+          ],
+        })}`,
       );
     }
   }
@@ -488,6 +533,14 @@ export async function startMockEngine(
     const url = new URL(request.url ?? "/", "http://localhost");
     const path = url.pathname.replace(/^\/v1/, "");
     requests.push(`${request.method} ${path}`);
+
+    // A crashed process answers nothing, not even a 500 — it drops the socket.
+    if (defects.dieAfterChatRequests !== undefined) {
+      if (chatBodies.length >= defects.dieAfterChatRequests) {
+        request.socket.destroy();
+        return;
+      }
+    }
 
     if (path === "/models" && surfaces.includes("models")) {
       return json(res, {

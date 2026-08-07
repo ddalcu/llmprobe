@@ -8,6 +8,7 @@ import {
   classifySpeculative,
   computeStat,
   decodeRate,
+  deliveryRate,
   median,
   tokensPerSecond,
 } from "./stats";
@@ -126,6 +127,87 @@ describe("decodeRate", () => {
     expect(decodeRate([0, 20, 40], null)).toBeNull();
     expect(decodeRate([0, 20, 40], 1)).toBeNull();
     expect(decodeRate([], 50)).toBeNull();
+  });
+});
+
+describe("deliveryRate", () => {
+  /** Frames of equal size arriving on a fixed cadence — an honest stream. */
+  const perToken = (n: number, gapMs = 20, chars = 4) =>
+    Array.from({ length: n }, (_, i) => ({ timeMs: i * gapMs, chars }));
+
+  test("per-token stream matches the classic (N-1)/span math", () => {
+    // 21 one-token frames, 20 ms apart: 20 intervals over 400 ms = 50 tok/s.
+    const d = deliveryRate(perToken(21), 21);
+    expect(d.rate).toBeCloseTo(50, 5);
+    expect(d.coalesced).toBe(false);
+  });
+
+  test("a coalesced first frame cannot inflate the rate", () => {
+    // 100 tokens, but the server buffered the first 20 into one frame that
+    // lands late. The classic math credits 99 tokens to the short window
+    // (~123 tok/s for a 50 tok/s stream); the delivery rate excludes the
+    // tokens that were already in flight at the window's start.
+    const frames = [
+      { timeMs: 0, chars: 20 * 4 },
+      ...Array.from({ length: 80 }, (_, i) => ({
+        timeMs: (i + 1) * 20,
+        chars: 4,
+      })),
+    ];
+    const d = deliveryRate(frames, 100);
+    expect(d.rate).toBeCloseTo((80 / 1600) * 1000, 5);
+    expect(d.coalesced).toBe(true);
+    expect(d.firstFrameShare).toBeCloseTo(0.2, 5);
+    expect(d.note).toMatch(/first frame/i);
+  });
+
+  test("uneven frame sizes weight by characters, not frame count", () => {
+    // 10 tokens in frame one of two: chars decide the split.
+    const frames = [
+      { timeMs: 0, chars: 40 },
+      { timeMs: 100, chars: 40 },
+    ];
+    // 20 tokens total, half in flight at t_first: 10 tokens over 100 ms.
+    const d = deliveryRate(frames, 20);
+    expect(d.rate).toBeCloseTo(100, 5);
+    expect(d.coalesced).toBe(true);
+  });
+
+  test("reasoning frames are part of the stream: full token count over the full window", () => {
+    // The caller passes ALL output tokens (thinking included) with frames
+    // covering the whole generation. A visible-only numerator against a
+    // window that spans the thinking phase deflates toward zero — the
+    // mismatch this function exists to remove.
+    const d = deliveryRate(perToken(101), 101);
+    expect(d.rate).toBeCloseTo(50, 5);
+  });
+
+  test("one frame is pure coalescing: no rate, flagged", () => {
+    const d = deliveryRate([{ timeMs: 100, chars: 400 }], 100);
+    expect(d.rate).toBeNull();
+    expect(d.coalesced).toBe(true);
+  });
+
+  test("degenerate inputs yield nulls, never NaN or Infinity", () => {
+    expect(deliveryRate([], 50).rate).toBeNull();
+    expect(deliveryRate(perToken(3), null).rate).toBeNull();
+    expect(deliveryRate(perToken(3), 1).rate).toBeNull();
+    const zeroSpan = [
+      { timeMs: 5, chars: 4 },
+      { timeMs: 5, chars: 4 },
+    ];
+    expect(deliveryRate(zeroSpan, 10).rate).toBeNull();
+    const zeroChars = [
+      { timeMs: 0, chars: 0 },
+      { timeMs: 20, chars: 0 },
+    ];
+    expect(deliveryRate(zeroChars, 10).rate).toBeNull();
+  });
+
+  test("an honest fine-grained stream is never flagged as coalesced", () => {
+    const d = deliveryRate(perToken(200), 200);
+    expect(d.coalesced).toBe(false);
+    expect(d.note).toBeNull();
   });
 });
 

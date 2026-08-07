@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { Inconclusive, Unsupported } from "./assert";
+import { TargetUnreachableError } from "./client";
 import type { ConformanceTest, EvalDef, RunContext } from "./context";
 import { SURFACES } from "./registry";
 import {
@@ -195,6 +196,79 @@ describe("runConformance", () => {
     expect(results[0]!.assertions[0]!.message).toContain("socket hang up");
   });
 
+  test("a dead target is reported as unreachable, not as a failed assertion", async () => {
+    const { results } = await runConformance(
+      [
+        testDef({
+          run: async () => {
+            throw new TargetUnreachableError(
+              "/chat/completions",
+              Object.assign(new Error("fetch failed"), {
+                cause: { code: "ECONNREFUSED" },
+              }),
+            );
+          },
+        }),
+      ],
+      ctx(),
+    );
+
+    // Scoring a corpse as "the engine answered wrongly" is what turned a
+    // crashed process into "0/26 responses" and a model that can't name a
+    // chemical symbol.
+    expect(results[0]!.outcome).toBe("unreachable");
+    expect(results[0]!.assertions).toEqual([]);
+  });
+
+  test("consecutive transport failures abort the run instead of scoring zeros", async () => {
+    const dead = () => {
+      throw new TargetUnreachableError(
+        "/chat/completions",
+        new Error("socket hang up"),
+      );
+    };
+
+    const { results, unreachable } = await runConformance(
+      [
+        testDef({ id: "alive", name: "alive" }),
+        testDef({ id: "d1", run: dead }),
+        testDef({ id: "d2", run: dead }),
+        testDef({ id: "d3", run: dead }),
+        testDef({ id: "never-run-1" }),
+        testDef({ id: "never-run-2" }),
+      ],
+      ctx(),
+    );
+
+    expect(unreachable).toMatchObject({ after: "alive", notRun: 2 });
+    expect(results.map((r) => r.id)).toEqual(["alive", "d1", "d2", "d3"]);
+  });
+
+  test("a recovered target does not trip the abort", async () => {
+    let calls = 0;
+    const flaky = async () => {
+      calls += 1;
+      if (calls <= 2)
+        throw new TargetUnreachableError(
+          "/chat/completions",
+          new Error("socket hang up"),
+        );
+    };
+
+    const { results, unreachable } = await runConformance(
+      [
+        testDef({ id: "a", run: flaky }),
+        testDef({ id: "b", run: flaky }),
+        testDef({ id: "c", run: flaky }),
+        testDef({ id: "d", run: flaky }),
+      ],
+      ctx(),
+    );
+
+    expect(unreachable).toBeUndefined();
+    expect(results).toHaveLength(4);
+  });
+
   test("quick depth runs only the smoke set", async () => {
     const { results } = await runConformance(
       [testDef({ id: "a", quick: true }), testDef({ id: "b" })],
@@ -304,6 +378,29 @@ describe("runEvals", () => {
       support({}),
     );
     expect(results[0]!.outcome).toBe("unsupported");
+  });
+});
+
+describe("runEvals unreachable", () => {
+  test("a dead target stops the evals instead of grading the model at zero", async () => {
+    const support: FeatureSupport = new Map();
+    const evals: EvalDef[] = [
+      {
+        id: "e1",
+        name: "knows a chemical symbol",
+        category: "knowledge",
+        run: async () => {
+          throw new TargetUnreachableError(
+            "/chat/completions",
+            new Error("socket hang up"),
+          );
+        },
+      },
+    ];
+
+    await expect(runEvals(evals, ctx(), support)).rejects.toBeInstanceOf(
+      TargetUnreachableError,
+    );
   });
 });
 

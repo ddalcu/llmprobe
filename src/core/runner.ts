@@ -1,5 +1,5 @@
 import { Asserter, Inconclusive, Unsupported } from "./assert";
-import { BudgetExceededError } from "./client";
+import { BudgetExceededError, TargetUnreachableError } from "./client";
 import type { ConformanceTest, EvalDef, RunContext } from "./context";
 import type {
   ConformanceResult,
@@ -15,9 +15,29 @@ export type FeatureSupport = Map<
   { supported: boolean; detail?: string }
 >;
 
+/**
+ * How many transport failures in a row mean the target is gone rather than
+ * flaky. Two is a blip on a busy box; three is a corpse.
+ */
+const UNREACHABLE_LIMIT = 3;
+
+export interface UnreachableRun {
+  /** The last check the target actually answered. */
+  after: string;
+  /** Checks abandoned when the run stopped. */
+  notRun: number;
+  reason: string;
+}
+
 export interface ConformanceRun {
   results: ConformanceResult[];
   featureSupport: FeatureSupport;
+  /**
+   * Set when the run stopped because the target stopped answering. Everything
+   * below is partial by definition, and the caller must not chart it as a
+   * measurement — the checks after this point never ran.
+   */
+  unreachable?: UnreachableRun;
   /**
    * Features whose only tests were skipped at this depth. They are *unknown*,
    * not absent — `--quick` must not report an engine as lacking JSON mode
@@ -40,6 +60,9 @@ export async function runConformance(
   const results: ConformanceResult[] = [];
   const featureSupport: FeatureSupport = new Map();
   const skippedFeatures = new Set<string>();
+  let consecutiveUnreachable = 0;
+  let lastAnswered = "the run start";
+  let unreachable: UnreachableRun | undefined;
 
   const note = (
     feature: string | undefined,
@@ -54,7 +77,7 @@ export async function runConformance(
     featureSupport.set(feature, { supported, detail });
   };
 
-  for (const test of tests) {
+  for (const [index, test] of tests.entries()) {
     const started = Date.now();
 
     const emit = (result: ConformanceResult) => {
@@ -98,8 +121,16 @@ export async function runConformance(
 
     const asserter = new Asserter();
 
+    // The target answered this one, whatever it said — a run only aborts on
+    // failures that are *consecutive*.
+    const answered = () => {
+      consecutiveUnreachable = 0;
+      lastAnswered = test.name;
+    };
+
     try {
       const verdict = (await test.run(ctx, asserter)) ?? {};
+      answered();
 
       // A test may report the feature missing *and* record MUST failures. That
       // is exactly the "accepted the param, silently ignored it" case: it costs
@@ -140,6 +171,7 @@ export async function runConformance(
       if (err instanceof BudgetExceededError) throw err;
 
       if (err instanceof Unsupported) {
+        answered();
         note(test.feature, false, err.message);
         emit({
           id: test.id,
@@ -156,6 +188,7 @@ export async function runConformance(
       // The engine was never exercised because the model wouldn't cooperate.
       // Scoring this either way would be a lie, so it leaves the denominator.
       if (err instanceof Inconclusive) {
+        answered();
         note(test.feature, true);
         emit({
           id: test.id,
@@ -169,7 +202,41 @@ export async function runConformance(
         continue;
       }
 
+      // Nobody answered. Not the engine's verdict and not the model's — there
+      // is no measurement here at all, so it scores nothing and the feature is
+      // left exactly as unknown as it was.
+      if (err instanceof TargetUnreachableError) {
+        consecutiveUnreachable += 1;
+        // Nothing was learned about this feature. Leaving it out of
+        // `featureSupport` is not enough — coverage would then report it as
+        // absent, which is the same slander in a different card.
+        if (test.feature) skippedFeatures.add(test.feature);
+        emit({
+          id: test.id,
+          name: test.name,
+          surface: test.surface,
+          outcome: "unreachable",
+          assertions: [],
+          reason: err.message,
+          durationMs: Date.now() - started,
+        });
+
+        if (consecutiveUnreachable >= UNREACHABLE_LIMIT) {
+          unreachable = {
+            after: lastAnswered,
+            notRun: tests.length - index - 1,
+            reason: err.message,
+          };
+          for (const remaining of tests.slice(index + 1)) {
+            if (remaining.feature) skippedFeatures.add(remaining.feature);
+          }
+          break;
+        }
+        continue;
+      }
+
       // Anything else — a throw, a timeout, a malformed body — is on the engine.
+      answered();
       asserter.must(
         `${test.id}-threw`,
         test.name,
@@ -194,7 +261,7 @@ export async function runConformance(
     [...skippedFeatures].filter((feature) => !featureSupport.has(feature)),
   );
 
-  return { results, featureSupport, unprobed };
+  return { results, featureSupport, unprobed, unreachable };
 }
 
 export async function runEvals(
@@ -255,6 +322,9 @@ export async function runEvals(
         samples.push(await def.run(ctx));
       } catch (err) {
         if (err instanceof BudgetExceededError) throw err;
+        // A dead target says nothing about the model. Grading it would print
+        // "below floor" for a model that was never asked anything.
+        if (err instanceof TargetUnreachableError) throw err;
         // An engine error during an eval is a failed sample for the model's
         // purposes; the engine's own card records the fault separately.
         samples.push({

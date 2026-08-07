@@ -44,6 +44,31 @@ const runNonce =
  */
 const MAX_SPECULATIVE_BLOCK = 8;
 
+/**
+ * How far a logprob may move between the streaming and non-streaming paths
+ * before it stops being float noise. Generous on purpose: the two paths can
+ * batch differently, and the check that matters is the token sequence.
+ */
+const LOGPROB_TOLERANCE = 0.01;
+
+interface LogprobEntry {
+  token: string;
+  logprob: number;
+}
+
+/** The per-token entries of an OpenAI-shaped `logprobs`, or none. */
+function logprobEntries(logprobs: unknown): LogprobEntry[] {
+  const content = (logprobs as { content?: unknown } | null | undefined)
+    ?.content;
+  if (!Array.isArray(content)) return [];
+  return content
+    .filter(
+      (e): e is { token?: unknown; logprob: number } =>
+        typeof (e as { logprob?: unknown })?.logprob === "number",
+    )
+    .map((e) => ({ token: String(e.token ?? ""), logprob: e.logprob }));
+}
+
 export function sharedTests(
   adapter: SurfaceAdapter,
   /** Only the engine's primary chat-shaped surface claims the shared features. */
@@ -1082,6 +1107,76 @@ export function sharedTests(
           "logprobs carry per-token entries",
           Array.isArray(content) && content.length > 0,
           "logprobs object had no content array",
+        );
+
+        // Everything above only proves the non-streaming path. Streaming is
+        // where a dropped logprob actually hides: the content deltas are
+        // byte-identical with or without it, so no output check can see the
+        // difference, and the caller has no way to detect it short of
+        // inspecting every response. It is also strictly worse than an honest
+        // rejection — asking for logprobs disables speculative decoding, so
+        // the engine pays the full serial-decode cost and then delivers
+        // nothing.
+        const streamed = await ctx.sendStream(s, {
+          turns: [{ type: "user", text: "Say hi." }],
+          logprobs: true,
+          temperature: 0,
+          maxTokens: 8,
+        });
+
+        if (streamed.stream.status >= 400) {
+          // Refusing the combination outright is at least detectable. It costs
+          // a warning, not a MUST — the same courtesy an honest 400 gets above.
+          a.should(
+            `${s}-logprobs-streaming-status`,
+            "logprobs work on the streaming path too",
+            false,
+            `accepted logprobs without \`stream\` but rejected the same request with \`stream: true\` (HTTP ${streamed.stream.status})`,
+          );
+          return;
+        }
+
+        const streamEntries = logprobEntries(streamed.reply.logprobs);
+        a.must(
+          `${s}-logprobs-streaming`,
+          "logprobs are returned when streaming",
+          streamEntries.length > 0,
+          "returned logprobs for a plain request and none for the identical streaming one — a silent drop no output check can see, on a request that already paid for logprobs by disabling speculative decoding",
+        );
+
+        if (streamEntries.length === 0) return;
+
+        // Presence is the weak half. Comparing the two paths token-for-token
+        // and value-for-value is what catches a partial drain, a duplicated
+        // entry, or an off-by-one high-water mark.
+        const plainEntries = logprobEntries(res.reply.logprobs);
+        if (plainEntries.length === 0 || streamed.reply.text !== res.reply.text)
+          return;
+
+        const tokens = (entries: LogprobEntry[]) =>
+          entries.map((e) => e.token).join("\u241f");
+
+        a.must(
+          `${s}-logprobs-stream-parity`,
+          "streamed logprobs match the non-streamed ones",
+          tokens(streamEntries) === tokens(plainEntries),
+          `the same greedy request produced ${plainEntries.length} logprob ${plainEntries.length === 1 ? "entry" : "entries"} without streaming and ${streamEntries.length} with it (${JSON.stringify(tokens(streamEntries).slice(0, 120))} vs ${JSON.stringify(tokens(plainEntries).slice(0, 120))})`,
+        );
+
+        if (tokens(streamEntries) !== tokens(plainEntries)) return;
+
+        // Same tokens, different numbers. A SHOULD: the two paths can batch
+        // differently, and near-tie float noise is not a conformance bug.
+        const worst = streamEntries.reduce(
+          (max, e, i) =>
+            Math.max(max, Math.abs(e.logprob - plainEntries[i]!.logprob)),
+          0,
+        );
+        a.should(
+          `${s}-logprobs-stream-values`,
+          "streamed logprob values match the non-streamed ones",
+          worst <= LOGPROB_TOLERANCE,
+          `same tokens, but a logprob differed by ${worst.toFixed(4)} nats between the streaming and non-streaming paths`,
         );
       },
     });

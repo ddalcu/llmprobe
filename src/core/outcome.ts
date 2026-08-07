@@ -36,7 +36,14 @@ export type Outcome =
    */
   | "inconclusive"
   /** Not run at this depth (--quick skips the slow tests). */
-  | "skipped";
+  | "skipped"
+  /**
+   * The target stopped answering — refused, reset, or hung up. Neither the
+   * engine nor the model said anything, so this scores nothing at all: a
+   * crashed process must never read as "implements nothing" or as a model that
+   * cannot name a chemical symbol.
+   */
+  | "unreachable";
 
 export type CapabilityKind = "surface" | "feature";
 
@@ -434,6 +441,12 @@ export interface BenchReport {
    * — the workload these engines are actually asked to serve.
    */
   decodeTokPerSec: BenchStat | null;
+  /**
+   * Set when the engine's stream coalesced deltas (a fat first frame) on any
+   * timed sample: client-side rates then exclude pre-window tokens, and the
+   * classic per-frame math would have inflated them.
+   */
+  streamCaveat: string | null;
   /** Time to first generated token, ms. */
   ttftMs: BenchStat | null;
   /** Prompt ingestion rate, tokens/sec, from a deliberately long prompt. */
@@ -499,8 +512,26 @@ export interface FirstDivergence {
   itemId: string;
   /** Character index where the repeated temperature-0 runs first disagreed. */
   charIndex: number;
+  /**
+   * Which repeat disagreed with run 1 (2 = the very next one). Run 2 is the
+   * cold-vs-warm shape: run 1 prefills cold, everything after it hits the
+   * prefix cache, so a split there points at caching rather than at sampling.
+   */
+  run: number;
   /** How many runs were compared. */
   runs: number;
+}
+
+/** One battery item's raw numbers, before the slices round them off. */
+export interface FidelityMeasurement {
+  id: string;
+  /** Confidence is scored over the harder items only; this says which. */
+  hard: boolean;
+  correct: boolean;
+  /** exp(first-answer-token logprob), or null when the engine sent no logprobs. */
+  topProb: number | null;
+  /** Top-1 probability minus the runner-up's, or null without a top-k. */
+  margin: number | null;
 }
 
 export interface FidelityScore {
@@ -517,6 +548,26 @@ export interface FidelityScore {
   firstDivergence: FirstDivergence | null;
   /** Slice labels excluded for want of logprobs, named on the card. */
   unmeasured: string[];
+  /**
+   * The continuous numbers behind the graded slices — reported, never scored.
+   *
+   * The card is a floor check on purpose: Confidence saturates at a mean top-1
+   * probability of 0.9, so 0.94 and 0.99 both read as a clean 100, and two
+   * healthy engines tie. That is the right answer to "did this engine damage
+   * the model" and the wrong one for anybody ranking engines or correlating
+   * against an external benchmark. Those numbers exist either way — this is
+   * where they are readable, rather than only inside a `detail` string.
+   *
+   * Nulls stay null. A zero here would read as a maximally unconfident engine
+   * in someone else's spreadsheet.
+   */
+  measurements: {
+    /** Mean top-1 probability over the same items Confidence scores. */
+    meanTopProb: number | null;
+    /** Mean gap to the runner-up over those same items. */
+    meanMargin: number | null;
+    items: FidelityMeasurement[];
+  };
   /**
    * True on a reasoning model: it spends budget thinking before the visible
    * answer, so Confidence reads the post-thinking distribution and the score is
@@ -535,6 +586,13 @@ export const FIDELITY_WEIGHTS: Record<FidelitySliceId, number> = {
 
 export interface RunReport {
   target: RunTarget;
+  /**
+   * Set when the run stopped early because the target stopped answering. Every
+   * card below it is partial by construction — the checks after the target died
+   * never ran, and reading a whole-surface zero here as a measurement is
+   * exactly the mistake this field exists to prevent.
+   */
+  incomplete?: string;
   coverage: CoverageScore;
   conformance: ConformanceScore;
   capability: CapabilityScore;

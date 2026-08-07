@@ -1,7 +1,7 @@
 import { arch, cpus, platform, totalmem } from "node:os";
 
 import { tryParseJson } from "../core/assert";
-import { BudgetExceededError } from "../core/client";
+import { BudgetExceededError, TargetUnreachableError } from "../core/client";
 import type { RunContext } from "../core/context";
 import type {
   BatchingResult,
@@ -24,7 +24,7 @@ import {
   type StepProfile,
   analyzeStepProfile,
   classifyBatching,
-  decodeRate,
+  deliveryRate,
   classifyLoadDrift,
   classifyPrefixCache,
   classifySpeculative,
@@ -266,6 +266,10 @@ interface RunSample {
   text: string;
   /** Tokens per decode step, read off when the stream's frames arrived. */
   stepProfile: StepProfile;
+  /** True when frame sizes say the server coalesced its deltas. */
+  streamCoalesced: boolean;
+  /** The delivery-rate caveat when `streamCoalesced`, else null. */
+  streamNote: string | null;
   /** Why the run produced nothing — engine error or timeout, verbatim. */
   error?: string;
 }
@@ -280,6 +284,8 @@ const failedSample = (error: string): RunSample => ({
   wallMs: 0,
   text: "",
   stepProfile: { tokensPerStep: null, steps: null, frames: 0, note: error },
+  streamCoalesced: false,
+  streamNote: null,
   error,
 });
 
@@ -341,6 +347,10 @@ async function timedRun(
     );
   } catch (err) {
     if (err instanceof BudgetExceededError) throw err;
+    // A crashed server must not become a published throughput number. Recording
+    // this as one more failed sample is how a decode rate got charted for a
+    // process that had already died.
+    if (err instanceof TargetUnreachableError) throw err;
     return failedSample(err instanceof Error ? err.message : String(err));
   }
 
@@ -351,31 +361,37 @@ async function timedRun(
   const reply = adapter.parseStream(timed.frames);
   ctx.client.recordUsage(reply.usage.inputTokens, reply.usage.outputTokens);
 
-  // When every frame carrying generated text arrived. The first gives TTFT;
-  // the spacing of the rest is the speculation signature.
+  // Every frame carrying generated text: when it arrived and how much it
+  // carried. The first gives TTFT; the spacing of the rest is the speculation
+  // signature; the SIZES are what keep a delta-coalescing server from
+  // inflating the client-observed rate (a late, fat first frame shortens the
+  // measured window while the classic numerator keeps every token).
   const textFrameTimes: number[] = [];
+  const textFrames: { timeMs: number; chars: number }[] = [];
   for (let i = 0; i < timed.frames.length; i += 1) {
     const parsed = tryParseJson(timed.frames[i]!.data);
-    if (parsed.ok && adapter.frameText(parsed.value) !== "") {
-      textFrameTimes.push(timed.frameTimesMs[i]!);
+    if (parsed.ok) {
+      const text = adapter.frameText(parsed.value);
+      if (text !== "") {
+        textFrameTimes.push(timed.frameTimesMs[i]!);
+        textFrames.push({ timeMs: timed.frameTimesMs[i]!, chars: text.length });
+      }
     }
   }
 
   const firstTextMs = textFrameTimes[0] ?? null;
   const ttftMs = firstTextMs !== null ? firstTextMs - timed.startMs : null;
 
-  // Only the tokens the window can see. `completion_tokens` includes the
-  // scratchpad, but the window starts at the first *visible* frame, so a
-  // reasoning model would otherwise have its thinking counted against
-  // visible-only time.
-  const visibleTokens =
-    typeof reply.usage.outputTokens === "number"
-      ? reply.usage.outputTokens - (reply.usage.reasoningTokens ?? 0)
-      : null;
+  // Delivery rate over the window generated text arrived in. The window spans
+  // reasoning frames too (frameText returns them), so the numerator must be
+  // ALL output tokens — a visible-only count against a window that includes
+  // the thinking phase deflates toward zero, and a visible-only window does
+  // not exist client-side once a server interleaves the two.
+  const delivery = deliveryRate(textFrames, reply.usage.outputTokens);
 
   return {
     ttftMs,
-    decodeTokPerSec: decodeRate(textFrameTimes, visibleTokens),
+    decodeTokPerSec: delivery.rate,
     // Prefill: prompt tokens divided by time-to-first-token — the standard
     // proxy, since TTFT is dominated by prompt ingestion on a long prompt.
     prefillTokPerSec:
@@ -386,6 +402,8 @@ async function timedRun(
     wallMs: timed.endMs - timed.startMs,
     text: reply.text,
     stepProfile: analyzeStepProfile(textFrameTimes, reply.usage.outputTokens),
+    streamCoalesced: delivery.coalesced,
+    streamNote: delivery.note,
   };
 }
 
@@ -856,8 +874,21 @@ export async function runBenchmark(
     verdict: driftVerdict,
   };
 
+  // Coalescing caveat: any timed stream whose first frame carried a
+  // disproportionate share of the output. The rates are already corrected
+  // (pre-window tokens excluded); the caveat says the correction engaged,
+  // because a coalescing server's numbers are not comparable to a per-token
+  // stream's under the classic math other tools report.
+  const streamed = [...decodeSamples, ...predictable, ...novel, drifted];
+  const coalescedCount = streamed.filter((s) => s.streamCoalesced).length;
+  const streamCaveat =
+    coalescedCount > 0
+      ? `${coalescedCount} of ${streamed.length} timed streams arrived with coalesced deltas — client-observed rates exclude tokens already in flight at the window start`
+      : null;
+
   return {
     decodeTokPerSec: decodeStat,
+    streamCaveat,
     ttftMs: pick(decodeSamples, "ttftMs"),
     prefillTokPerSec: pick(prefillSamples, "prefillTokPerSec"),
     prefillPromptTokens,

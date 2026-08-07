@@ -92,6 +92,7 @@ async function probeAndRun(
     ctx,
     present,
     results: run.results,
+    unreachable: run.unreachable,
     featureSupport: run.featureSupport,
     coverage: scoreCoverage(
       buildCoverageEntries(SURFACES, present, run.featureSupport, run.unprobed),
@@ -111,6 +112,27 @@ const failedIds = (results: ConformanceResult[]) =>
       .filter((a) => !a.passed && a.severity === "MUST")
       .map((a) => a.id),
   );
+
+describe("a target that dies mid-run", () => {
+  test("stops the run instead of scoring the corpse", async () => {
+    const run = await probeAndRun({ dieAfterChatRequests: 6 });
+
+    expect(run.unreachable).toBeDefined();
+    expect(run.unreachable!.notRun).toBeGreaterThan(0);
+
+    // Nothing the dead target "said" is scored: no MUST failure was invented
+    // for a check that never got an answer.
+    const dead = run.results.filter((r) => r.outcome === "unreachable");
+    expect(dead.length).toBeGreaterThan(0);
+    expect(dead.every((r) => r.assertions.length === 0)).toBe(true);
+
+    // And the checks after the abort are simply absent — a whole surface at
+    // 0/26 is a measurement claim nobody made.
+    expect(run.results.length).toBeLessThan(
+      buildConformanceTests(run.present).length,
+    );
+  });
+});
 
 describe("pipeline against a sound engine", () => {
   test("discovers only the surfaces the engine actually serves", async () => {
@@ -332,6 +354,26 @@ describe("pipeline against planted defects", () => {
 
     const extended = run.coverage.byTier.find((t) => t.tier === "extended")!;
     expect(extended.missing).toContain("logprobs");
+  });
+
+  test("dropping logprobs only on the streaming path is caught", async () => {
+    // The one that shipped: 200 OK and full logprobs non-streaming, nothing at
+    // all with `stream: true`. Invisible to every other check, because the
+    // content deltas are byte-identical either way.
+    const run = await probeAndRun({ dropStreamingLogprobs: true });
+
+    expect(failedIds(run.results)).toContain("chat-logprobs-streaming");
+    // Non-streaming still works, so the feature is not "missing" — it is
+    // half-there, which costs conformance and not coverage.
+    expect(run.featureSupport.get("logprobs")!.supported).toBe(true);
+  });
+
+  test("streamed logprobs that disagree with the non-streamed ones are caught", async () => {
+    // Partial drain / off-by-one: the field is present, so a presence check
+    // passes and the caller still gets the wrong distribution.
+    const run = await probeAndRun({ truncateStreamingLogprobs: true });
+
+    expect(failedIds(run.results)).toContain("chat-logprobs-stream-parity");
   });
 
   test("silently ignoring n costs BOTH coverage and conformance", async () => {

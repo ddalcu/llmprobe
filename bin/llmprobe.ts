@@ -13,6 +13,7 @@ import {
 import { bearerAuth, type SurfaceAdapter } from "../src/core/adapter";
 import {
   BudgetExceededError,
+  TargetUnreachableError,
   EngineClient,
   type RunConfig,
   type RunDepth,
@@ -628,6 +629,8 @@ async function main(): Promise<void> {
   let featureSupport: FeatureSupport = new Map();
   let unprobed = new Set<string>();
   let budgetHit = false;
+  /** Set when the target stopped answering — everything after it is partial. */
+  let incomplete: string | null = null;
 
   // --bench-only skips straight to the benchmark. Surface discovery above
   // already ran, because it costs nothing and the benchmark needs to know which
@@ -645,7 +648,7 @@ async function main(): Promise<void> {
         const icon =
           result.outcome === "pass"
             ? c.green("✓")
-            : result.outcome === "fail"
+            : result.outcome === "fail" || result.outcome === "unreachable"
               ? c.red("✗")
               : c.yellow("?");
         // Only the slow ones carry a time. Stamping all 267 lines would bury
@@ -669,6 +672,9 @@ async function main(): Promise<void> {
         if (result.outcome === "inconclusive") {
           log(`      ${c.yellow("→")} ${c.gray(result.reason ?? "")}`);
         }
+        if (result.outcome === "unreachable") {
+          log(`      ${c.red("→")} ${c.gray(result.reason ?? "no answer")}`);
+        }
       },
     );
 
@@ -676,7 +682,18 @@ async function main(): Promise<void> {
     featureSupport = run.featureSupport;
     unprobed = run.unprobed;
 
-    if (args.depth !== "quick") {
+    if (run.unreachable) {
+      const { after, notRun, reason } = run.unreachable;
+      incomplete = `target became unreachable after "${after}" — ${notRun} ${notRun === 1 ? "check" : "checks"} not run (${reason})`;
+      log();
+      log(`${c.red("✗")} target became unreachable after ${c.bold(after)}`);
+      log(`  ${c.gray(reason)}`);
+      log(
+        `  ${c.gray(`${notRun} ${notRun === 1 ? "check" : "checks"} not run. Scores below are partial.`)}`,
+      );
+    }
+
+    if (!incomplete && args.depth !== "quick") {
       log();
       evalResults = await runEvals(ALL_EVALS, ctx, featureSupport, (result) => {
         if (result.outcome) return;
@@ -695,6 +712,10 @@ async function main(): Promise<void> {
   } catch (err) {
     if (err instanceof SkipToBench) {
       // nothing to do — the phases below are all gated on benchOnly too
+    } else if (err instanceof TargetUnreachableError) {
+      incomplete = err.message;
+      log(`\n${c.red("✗")} ${err.message}`);
+      log(`  ${c.gray("run stopped. Scores below are partial.")}`);
     } else if (err instanceof BudgetExceededError) {
       budgetHit = true;
       log(`\n${c.yellow("⚠")} ${err.message} — stopping early.`);
@@ -711,6 +732,7 @@ async function main(): Promise<void> {
   let agentic: RunReport["agentic"];
   if (
     !budgetHit &&
+    !incomplete &&
     !args.benchOnly &&
     args.depth !== "quick" &&
     ctx.evalSurface
@@ -735,6 +757,10 @@ async function main(): Promise<void> {
         if (err instanceof BudgetExceededError) {
           budgetHit = true;
           log(`${c.yellow("⚠")} ${err.message}`);
+        } else if (err instanceof TargetUnreachableError) {
+          incomplete = err.message;
+          agentic = undefined;
+          log(`${c.red("✗")} ${err.message}`);
         } else {
           log(
             `${c.yellow("⚠")} agentic failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -757,6 +783,7 @@ async function main(): Promise<void> {
   let fidelity: RunReport["fidelity"];
   if (
     !budgetHit &&
+    !incomplete &&
     !args.benchOnly &&
     args.depth !== "quick" &&
     ctx.evalSurface
@@ -789,6 +816,10 @@ async function main(): Promise<void> {
       if (err instanceof BudgetExceededError) {
         budgetHit = true;
         log(`${c.yellow("⚠")} ${err.message}`);
+      } else if (err instanceof TargetUnreachableError) {
+        incomplete = err.message;
+        fidelity = undefined;
+        log(`${c.red("✗")} ${err.message}`);
       } else {
         log(
           `${c.yellow("⚠")} fidelity failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -800,7 +831,7 @@ async function main(): Promise<void> {
   // ── 4d. Benchmark (opt-in) — informational, never scored ────────────────
 
   let bench: RunReport["bench"];
-  if (args.bench && !budgetHit && ctx.evalSurface) {
+  if (args.bench && !budgetHit && !incomplete && ctx.evalSurface) {
     log();
     log(`${c.gray("benchmarking (warmup + median of 3)...")}`);
     const benchStart = {
@@ -865,6 +896,15 @@ async function main(): Promise<void> {
       if (err instanceof BudgetExceededError) {
         budgetHit = true;
         log(`${c.yellow("⚠")} ${err.message}`);
+      } else if (err instanceof TargetUnreachableError) {
+        // Half a ladder from a process that has already died is not a slow
+        // engine, it is no engine. Publishing those numbers is the whole bug.
+        incomplete = err.message;
+        bench = undefined;
+        log(`${c.red("✗")} ${err.message}`);
+        log(
+          `  ${c.gray("benchmark discarded — the target stopped answering.")}`,
+        );
       } else {
         log(
           `${c.yellow("⚠")} benchmark failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -900,6 +940,7 @@ async function main(): Promise<void> {
 
   const report: RunReport = {
     target: { baseUrl, model, engine: detectEngine(serverHeader) },
+    ...(incomplete ? { incomplete } : {}),
     coverage: scoreCoverage(entries, credits),
     conformance: scoreConformance(conformanceResults),
     capability: scoreCapability(evalResults),
@@ -1146,8 +1187,20 @@ async function main(): Promise<void> {
 
   let regressed = false;
 
-  if (args.baseline) {
-    const { regressions, improvements } = baselineDiff!;
+  if (args.baseline && incomplete) {
+    // Diffing a truncated run against a baseline manufactures regressions for
+    // every check that never ran.
+    console.log();
+    console.log(
+      c.yellow(
+        `Baseline diff skipped — the run did not finish (${incomplete}).`,
+      ),
+    );
+  } else if (args.baseline) {
+    const baseline = JSON.parse(
+      readFileSync(args.baseline, "utf8"),
+    ) as JsonReport;
+    const { regressions, improvements } = diffBaseline(baseline, json);
     regressed = regressions.length > 0;
 
     if (!quiet) {
@@ -1171,6 +1224,10 @@ async function main(): Promise<void> {
   // llmprobe gates on the engine, not on how clever the model is.
   const engineFailed =
     report.conformance.total > 0 && report.conformance.pct < 100;
+
+  // A run that never finished is its own exit code: exit 1 means "the engine
+  // failed a MUST", and a dead target has not earned that verdict.
+  if (incomplete) process.exit(2);
 
   process.exit(regressed || budgetHit || engineFailed ? 1 : 0);
 }

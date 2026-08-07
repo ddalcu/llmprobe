@@ -227,7 +227,7 @@ export const chatAdapter: SurfaceAdapter = {
     let text = "";
     let reasoningText = "";
     let finishReason: string | null = null;
-    let logprobs: unknown;
+    const logprobEntries: unknown[] = [];
     const usage = emptyUsage();
     const toolAcc = new Map<
       number,
@@ -259,7 +259,13 @@ export const chatAdapter: SurfaceAdapter = {
       }
 
       if (choice?.finish_reason) finishReason = choice.finish_reason;
-      if (choice?.logprobs) logprobs = choice.logprobs;
+
+      // Logprobs arrive per chunk, covering only that chunk's tokens — they
+      // accumulate like content does. Keeping the last chunk's object (the
+      // obvious reading) silently throws away everything before it, which then
+      // looks exactly like an engine with a partial drain.
+      const chunkContent = (choice?.logprobs as { content?: unknown })?.content;
+      if (Array.isArray(chunkContent)) logprobEntries.push(...chunkContent);
 
       // Usage arrives on a trailing chunk when `stream_options.include_usage`
       // was set — the only way a compliant engine reports it while streaming.
@@ -289,7 +295,8 @@ export const chatAdapter: SurfaceAdapter = {
       finishReason,
       usage,
       reasoningText: reasoningText || null,
-      logprobs,
+      logprobs:
+        logprobEntries.length > 0 ? { content: logprobEntries } : undefined,
       raw: payloads,
       eventTypes: frames.map((f) => f.event ?? "message"),
       frameCount: payloads.length,

@@ -76,7 +76,11 @@ export const BATTERY: ClozeItem[] = [
     expect: "42",
   },
   // Arithmetic — trivial, but exercises the number path.
-  { id: "add", prompt: "What is 2 + 2? Reply with just the number.", expect: "4" },
+  {
+    id: "add",
+    prompt: "What is 2 + 2? Reply with just the number.",
+    expect: "4",
+  },
   {
     id: "sub",
     prompt: "What is 9 - 4? Reply with just the number.",
@@ -175,14 +179,12 @@ export const BATTERY: ClozeItem[] = [
   },
   {
     id: "romeo-author",
-    prompt:
-      "Who wrote 'Romeo and Juliet'? Reply with the surname only.",
+    prompt: "Who wrote 'Romeo and Juliet'? Reply with the surname only.",
     expect: "shakespeare",
   },
   {
     id: "sun-rises",
-    prompt:
-      "The sun rises in which direction? Reply with one word.",
+    prompt: "The sun rises in which direction? Reply with one word.",
     expect: "east",
   },
   {
@@ -253,8 +255,7 @@ export const BATTERY: ClozeItem[] = [
   },
   {
     id: "largest-ocean",
-    prompt:
-      "The largest ocean on Earth is which ocean? Reply with one word.",
+    prompt: "The largest ocean on Earth is which ocean? Reply with one word.",
     expect: "pacific",
     hard: true,
   },
@@ -287,7 +288,8 @@ export const DETERMINISM_PROMPTS: Array<{ id: string; prompt: string }> = [
   },
   {
     id: "det-count",
-    prompt: "Count from 1 to 20, separated by commas. Reply with only the numbers.",
+    prompt:
+      "Count from 1 to 20, separated by commas. Reply with only the numbers.",
   },
   {
     id: "det-primes",
@@ -311,6 +313,8 @@ export interface ItemObservation {
   hard: boolean;
   /** exp(first-answer-token logprob) = top-1 probability, or null if no logprobs. */
   topProb: number | null;
+  /** Top-1 probability minus the runner-up's, or null without a top-k. */
+  margin: number | null;
   /** Passed the logprob self-consistency checks, or null if no logprobs. */
   consistent: boolean | null;
 }
@@ -321,6 +325,13 @@ export interface DeterminismObservation {
   identical: boolean;
   /** Char index where the repeated runs first disagreed, or null if identical. */
   firstDivergenceChar: number | null;
+  /**
+   * Which repeat first disagreed with run 1 (2-based, since run 1 is the
+   * reference). Run 2 alone is the cold-vs-warm signature — the first request
+   * prefills cold and every later one hits the prefix cache — so naming the run
+   * points at prompt caching rather than at sampling.
+   */
+  divergedRun: number | null;
 }
 
 // ── grading ───────────────────────────────────────────────────────────────────
@@ -359,14 +370,16 @@ export function firstContentToken(logprobs: unknown): FirstToken | null {
   if (usable.length === 0) return null;
 
   const decisive =
-    usable.find(
-      (e) => typeof e.token === "string" && e.token.trim() !== "",
-    ) ?? usable[0]!;
+    usable.find((e) => typeof e.token === "string" && e.token.trim() !== "") ??
+    usable[0]!;
 
   const top = Array.isArray(decisive.top_logprobs)
     ? (decisive.top_logprobs as Array<Record<string, unknown>>)
         .filter((t) => typeof t?.logprob === "number")
-        .map((t) => ({ token: String(t.token ?? ""), logprob: Number(t.logprob) }))
+        .map((t) => ({
+          token: String(t.token ?? ""),
+          logprob: Number(t.logprob),
+        }))
     : [];
 
   return {
@@ -396,15 +409,36 @@ export function isConsistent(ft: FirstToken): boolean | null {
   return ft.logprob >= maxTop - EPS;
 }
 
-/** First index where any run's text differs from the first run's. */
-function firstDivergenceChar(runs: string[]): number | null {
+/**
+ * How far clear the top token was of the next one, in probability.
+ *
+ * The graded Confidence slice saturates on purpose, so a 0.94 and a 0.99 both
+ * read as a clean 100 — correct for a floor check, and useless to anyone trying
+ * to separate two healthy engines. This is that separation, measured from
+ * logprobs the run already paid for.
+ *
+ * Sorted rather than assumed: engines legitimately return `top_logprobs`
+ * unsorted, and taking `top[1]` on faith would report the gap to whichever
+ * alternative happened to land second on the wire.
+ */
+export function topMargin(ft: FirstToken): number | null {
+  if (ft.top.length < 2) return null;
+  const [first, second] = [...ft.top].sort((a, b) => b.logprob - a.logprob);
+  return clamp01(Math.exp(first!.logprob) - Math.exp(second!.logprob));
+}
+
+/** Where — and in which repeat — the text first differs from run 1's. */
+function firstDivergence(
+  runs: string[],
+): { charIndex: number; run: number } | null {
   const base = runs[0] ?? "";
-  for (const other of runs.slice(1)) {
+  for (const [offset, other] of runs.slice(1).entries()) {
+    const run = offset + 2;
     const n = Math.min(base.length, other.length);
     for (let i = 0; i < n; i += 1) {
-      if (base[i] !== other[i]) return i;
+      if (base[i] !== other[i]) return { charIndex: i, run };
     }
-    if (base.length !== other.length) return n;
+    if (base.length !== other.length) return { charIndex: n, run };
   }
   return null;
 }
@@ -452,6 +486,13 @@ export function scoreFidelity(
     confItems.length > 0
       ? confItems.reduce((a, i) => a + (i.topProb ?? 0), 0) / confItems.length
       : 0;
+  const confMargins = confItems
+    .map((i) => i.margin)
+    .filter((m): m is number => m !== null);
+  const meanMargin =
+    confMargins.length > 0
+      ? confMargins.reduce((a, m) => a + m, 0) / confMargins.length
+      : null;
   const consistentPass = withConsistency.filter((i) => i.consistent).length;
   const identical = det.filter((d) => d.identical).length;
 
@@ -477,10 +518,15 @@ export function scoreFidelity(
       score: clamp01(meanProb / CONFIDENCE_TARGET),
       detail:
         confItems.length > 0
-          ? `mean top-1 probability ${meanProb.toFixed(3)} over ${confItems.length} ${hardWithProb.length > 0 ? "harder" : ""} items`.replace(
-              /\s+/g,
-              " ",
-            )
+          ? [
+              `mean top-1 prob ${meanProb.toFixed(3)}`,
+              // The gap to the runner-up is what still separates two engines
+              // once the slice has saturated at 100.
+              meanMargin === null ? null : `margin ${meanMargin.toFixed(3)}`,
+              `${confItems.length} ${hardWithProb.length > 0 ? "harder " : ""}items`,
+            ]
+              .filter(Boolean)
+              .join(" · ")
           : "engine returned no logprobs",
       measured: confItems.length > 0,
       reason: "engine returned no logprobs",
@@ -499,7 +545,10 @@ export function scoreFidelity(
     {
       id: "consistency",
       label: "Logprob consistency",
-      score: withConsistency.length > 0 ? consistentPass / withConsistency.length : 0,
+      score:
+        withConsistency.length > 0
+          ? consistentPass / withConsistency.length
+          : 0,
       detail:
         withConsistency.length > 0
           ? `${consistentPass}/${withConsistency.length} items: emitted token = argmax, valid distribution`
@@ -540,6 +589,7 @@ export function scoreFidelity(
       firstDivergence = {
         itemId: d.id,
         charIndex: d.firstDivergenceChar,
+        run: d.divergedRun ?? 2,
         runs: d.runs,
       };
     }
@@ -552,6 +602,17 @@ export function scoreFidelity(
     firstDivergence,
     unmeasured: slices.filter((s) => !s.measured).map((s) => s.label),
     reasoningCaveat: opts.reasoningCaveat,
+    measurements: {
+      meanTopProb: confItems.length > 0 ? round4(meanProb) : null,
+      meanMargin: meanMargin === null ? null : round4(meanMargin),
+      items: items.map((i) => ({
+        id: i.id,
+        hard: i.hard,
+        correct: i.correct,
+        topProb: i.topProb === null ? null : round4(i.topProb),
+        margin: i.margin === null ? null : round4(i.margin),
+      })),
+    },
   };
 }
 
@@ -595,6 +656,7 @@ export async function runFidelity(
         correct: isCorrect(item, reply.text),
         hard: item.hard === true,
         topProb: ft ? clamp01(Math.exp(ft.logprob)) : null,
+        margin: ft ? topMargin(ft) : null,
         consistent: ft ? isConsistent(ft) : null,
       });
     } catch (err) {
@@ -606,6 +668,7 @@ export async function runFidelity(
         correct: false,
         hard: item.hard === true,
         topProb: null,
+        margin: null,
         consistent: null,
       });
     }
@@ -623,12 +686,13 @@ export async function runFidelity(
       });
       runs.push(stripThinking(reply.text));
     }
-    const divergence = firstDivergenceChar(runs);
+    const divergence = firstDivergence(runs);
     determinism.push({
       id: prompt.id,
       runs: DETERMINISM_RUNS,
       identical: divergence === null,
-      firstDivergenceChar: divergence,
+      firstDivergenceChar: divergence?.charIndex ?? null,
+      divergedRun: divergence?.run ?? null,
     });
   }
 
