@@ -13,10 +13,13 @@
 - `npm run build:cli` creates the executable ESM bundle.
 - `npm run probe -- localhost:8080 --full` builds and probes a live engine.
 - `npm run probe -- localhost:8080 --html report.html` writes the intent-based report card.
+- `npm run probe -- localhost:8080 --library runs/report-card` ingests the run and rebuilds the model library (index, cards, compare).
+- `npm run probe -- --library runs/report-card` rebuilds a library from existing `*.json` saves (no probe).
 - `npm run probe -- --compare a.json b.json --html compare.html` writes the interactive compare workbench.
 
-HTML report cards and the compare workbench live under `src/core/report/card/`.
-The offline prototype / gallery generator remains in `runs/report-card/` for visual iteration.
+HTML report cards, compare workbench, and library sync live under `src/core/report/card/`.
+Saving into a directory that already has `library.json` auto-syncs that library without re-passing `--library`.
+The offline prototype generator remains in `runs/report-card/` for visual iteration.
 
 Before opening a PR, run formatting, type checking, and the full test suite.
 

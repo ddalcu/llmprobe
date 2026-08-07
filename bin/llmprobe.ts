@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync } from "node:fs";
-import { basename } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 
 import {
@@ -42,6 +42,12 @@ import {
 } from "../src/core/report/json";
 import { renderComparisonHtml } from "../src/core/report/compare";
 import { renderHtml } from "../src/core/report/html";
+import {
+  ingestReportIntoLibrary,
+  resolveLibraryDir,
+  syncLibrary,
+} from "../src/core/report/card/library";
+import { slug } from "../src/core/report/card/shared";
 import { renderMarkdown } from "../src/core/report/markdown";
 import { renderReport } from "../src/core/report/terminal";
 import {
@@ -75,6 +81,8 @@ interface Args {
   baseline?: string;
   save?: string;
   html?: string;
+  /** Directory for the model library (index + cards + compare); auto-synced. */
+  library?: string;
   /** Saved reports to put side by side instead of probing an engine. */
   compare?: string[];
   noColor: boolean;
@@ -139,6 +147,9 @@ function parseArgs(argv: string[]): Args {
         break;
       case "--html":
         args.html = next();
+        break;
+      case "--library":
+        args.library = next();
         break;
       case "--compare": {
         // Variadic: everything up to the next flag. Comparing two files is the
@@ -208,6 +219,11 @@ Options:
       --baseline <f>    Diff against a saved run and flag regressions
       --save <f>        Write the JSON report to a file
       --html <f>        Write a self-contained report card (themes, drill-downs)
+      --library <dir>   Model library directory: ingest this run, rebuild
+                        index.html, compare.html, and per-model cards from all
+                        *.json saves in the dir. Also: llmprobe --library <dir>
+                        rebuilds without probing. Auto-syncs when --save/--html
+                        already point into a dir that has library.json.
       --compare <f...>  Interactive compare workbench from saved --save reports
                         instead of probing. Needs --html. Pick models per column;
                         sticky freeze header while scrolling.
@@ -224,6 +240,8 @@ Examples:
   llmprobe https://openrouter.ai/api/v1 -k $OPENROUTER_API_KEY
   llmprobe localhost:8080 --save baselines/llama-cpp.json
   llmprobe localhost:8080 --baseline baselines/llama-cpp.json
+  llmprobe localhost:8080 --library runs/report-card
+  llmprobe --library runs/report-card              # rebuild library only
   llmprobe --compare a.json b.json c.json --html compare.html
 `;
 
@@ -281,6 +299,17 @@ function runComparison(args: Args): void {
   );
 }
 
+function logLibrarySync(
+  c: ReturnType<typeof paletteFor>,
+  result: ReturnType<typeof syncLibrary>,
+): void {
+  console.log(
+    `${c.gray("library")} ${result.runs} ${c.gray("run(s) →")} ${result.dir}`,
+  );
+  console.log(`${c.gray("  index →")} ${result.indexPath}`);
+  console.log(`${c.gray("  compare →")} ${result.comparePath}`);
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
@@ -291,6 +320,20 @@ async function main(): Promise<void> {
 
   if (args.compare) {
     runComparison(args);
+    return;
+  }
+
+  // Rebuild library from existing saves without probing.
+  if (args.library && !args.target) {
+    const c = paletteFor(!args.noColor);
+    const result = syncLibrary(args.library);
+    if (result.runs === 0) {
+      console.error(
+        `no llmprobe --save JSON found in ${result.dir} (skip library.json and other catalogs)`,
+      );
+      process.exit(1);
+    }
+    logLibrarySync(c, result);
     return;
   }
 
@@ -938,7 +981,42 @@ async function main(): Promise<void> {
   }
 
   if (args.save) writeFileSync(args.save, `${JSON.stringify(json, null, 2)}\n`);
-  if (args.html) {
+
+  const libraryDir = resolveLibraryDir({
+    library: args.library,
+    save: args.save,
+    html: args.html,
+  });
+
+  if (libraryDir) {
+    mkdirSync(libraryDir, { recursive: true });
+    // Prefer keeping the user's --save basename when it already lives in the library.
+    const preferredFileName =
+      args.save && resolve(dirname(args.save)) === resolve(libraryDir)
+        ? basename(args.save)
+        : `${slug(json.target.model)}.json`;
+    const { sync, jsonPath } = ingestReportIntoLibrary(libraryDir, json, {
+      preferredFileName,
+    });
+    // Standalone --html still written when requested (may differ from library card).
+    if (args.html) {
+      const inLibrary = resolve(dirname(args.html)) === resolve(libraryDir);
+      writeFileSync(
+        args.html,
+        renderHtml(json, {
+          ...baselineContext,
+          libraryHref: inLibrary ? "index.html" : undefined,
+          label: preferredFileName,
+        }),
+      );
+      log(`${c.gray("html report →")} ${args.html}`);
+    }
+    if (!quiet) logLibrarySync(c, sync);
+    else {
+      // Quiet modes still write the library; mention paths only if useful.
+      void jsonPath;
+    }
+  } else if (args.html) {
     writeFileSync(args.html, renderHtml(json, baselineContext));
     log(`${c.gray("html report →")} ${args.html}`);
   }
