@@ -12,6 +12,11 @@
 - `npm run prettier --write .` formats the repository; use `npx prettier --check . --ignore-unknown` to mirror CI.
 - `npm run build:cli` creates the executable ESM bundle.
 - `npm run probe -- localhost:8080 --full` builds and probes a live engine.
+- `npm run probe -- localhost:8080 --html report.html` writes the intent-based report card.
+- `npm run probe -- --compare a.json b.json --html compare.html` writes the interactive compare workbench.
+
+HTML report cards and the compare workbench live under `src/core/report/card/`.
+The offline prototype / gallery generator remains in `runs/report-card/` for visual iteration.
 
 Before opening a PR, run formatting, type checking, and the full test suite.
 

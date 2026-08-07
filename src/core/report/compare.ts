@@ -5,28 +5,22 @@ import {
   buildPerspectiveInsights,
   type Perspective,
 } from "./insights";
+import { renderCompareWorkbenchHtml } from "./card/compare-workbench";
 
 /**
  * One page comparing several saved runs.
  *
- * The unit of comparison is a `--save` JSON, so anything already on disk can be
- * put side by side without re-running: two engines on one model, one engine
- * across models, or the same pair before and after a change.
- *
- * Two rules the single-run report does not need:
- *
- *  - Context curves overlay on a *logarithmic, numeric* x-axis rather than
- *    shared category labels. Runs land on different actual token counts (506
- *    here, 540 there) and may not even share rungs, so plotting by position
- *    would silently align points that are not the same size.
- *  - Performance figures are only comparable on identical hardware, and here
- *    that is checkable rather than a caveat: the machines are read out of the
- *    reports and a mismatch is stated at the top of the page.
+ * Default output is the interactive model-picker workbench (blank columns,
+ * dropdowns, sticky freeze header). Benchmark curve overlays remain available
+ * via `renderBenchmarkComparisonHtml` for deep performance diffs.
  */
 
 export interface ComparisonInput {
   label: string;
   report: JsonReport;
+  /** Optional link to a single-run HTML report for this input. */
+  href?: string | null;
+  file?: string;
 }
 
 /**
@@ -613,7 +607,25 @@ const COMPARE_SCRIPT = `
   });
 `;
 
+/** Interactive compare workbench (default for `--compare`). */
 export function renderComparisonHtml(inputs: ComparisonInput[]): string {
+  return renderCompareWorkbenchHtml(
+    inputs.map((input) => ({
+      label: input.label,
+      report: normalizeJsonReport(input.report),
+      href: input.href,
+      file: input.file,
+    })),
+  );
+}
+
+/**
+ * Legacy scorecard + context-curve overlay compare (bench-focused).
+ * Kept for tests and callers that need overlaid performance series.
+ */
+export function renderBenchmarkComparisonHtml(
+  inputs: ComparisonInput[],
+): string {
   inputs = inputs.map((input) => ({
     ...input,
     report: normalizeJsonReport(input.report),

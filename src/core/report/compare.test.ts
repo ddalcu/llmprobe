@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 
-import { renderComparisonHtml } from "./compare";
+import {
+  renderBenchmarkComparisonHtml,
+  renderComparisonHtml,
+} from "./compare";
 import type { JsonReport } from "./json";
 
 function report(over: Partial<JsonReport> = {}): JsonReport {
@@ -62,10 +65,27 @@ const bench = (
   }) as JsonReport["bench"];
 
 describe("renderComparisonHtml", () => {
+  test("renders the interactive model-picker workbench", () => {
+    const html = renderComparisonHtml([
+      { label: "alpha", report: report({ target: { baseUrl: "http://a", model: "alpha-model" } }) },
+      { label: "beta", report: report({ target: { baseUrl: "http://b", model: "beta-model" } }) },
+    ]);
+
+    expect(html).toContain("compare-pickers");
+    expect(html).toContain("compare-sticky");
+    expect(html).toContain("__COMPARE__");
+    expect(html).toContain("data-theme-select");
+    expect(html).toContain("alpha-model");
+    expect(html).toContain("beta-model");
+    expect(html).toContain("Select model A");
+  });
+});
+
+describe("renderBenchmarkComparisonHtml", () => {
   test("overlays one series per run and keeps every rung's own token count", () => {
     // Two runs that never land on the same x. A category axis would stack them
     // as if 506 and 540 were the same size; the numeric log axis keeps them apart.
-    const html = renderComparisonHtml([
+    const html = renderBenchmarkComparisonHtml([
       { label: "A", report: report({ bench: bench([[506, 53.8]]) }) },
       { label: "B", report: report({ bench: bench([[540, 31.2]]) }) },
     ]);
@@ -80,7 +100,7 @@ describe("renderComparisonHtml", () => {
   });
 
   test("a rung only one run reached shows as missing, never as zero", () => {
-    const html = renderComparisonHtml([
+    const html = renderBenchmarkComparisonHtml([
       {
         label: "A",
         report: report({
@@ -100,7 +120,7 @@ describe("renderComparisonHtml", () => {
   });
 
   test("different machines invalidate the timings, and the page says so", () => {
-    const html = renderComparisonHtml([
+    const html = renderBenchmarkComparisonHtml([
       { label: "A", report: report({ bench: bench([[512, 50]]) }) },
       {
         label: "B",
@@ -111,7 +131,7 @@ describe("renderComparisonHtml", () => {
   });
 
   test("one machine throughout is stated rather than left to be assumed", () => {
-    const html = renderComparisonHtml([
+    const html = renderBenchmarkComparisonHtml([
       { label: "A", report: report({ bench: bench([[512, 50]]) }) },
       { label: "B", report: report({ bench: bench([[512, 40]]) }) },
     ]);
@@ -122,7 +142,7 @@ describe("renderComparisonHtml", () => {
   test("runs with no benchmark still compare on the scored cards", () => {
     // --compare must not require --bench: coverage and conformance are the
     // hardware-independent half and are worth comparing on their own.
-    const html = renderComparisonHtml([
+    const html = renderBenchmarkComparisonHtml([
       { label: "A", report: report() },
       { label: "B", report: report() },
     ]);
@@ -132,7 +152,7 @@ describe("renderComparisonHtml", () => {
   });
 
   test("ranks each row, and never on colour alone", () => {
-    const html = renderComparisonHtml([
+    const html = renderBenchmarkComparisonHtml([
       { label: "A", report: report({ bench: bench([[512, 50]]) }) },
       {
         label: "B",
@@ -158,7 +178,7 @@ describe("renderComparisonHtml", () => {
   });
 
   test("rows where every run agrees read as tied, not as a winner", () => {
-    const html = renderComparisonHtml([
+    const html = renderBenchmarkComparisonHtml([
       { label: "A", report: report({ bench: bench([[512, 44]]) }) },
       { label: "B", report: report({ bench: bench([[512, 44]]) }) },
     ]);
@@ -173,7 +193,7 @@ describe("renderComparisonHtml", () => {
     const slow = report({ bench: bench([[512, 44]]) });
     slow.bench!.ttftMs = { median: 510, min: 500, max: 520, samples: [510] };
 
-    const html = renderComparisonHtml([
+    const html = renderBenchmarkComparisonHtml([
       { label: "A", report: fast },
       { label: "B", report: slow },
     ]);
@@ -181,7 +201,7 @@ describe("renderComparisonHtml", () => {
   });
 
   test("a hover on every score says why, and on every label says what", () => {
-    const html = renderComparisonHtml([
+    const html = renderBenchmarkComparisonHtml([
       { label: "A", report: report({ bench: bench([[512, 50]]) }) },
       { label: "B", report: report({ bench: bench([[512, 40]]) }) },
     ]);
@@ -213,7 +233,7 @@ describe("renderComparisonHtml", () => {
       verdict: "none",
     };
 
-    const html = renderComparisonHtml([
+    const html = renderBenchmarkComparisonHtml([
       { label: "A", report: a },
       { label: "B", report: b },
     ]);
@@ -240,7 +260,7 @@ describe("renderComparisonHtml", () => {
       evals: [],
     } as JsonReport["capability"];
 
-    const html = renderComparisonHtml([
+    const html = renderBenchmarkComparisonHtml([
       { label: "full", report: report({ bench: bench([[512, 50]]) }) },
       { label: "bench-only", report: benchOnly },
     ]);
@@ -251,7 +271,7 @@ describe("renderComparisonHtml", () => {
   });
 
   test("a hostile model name cannot break out of the markup", () => {
-    const html = renderComparisonHtml([
+    const html = renderBenchmarkComparisonHtml([
       { label: "</script><b>bad", report: report() },
       { label: "B", report: report() },
     ]);

@@ -207,10 +207,10 @@ Options:
       --markdown        README-ready report with badges
       --baseline <f>    Diff against a saved run and flag regressions
       --save <f>        Write the JSON report to a file
-      --html <f>        Write a self-contained HTML report with charts
-      --compare <f...>  Build one comparison page from saved --save reports
-                        instead of probing. Needs --html; context curves are
-                        overlaid, one coloured line per run.
+      --html <f>        Write a self-contained report card (themes, drill-downs)
+      --compare <f...>  Interactive compare workbench from saved --save reports
+                        instead of probing. Needs --html. Pick models per column;
+                        sticky freeze header while scrolling.
       --budget <n>      Hard ceiling on total tokens (paid endpoints)
       --timeout <sec>   Per-request timeout (default: 60; --bench requests are
                         never timed out — a cold prefill takes what it takes)
