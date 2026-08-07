@@ -1,0 +1,1659 @@
+{
+  "version": 2,
+  "run": {
+    "depth": "default",
+    "mode": "probe",
+    "startedAt": "2026-08-07T11:49:12.382Z",
+    "phases": {
+      "coverage": {
+        "status": "partial",
+        "reason": "1 items were not probed"
+      },
+      "conformance": {
+        "status": "measured"
+      },
+      "capability": {
+        "status": "measured"
+      },
+      "agentic": {
+        "status": "measured"
+      },
+      "fidelity": {
+        "status": "measured"
+      },
+      "performance": {
+        "status": "not-run",
+        "reason": "benchmark not requested"
+      }
+    },
+    "budget": {
+      "exhausted": false
+    }
+  },
+  "target": {
+    "baseUrl": "http://127.0.0.1:8080/v1",
+    "model": "Qwen3.6-35B-A3B-MLX-4bit"
+  },
+  "coverage": {
+    "byTier": [
+      {
+        "tier": "core",
+        "supported": 9,
+        "total": 9,
+        "pct": 100,
+        "missing": [],
+        "unprobed": []
+      },
+      {
+        "tier": "extended",
+        "supported": 13,
+        "total": 14,
+        "pct": 92.9,
+        "missing": [
+          "logprobs"
+        ],
+        "unprobed": []
+      },
+      {
+        "tier": "frontier",
+        "supported": 4,
+        "total": 9,
+        "pct": 44.4,
+        "missing": [
+          "images/generations",
+          "images/edits",
+          "MCP tools",
+          "n>1 choices",
+          "rate limiting"
+        ],
+        "unprobed": [
+          "prompt caching"
+        ]
+      }
+    ],
+    "credits": [],
+    "entries": [
+      {
+        "id": "models",
+        "label": "/v1/models",
+        "kind": "surface",
+        "tier": "core",
+        "supported": true
+      },
+      {
+        "id": "chat",
+        "label": "chat/completions",
+        "kind": "surface",
+        "tier": "core",
+        "supported": true
+      },
+      {
+        "id": "responses",
+        "label": "responses",
+        "kind": "surface",
+        "tier": "extended",
+        "supported": true
+      },
+      {
+        "id": "messages",
+        "label": "messages",
+        "kind": "surface",
+        "tier": "extended",
+        "supported": true
+      },
+      {
+        "id": "embeddings",
+        "label": "embeddings",
+        "kind": "surface",
+        "tier": "extended",
+        "supported": true
+      },
+      {
+        "id": "completions",
+        "label": "completions (legacy)",
+        "kind": "surface",
+        "tier": "extended",
+        "supported": true
+      },
+      {
+        "id": "images",
+        "label": "images/generations",
+        "kind": "surface",
+        "tier": "frontier",
+        "supported": false,
+        "detail": "not implemented"
+      },
+      {
+        "id": "images-edit",
+        "label": "images/edits",
+        "kind": "surface",
+        "tier": "frontier",
+        "supported": false,
+        "detail": "not implemented"
+      },
+      {
+        "id": "audio-speech",
+        "label": "audio/speech",
+        "kind": "surface",
+        "tier": "frontier",
+        "supported": true
+      },
+      {
+        "id": "audio-transcriptions",
+        "label": "audio/transcriptions",
+        "kind": "surface",
+        "tier": "frontier",
+        "supported": true
+      },
+      {
+        "id": "streaming",
+        "label": "streaming + SSE framing",
+        "kind": "feature",
+        "tier": "core",
+        "supported": true,
+        "probed": true
+      },
+      {
+        "id": "tools",
+        "label": "tool calling",
+        "kind": "feature",
+        "tier": "core",
+        "supported": true,
+        "probed": true
+      },
+      {
+        "id": "json-mode",
+        "label": "JSON mode",
+        "kind": "feature",
+        "tier": "core",
+        "supported": true,
+        "probed": true
+      },
+      {
+        "id": "usage",
+        "label": "usage tokens",
+        "kind": "feature",
+        "tier": "core",
+        "supported": true,
+        "probed": true
+      },
+      {
+        "id": "finish-reasons",
+        "label": "finish reasons",
+        "kind": "feature",
+        "tier": "core",
+        "supported": true,
+        "probed": true
+      },
+      {
+        "id": "errors",
+        "label": "error codes",
+        "kind": "feature",
+        "tier": "core",
+        "supported": true,
+        "probed": true
+      },
+      {
+        "id": "limits",
+        "label": "stop + max_tokens",
+        "kind": "feature",
+        "tier": "core",
+        "supported": true,
+        "probed": true
+      },
+      {
+        "id": "structured-outputs",
+        "label": "structured outputs",
+        "kind": "feature",
+        "tier": "extended",
+        "supported": true,
+        "probed": true
+      },
+      {
+        "id": "parallel-tools",
+        "label": "parallel tool calls",
+        "kind": "feature",
+        "tier": "extended",
+        "supported": true,
+        "probed": true
+      },
+      {
+        "id": "vision",
+        "label": "vision",
+        "kind": "feature",
+        "tier": "extended",
+        "supported": true,
+        "probed": true
+      },
+      {
+        "id": "logprobs",
+        "label": "logprobs",
+        "kind": "feature",
+        "tier": "extended",
+        "supported": false,
+        "probed": true,
+        "detail": "accepted `logprobs` but returned none"
+      },
+      {
+        "id": "reasoning",
+        "label": "reasoning items",
+        "kind": "feature",
+        "tier": "extended",
+        "supported": true,
+        "probed": true
+      },
+      {
+        "id": "reasoning-roundtrip",
+        "label": "reasoning history round-trip",
+        "kind": "feature",
+        "tier": "extended",
+        "supported": true,
+        "probed": true
+      },
+      {
+        "id": "stream-usage",
+        "label": "streamed usage",
+        "kind": "feature",
+        "tier": "extended",
+        "supported": true,
+        "probed": true
+      },
+      {
+        "id": "seed",
+        "label": "seed determinism",
+        "kind": "feature",
+        "tier": "extended",
+        "supported": true,
+        "probed": true
+      },
+      {
+        "id": "sampling",
+        "label": "top_p sampling",
+        "kind": "feature",
+        "tier": "extended",
+        "supported": true,
+        "probed": true
+      },
+      {
+        "id": "max-tokens-alias",
+        "label": "max_tokens legacy alias",
+        "kind": "feature",
+        "tier": "extended",
+        "supported": true,
+        "probed": true
+      },
+      {
+        "id": "mcp-tools",
+        "label": "MCP tools",
+        "kind": "feature",
+        "tier": "frontier",
+        "supported": false,
+        "probed": true,
+        "detail": "not probed — llmprobe does not yet host an MCP server to call back into"
+      },
+      {
+        "id": "n-choices",
+        "label": "n>1 choices",
+        "kind": "feature",
+        "tier": "frontier",
+        "supported": false,
+        "probed": true,
+        "detail": "accepted `n` but returned one choice"
+      },
+      {
+        "id": "rate-limiting",
+        "label": "rate limiting",
+        "kind": "feature",
+        "tier": "frontier",
+        "supported": false,
+        "probed": true,
+        "detail": "no x-ratelimit-* headers"
+      },
+      {
+        "id": "prompt-caching",
+        "label": "prompt caching",
+        "kind": "feature",
+        "tier": "frontier",
+        "supported": false,
+        "probed": false,
+        "detail": "not detected"
+      },
+      {
+        "id": "previous-response-id",
+        "label": "previous_response_id chaining",
+        "kind": "feature",
+        "tier": "frontier",
+        "supported": true,
+        "probed": true
+      },
+      {
+        "id": "background",
+        "label": "background responses",
+        "kind": "feature",
+        "tier": "frontier",
+        "supported": true,
+        "probed": true
+      }
+    ]
+  },
+  "conformance": {
+    "pct": 92.4,
+    "passed": 182,
+    "total": 197,
+    "bySurface": [
+      {
+        "surface": "models",
+        "passed": 4,
+        "total": 4,
+        "pct": 100
+      },
+      {
+        "surface": "chat",
+        "passed": 63,
+        "total": 66,
+        "pct": 95.5
+      },
+      {
+        "surface": "responses",
+        "passed": 56,
+        "total": 64,
+        "pct": 87.5
+      },
+      {
+        "surface": "messages",
+        "passed": 56,
+        "total": 60,
+        "pct": 93.3
+      },
+      {
+        "surface": "completions",
+        "passed": 3,
+        "total": 3,
+        "pct": 100
+      }
+    ],
+    "inconclusive": [
+      {
+        "id": "embeddings-basic",
+        "name": "embeddings: basic vector",
+        "reason": "HTTP 400 — likely needs a dedicated embedding model (tested with \"Qwen3.6-35B-A3B-MLX-4bit\")"
+      }
+    ],
+    "warnings": [
+      {
+        "id": "messages-stop-echoed",
+        "label": "the matched sequence is echoed in stop_sequence",
+        "message": "stop_sequence field was null"
+      }
+    ],
+    "nits": [],
+    "results": [
+      {
+        "id": "models-list",
+        "name": "/v1/models: model list",
+        "surface": "models",
+        "outcome": "pass",
+        "durationMs": 4,
+        "failures": []
+      },
+      {
+        "id": "chat-basic",
+        "name": "chat/completions: basic completion",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 1606,
+        "failures": []
+      },
+      {
+        "id": "chat-streaming",
+        "name": "chat/completions: streaming + SSE framing",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 1653,
+        "failures": []
+      },
+      {
+        "id": "chat-parity",
+        "name": "chat/completions: streaming matches non-streaming",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 1350,
+        "failures": []
+      },
+      {
+        "id": "chat-usage",
+        "name": "chat/completions: usage tokens",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 2119,
+        "failures": []
+      },
+      {
+        "id": "chat-stream-usage",
+        "name": "chat/completions: usage reported while streaming",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 2190,
+        "failures": []
+      },
+      {
+        "id": "chat-finish-length",
+        "name": "chat/completions: length finish reason",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 145,
+        "failures": []
+      },
+      {
+        "id": "chat-limits-max-tokens",
+        "name": "chat/completions: max_tokens is honored",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 203,
+        "failures": []
+      },
+      {
+        "id": "chat-limits-stop",
+        "name": "chat/completions: stop sequences are honored",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 305,
+        "failures": []
+      },
+      {
+        "id": "chat-unicode",
+        "name": "chat/completions: unicode round-trips intact",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 5617,
+        "failures": []
+      },
+      {
+        "id": "chat-errors",
+        "name": "chat/completions: error codes and shapes",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 2,
+        "failures": []
+      },
+      {
+        "id": "chat-tool-serialization",
+        "name": "chat/completions: tool call serialization",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 1613,
+        "failures": []
+      },
+      {
+        "id": "chat-tool-stream-reassembly",
+        "name": "chat/completions: streamed tool arguments reassemble",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 1592,
+        "failures": []
+      },
+      {
+        "id": "chat-tool-result-turn",
+        "name": "chat/completions: tool results are accepted back",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 853,
+        "failures": []
+      },
+      {
+        "id": "chat-parallel-tools",
+        "name": "chat/completions: parallel tool calls",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 3936,
+        "failures": []
+      },
+      {
+        "id": "chat-tool-choice-none",
+        "name": "chat/completions: tool_choice \"none\" suppresses tools",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 4067,
+        "failures": []
+      },
+      {
+        "id": "chat-parallel-tools-off",
+        "name": "chat/completions: parallel_tool_calls: false is honored",
+        "surface": "chat",
+        "outcome": "fail",
+        "durationMs": 4309,
+        "failures": [
+          {
+            "id": "chat-parallel-off-single",
+            "label": "disabling parallel calls yields at most one call",
+            "severity": "MUST",
+            "message": "got 2 tool calls with parallel_tool_calls: false"
+          }
+        ]
+      },
+      {
+        "id": "chat-tool-arg-types",
+        "name": "chat/completions: typed tool arguments survive the wire",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 2024,
+        "failures": []
+      },
+      {
+        "id": "chat-json-mode",
+        "name": "chat/completions: JSON mode",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 344,
+        "failures": []
+      },
+      {
+        "id": "chat-structured-outputs",
+        "name": "chat/completions: structured outputs (json_schema strict)",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 402,
+        "failures": []
+      },
+      {
+        "id": "chat-vision",
+        "name": "chat/completions: image input",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 2077,
+        "failures": []
+      },
+      {
+        "id": "chat-logprobs",
+        "name": "chat/completions: logprobs",
+        "surface": "chat",
+        "outcome": "fail",
+        "durationMs": 2158,
+        "failures": [
+          {
+            "id": "chat-logprobs-not-ignored",
+            "label": "logprobs are honored when requested",
+            "severity": "MUST",
+            "message": "accepted `logprobs: true` with HTTP 200 but returned no logprobs — a silent no-op is worse than a clean rejection"
+          }
+        ]
+      },
+      {
+        "id": "chat-seed",
+        "name": "chat/completions: seed determinism",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 9893,
+        "failures": []
+      },
+      {
+        "id": "chat-top-p",
+        "name": "chat/completions: top_p is honored",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 16834,
+        "failures": []
+      },
+      {
+        "id": "chat-reasoning",
+        "name": "chat/completions: reasoning is kept out of content",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 4181,
+        "failures": []
+      },
+      {
+        "id": "chat-reasoning-scratchpad",
+        "name": "chat/completions: the answer is an answer, not a scratchpad",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 1470,
+        "failures": []
+      },
+      {
+        "id": "chat-reasoning-roundtrip",
+        "name": "chat/completions: assistant-history reasoning round-trip",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 4115,
+        "failures": []
+      },
+      {
+        "id": "chat-prompt-caching",
+        "name": "chat/completions: prompt cache reporting",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"default\"",
+        "durationMs": 0,
+        "failures": []
+      },
+      {
+        "id": "chat-prompt-cache-prefix",
+        "name": "chat/completions: prefix cache reuses a growing conversation",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"default\"",
+        "durationMs": 0,
+        "failures": []
+      },
+      {
+        "id": "chat-rate-limit-headers",
+        "name": "chat/completions: rate limit headers",
+        "surface": "chat",
+        "outcome": "unsupported",
+        "reason": "no x-ratelimit-* headers",
+        "durationMs": 2138,
+        "failures": []
+      },
+      {
+        "id": "chat-concurrency",
+        "name": "chat/completions: concurrent requests stay isolated",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"default\"",
+        "durationMs": 0,
+        "failures": []
+      },
+      {
+        "id": "chat-concurrency-cache",
+        "name": "chat/completions: concurrent identical requests agree",
+        "surface": "chat",
+        "outcome": "skipped",
+        "reason": "not run at depth \"default\"",
+        "durationMs": 0,
+        "failures": []
+      },
+      {
+        "id": "responses-basic",
+        "name": "responses: basic completion",
+        "surface": "responses",
+        "outcome": "fail",
+        "durationMs": 1628,
+        "failures": [
+          {
+            "id": "responses-schema",
+            "label": "response matches the spec schema",
+            "severity": "MUST",
+            "message": "completed_at: Invalid input; incomplete_details: Invalid input; instructions: Invalid input; output.0: Invalid input; truncation: Expected 'auto' | 'disabled', received null (+12 more)"
+          }
+        ]
+      },
+      {
+        "id": "responses-streaming",
+        "name": "responses: streaming + SSE framing",
+        "surface": "responses",
+        "outcome": "fail",
+        "durationMs": 1679,
+        "failures": [
+          {
+            "id": "responses-sse-missing-done",
+            "label": "SSE framing",
+            "severity": "MUST",
+            "message": "stream never sent the terminal `data: [DONE]` sentinel"
+          },
+          {
+            "id": "responses-stream-chunk-schema",
+            "label": "streamed frames match the spec schema",
+            "severity": "MUST",
+            "message": "<root>: Invalid input"
+          },
+          {
+            "id": "responses-stream-chunk-schema",
+            "label": "streamed frames match the spec schema",
+            "severity": "MUST",
+            "message": "<root>: Invalid input"
+          }
+        ]
+      },
+      {
+        "id": "responses-parity",
+        "name": "responses: streaming matches non-streaming",
+        "surface": "responses",
+        "outcome": "pass",
+        "durationMs": 1525,
+        "failures": []
+      },
+      {
+        "id": "responses-usage",
+        "name": "responses: usage tokens",
+        "surface": "responses",
+        "outcome": "pass",
+        "durationMs": 2148,
+        "failures": []
+      },
+      {
+        "id": "responses-stream-usage",
+        "name": "responses: usage reported while streaming",
+        "surface": "responses",
+        "outcome": "pass",
+        "durationMs": 2140,
+        "failures": []
+      },
+      {
+        "id": "responses-finish-length",
+        "name": "responses: length finish reason",
+        "surface": "responses",
+        "outcome": "fail",
+        "durationMs": 148,
+        "failures": [
+          {
+            "id": "responses-finish-is-length",
+            "label": "truncation reports a length-style finish reason",
+            "severity": "MUST",
+            "message": "expected length/max_tokens, got \"completed\""
+          }
+        ]
+      },
+      {
+        "id": "responses-limits-max-tokens",
+        "name": "responses: max_tokens is honored",
+        "surface": "responses",
+        "outcome": "pass",
+        "durationMs": 208,
+        "failures": []
+      },
+      {
+        "id": "responses-unicode",
+        "name": "responses: unicode round-trips intact",
+        "surface": "responses",
+        "outcome": "pass",
+        "durationMs": 5451,
+        "failures": []
+      },
+      {
+        "id": "responses-errors",
+        "name": "responses: error codes and shapes",
+        "surface": "responses",
+        "outcome": "pass",
+        "durationMs": 2,
+        "failures": []
+      },
+      {
+        "id": "responses-tool-serialization",
+        "name": "responses: tool call serialization",
+        "surface": "responses",
+        "outcome": "pass",
+        "durationMs": 1542,
+        "failures": []
+      },
+      {
+        "id": "responses-tool-stream-reassembly",
+        "name": "responses: streamed tool arguments reassemble",
+        "surface": "responses",
+        "outcome": "pass",
+        "durationMs": 1526,
+        "failures": []
+      },
+      {
+        "id": "responses-tool-result-turn",
+        "name": "responses: tool results are accepted back",
+        "surface": "responses",
+        "outcome": "pass",
+        "durationMs": 829,
+        "failures": []
+      },
+      {
+        "id": "responses-parallel-tools",
+        "name": "responses: parallel tool calls",
+        "surface": "responses",
+        "outcome": "pass",
+        "durationMs": 3942,
+        "failures": []
+      },
+      {
+        "id": "responses-tool-choice-none",
+        "name": "responses: tool_choice \"none\" suppresses tools",
+        "surface": "responses",
+        "outcome": "fail",
+        "durationMs": 1640,
+        "failures": [
+          {
+            "id": "responses-tool-none-suppressed",
+            "label": "no tool call is emitted under tool_choice: \"none\"",
+            "severity": "MUST",
+            "message": "got 1 tool call(s) despite tool_choice: \"none\""
+          }
+        ]
+      },
+      {
+        "id": "responses-parallel-tools-off",
+        "name": "responses: parallel_tool_calls: false is honored",
+        "surface": "responses",
+        "outcome": "fail",
+        "durationMs": 4315,
+        "failures": [
+          {
+            "id": "responses-parallel-off-single",
+            "label": "disabling parallel calls yields at most one call",
+            "severity": "MUST",
+            "message": "got 2 tool calls with parallel_tool_calls: false"
+          }
+        ]
+      },
+      {
+        "id": "responses-tool-arg-types",
+        "name": "responses: typed tool arguments survive the wire",
+        "surface": "responses",
+        "outcome": "pass",
+        "durationMs": 1893,
+        "failures": []
+      },
+      {
+        "id": "responses-json-mode",
+        "name": "responses: JSON mode",
+        "surface": "responses",
+        "outcome": "pass",
+        "durationMs": 299,
+        "failures": []
+      },
+      {
+        "id": "responses-structured-outputs",
+        "name": "responses: structured outputs (json_schema strict)",
+        "surface": "responses",
+        "outcome": "pass",
+        "durationMs": 368,
+        "failures": []
+      },
+      {
+        "id": "responses-vision",
+        "name": "responses: image input",
+        "surface": "responses",
+        "outcome": "pass",
+        "durationMs": 1088,
+        "failures": []
+      },
+      {
+        "id": "responses-top-p",
+        "name": "responses: top_p is honored",
+        "surface": "responses",
+        "outcome": "pass",
+        "durationMs": 17919,
+        "failures": []
+      },
+      {
+        "id": "responses-reasoning",
+        "name": "responses: reasoning is kept out of content",
+        "surface": "responses",
+        "outcome": "pass",
+        "durationMs": 4610,
+        "failures": []
+      },
+      {
+        "id": "responses-reasoning-scratchpad",
+        "name": "responses: the answer is an answer, not a scratchpad",
+        "surface": "responses",
+        "outcome": "pass",
+        "durationMs": 1503,
+        "failures": []
+      },
+      {
+        "id": "responses-reasoning-roundtrip",
+        "name": "responses: assistant-history reasoning round-trip",
+        "surface": "responses",
+        "outcome": "unsupported",
+        "reason": "surface has no history-reasoning wire shape",
+        "durationMs": 0,
+        "failures": []
+      },
+      {
+        "id": "responses-prompt-caching",
+        "name": "responses: prompt cache reporting",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"default\"",
+        "durationMs": 0,
+        "failures": []
+      },
+      {
+        "id": "responses-prompt-cache-prefix",
+        "name": "responses: prefix cache reuses a growing conversation",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"default\"",
+        "durationMs": 0,
+        "failures": []
+      },
+      {
+        "id": "responses-rate-limit-headers",
+        "name": "responses: rate limit headers",
+        "surface": "responses",
+        "outcome": "unsupported",
+        "reason": "no x-ratelimit-* headers",
+        "durationMs": 2147,
+        "failures": []
+      },
+      {
+        "id": "responses-concurrency",
+        "name": "responses: concurrent requests stay isolated",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"default\"",
+        "durationMs": 0,
+        "failures": []
+      },
+      {
+        "id": "responses-concurrency-cache",
+        "name": "responses: concurrent identical requests agree",
+        "surface": "responses",
+        "outcome": "skipped",
+        "reason": "not run at depth \"default\"",
+        "durationMs": 0,
+        "failures": []
+      },
+      {
+        "id": "messages-basic",
+        "name": "messages: basic completion",
+        "surface": "messages",
+        "outcome": "pass",
+        "durationMs": 1641,
+        "failures": []
+      },
+      {
+        "id": "messages-streaming",
+        "name": "messages: streaming + SSE framing",
+        "surface": "messages",
+        "outcome": "pass",
+        "durationMs": 1700,
+        "failures": []
+      },
+      {
+        "id": "messages-parity",
+        "name": "messages: streaming matches non-streaming",
+        "surface": "messages",
+        "outcome": "pass",
+        "durationMs": 1312,
+        "failures": []
+      },
+      {
+        "id": "messages-usage",
+        "name": "messages: usage tokens",
+        "surface": "messages",
+        "outcome": "pass",
+        "durationMs": 2151,
+        "failures": []
+      },
+      {
+        "id": "messages-stream-usage",
+        "name": "messages: usage reported while streaming",
+        "surface": "messages",
+        "outcome": "pass",
+        "durationMs": 2153,
+        "failures": []
+      },
+      {
+        "id": "messages-finish-length",
+        "name": "messages: length finish reason",
+        "surface": "messages",
+        "outcome": "pass",
+        "durationMs": 143,
+        "failures": []
+      },
+      {
+        "id": "messages-limits-max-tokens",
+        "name": "messages: max_tokens is honored",
+        "surface": "messages",
+        "outcome": "pass",
+        "durationMs": 223,
+        "failures": []
+      },
+      {
+        "id": "messages-limits-stop",
+        "name": "messages: stop sequences are honored",
+        "surface": "messages",
+        "outcome": "pass",
+        "durationMs": 315,
+        "failures": []
+      },
+      {
+        "id": "messages-unicode",
+        "name": "messages: unicode round-trips intact",
+        "surface": "messages",
+        "outcome": "pass",
+        "durationMs": 5373,
+        "failures": []
+      },
+      {
+        "id": "messages-errors",
+        "name": "messages: error codes and shapes",
+        "surface": "messages",
+        "outcome": "pass",
+        "durationMs": 2,
+        "failures": []
+      },
+      {
+        "id": "messages-tool-serialization",
+        "name": "messages: tool call serialization",
+        "surface": "messages",
+        "outcome": "pass",
+        "durationMs": 1518,
+        "failures": []
+      },
+      {
+        "id": "messages-tool-stream-reassembly",
+        "name": "messages: streamed tool arguments reassemble",
+        "surface": "messages",
+        "outcome": "pass",
+        "durationMs": 1505,
+        "failures": []
+      },
+      {
+        "id": "messages-tool-result-turn",
+        "name": "messages: tool results are accepted back",
+        "surface": "messages",
+        "outcome": "pass",
+        "durationMs": 881,
+        "failures": []
+      },
+      {
+        "id": "messages-parallel-tools",
+        "name": "messages: parallel tool calls",
+        "surface": "messages",
+        "outcome": "pass",
+        "durationMs": 4302,
+        "failures": []
+      },
+      {
+        "id": "messages-tool-choice-none",
+        "name": "messages: tool_choice \"none\" suppresses tools",
+        "surface": "messages",
+        "outcome": "fail",
+        "durationMs": 1540,
+        "failures": [
+          {
+            "id": "messages-tool-none-suppressed",
+            "label": "no tool call is emitted under tool_choice: \"none\"",
+            "severity": "MUST",
+            "message": "got 1 tool call(s) despite tool_choice: \"none\""
+          }
+        ]
+      },
+      {
+        "id": "messages-parallel-tools-off",
+        "name": "messages: parallel_tool_calls: false is honored",
+        "surface": "messages",
+        "outcome": "fail",
+        "durationMs": 3862,
+        "failures": [
+          {
+            "id": "messages-parallel-off-single",
+            "label": "disabling parallel calls yields at most one call",
+            "severity": "MUST",
+            "message": "got 2 tool calls with parallel_tool_calls: false"
+          }
+        ]
+      },
+      {
+        "id": "messages-tool-arg-types",
+        "name": "messages: typed tool arguments survive the wire",
+        "surface": "messages",
+        "outcome": "pass",
+        "durationMs": 1818,
+        "failures": []
+      },
+      {
+        "id": "messages-vision",
+        "name": "messages: image input",
+        "surface": "messages",
+        "outcome": "pass",
+        "durationMs": 1066,
+        "failures": []
+      },
+      {
+        "id": "messages-top-p",
+        "name": "messages: top_p is honored",
+        "surface": "messages",
+        "outcome": "pass",
+        "durationMs": 16309,
+        "failures": []
+      },
+      {
+        "id": "messages-reasoning",
+        "name": "messages: reasoning is kept out of content",
+        "surface": "messages",
+        "outcome": "pass",
+        "durationMs": 4087,
+        "failures": []
+      },
+      {
+        "id": "messages-reasoning-scratchpad",
+        "name": "messages: the answer is an answer, not a scratchpad",
+        "surface": "messages",
+        "outcome": "pass",
+        "durationMs": 1458,
+        "failures": []
+      },
+      {
+        "id": "messages-reasoning-roundtrip",
+        "name": "messages: assistant-history reasoning round-trip",
+        "surface": "messages",
+        "outcome": "pass",
+        "durationMs": 4177,
+        "failures": []
+      },
+      {
+        "id": "messages-prompt-caching",
+        "name": "messages: prompt cache reporting",
+        "surface": "messages",
+        "outcome": "skipped",
+        "reason": "not run at depth \"default\"",
+        "durationMs": 0,
+        "failures": []
+      },
+      {
+        "id": "messages-prompt-cache-prefix",
+        "name": "messages: prefix cache reuses a growing conversation",
+        "surface": "messages",
+        "outcome": "skipped",
+        "reason": "not run at depth \"default\"",
+        "durationMs": 0,
+        "failures": []
+      },
+      {
+        "id": "messages-rate-limit-headers",
+        "name": "messages: rate limit headers",
+        "surface": "messages",
+        "outcome": "unsupported",
+        "reason": "no x-ratelimit-* headers",
+        "durationMs": 2118,
+        "failures": []
+      },
+      {
+        "id": "messages-concurrency",
+        "name": "messages: concurrent requests stay isolated",
+        "surface": "messages",
+        "outcome": "skipped",
+        "reason": "not run at depth \"default\"",
+        "durationMs": 0,
+        "failures": []
+      },
+      {
+        "id": "messages-concurrency-cache",
+        "name": "messages: concurrent identical requests agree",
+        "surface": "messages",
+        "outcome": "skipped",
+        "reason": "not run at depth \"default\"",
+        "durationMs": 0,
+        "failures": []
+      },
+      {
+        "id": "chat-n-choices",
+        "name": "chat/completions: n > 1 choices",
+        "surface": "chat",
+        "outcome": "fail",
+        "durationMs": 8073,
+        "failures": [
+          {
+            "id": "chat-n-not-ignored",
+            "label": "n is honored when requested",
+            "severity": "MUST",
+            "message": "accepted n: 2 with HTTP 200 but returned 1 choice(s) — a silent no-op is worse than a clean rejection"
+          }
+        ]
+      },
+      {
+        "id": "chat-max-tokens-alias",
+        "name": "chat/completions: legacy max_tokens alias",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 144,
+        "failures": []
+      },
+      {
+        "id": "chat-stop-string",
+        "name": "chat/completions: stop as a bare string",
+        "surface": "chat",
+        "outcome": "pass",
+        "durationMs": 322,
+        "failures": []
+      },
+      {
+        "id": "responses-event-order",
+        "name": "responses: streaming event order",
+        "surface": "responses",
+        "outcome": "pass",
+        "durationMs": 1311,
+        "failures": []
+      },
+      {
+        "id": "responses-previous-response-id",
+        "name": "responses: previous_response_id chaining",
+        "surface": "responses",
+        "outcome": "pass",
+        "durationMs": 4573,
+        "failures": []
+      },
+      {
+        "id": "responses-background",
+        "name": "responses: background mode",
+        "surface": "responses",
+        "outcome": "fail",
+        "durationMs": 4672,
+        "failures": [
+          {
+            "id": "responses-background-queued",
+            "label": "a background response comes back queued or in_progress",
+            "severity": "MUST",
+            "message": "background request returned status \"completed\" — it was run synchronously"
+          }
+        ]
+      },
+      {
+        "id": "responses-mcp-tools",
+        "name": "responses: server-side MCP tools",
+        "surface": "responses",
+        "outcome": "unsupported",
+        "reason": "not probed — llmprobe does not yet host an MCP server to call back into",
+        "durationMs": 0,
+        "failures": []
+      },
+      {
+        "id": "messages-event-order",
+        "name": "messages: streaming event order",
+        "surface": "messages",
+        "outcome": "fail",
+        "durationMs": 1320,
+        "failures": [
+          {
+            "id": "messages-starts",
+            "label": "the stream opens with message_start",
+            "severity": "MUST",
+            "message": "first event was \"ping\""
+          }
+        ]
+      },
+      {
+        "id": "messages-max-tokens-required",
+        "name": "messages: max_tokens is required",
+        "surface": "messages",
+        "outcome": "pass",
+        "durationMs": 2,
+        "failures": []
+      },
+      {
+        "id": "messages-stop-sequence-echo",
+        "name": "messages: stop_sequence is reported and echoed",
+        "surface": "messages",
+        "outcome": "fail",
+        "durationMs": 308,
+        "failures": [
+          {
+            "id": "messages-stop-reason",
+            "label": "a hit stop sequence reports stop_reason \"stop_sequence\"",
+            "severity": "MUST",
+            "message": "stop_reason was \"end_turn\""
+          },
+          {
+            "id": "messages-stop-echoed",
+            "label": "the matched sequence is echoed in stop_sequence",
+            "severity": "SHOULD",
+            "message": "stop_sequence field was null"
+          }
+        ]
+      },
+      {
+        "id": "messages-thinking-budget",
+        "name": "messages: thinking blocks and budget",
+        "surface": "messages",
+        "outcome": "pass",
+        "durationMs": 3015,
+        "failures": []
+      },
+      {
+        "id": "embeddings-basic",
+        "name": "embeddings: basic vector",
+        "surface": "embeddings",
+        "outcome": "inconclusive",
+        "reason": "HTTP 400 — likely needs a dedicated embedding model (tested with \"Qwen3.6-35B-A3B-MLX-4bit\")",
+        "durationMs": 2,
+        "failures": []
+      },
+      {
+        "id": "embeddings-dimensions",
+        "name": "embeddings: dimensions honored",
+        "surface": "embeddings",
+        "outcome": "unsupported",
+        "reason": "rejects `dimensions` with HTTP 400",
+        "durationMs": 1,
+        "failures": []
+      },
+      {
+        "id": "completions-basic",
+        "name": "completions (legacy): basic",
+        "surface": "completions",
+        "outcome": "pass",
+        "durationMs": 227,
+        "failures": []
+      },
+      {
+        "id": "images-generate",
+        "name": "images: generation",
+        "surface": "images",
+        "outcome": "unsupported",
+        "reason": "images not implemented",
+        "durationMs": 0,
+        "failures": []
+      },
+      {
+        "id": "images-edit",
+        "name": "images: edit (multipart)",
+        "surface": "images-edit",
+        "outcome": "unsupported",
+        "reason": "images-edit not implemented",
+        "durationMs": 0,
+        "failures": []
+      },
+      {
+        "id": "audio-speech",
+        "name": "audio/speech: synthesis",
+        "surface": "audio-speech",
+        "outcome": "skipped",
+        "reason": "not run at depth \"default\"",
+        "durationMs": 0,
+        "failures": []
+      }
+    ]
+  },
+  "capability": {
+    "pct": 100,
+    "verdict": "strong",
+    "categories": [
+      {
+        "category": "tool-selection",
+        "passed": 6,
+        "total": 6,
+        "pct": 100
+      },
+      {
+        "category": "tool-restraint",
+        "passed": 6,
+        "total": 6,
+        "pct": 100
+      },
+      {
+        "category": "tool-args",
+        "passed": 6,
+        "total": 6,
+        "pct": 100
+      },
+      {
+        "category": "multiturn",
+        "passed": 3,
+        "total": 3,
+        "pct": 100
+      },
+      {
+        "category": "instructions",
+        "passed": 3,
+        "total": 3,
+        "pct": 100
+      },
+      {
+        "category": "json-discipline",
+        "passed": 6,
+        "total": 6,
+        "pct": 100
+      },
+      {
+        "category": "reasoning",
+        "passed": 3,
+        "total": 3,
+        "pct": 100
+      },
+      {
+        "category": "knowledge",
+        "passed": 3,
+        "total": 3,
+        "pct": 100
+      }
+    ],
+    "weakCategories": [],
+    "unmeasured": [],
+    "evals": [
+      {
+        "id": "eval-tool-select-weather",
+        "name": "picks the weather tool from a menu of decoys",
+        "category": "tool-selection",
+        "passed": 3,
+        "total": 3,
+        "failures": []
+      },
+      {
+        "id": "eval-tool-select-time",
+        "name": "distinguishes the time tool from the weather tool",
+        "category": "tool-selection",
+        "passed": 3,
+        "total": 3,
+        "failures": []
+      },
+      {
+        "id": "eval-tool-restraint-chitchat",
+        "name": "does not reach for a tool during small talk",
+        "category": "tool-restraint",
+        "passed": 3,
+        "total": 3,
+        "failures": []
+      },
+      {
+        "id": "eval-tool-restraint-knowledge",
+        "name": "answers from knowledge instead of calling an irrelevant tool",
+        "category": "tool-restraint",
+        "passed": 3,
+        "total": 3,
+        "failures": []
+      },
+      {
+        "id": "eval-tool-args-typed",
+        "name": "fills typed arguments with the right types",
+        "category": "tool-args",
+        "passed": 3,
+        "total": 3,
+        "failures": []
+      },
+      {
+        "id": "eval-tool-args-enum",
+        "name": "respects an enum constraint in the tool schema",
+        "category": "tool-args",
+        "passed": 3,
+        "total": 3,
+        "failures": []
+      },
+      {
+        "id": "eval-multiturn-recall",
+        "name": "recalls a fact from an earlier turn",
+        "category": "multiturn",
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "id": "eval-multiturn-tool-result",
+        "name": "uses a tool result instead of inventing an answer",
+        "category": "multiturn",
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "id": "eval-multiturn-system",
+        "name": "keeps honoring the system prompt after several turns",
+        "category": "multiturn",
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "id": "eval-instructions-exact",
+        "name": "reproduces an exact requested string",
+        "category": "instructions",
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "id": "eval-instructions-negative",
+        "name": "honors a negative constraint",
+        "category": "instructions",
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "id": "eval-instructions-length",
+        "name": "obeys a one-word length constraint",
+        "category": "instructions",
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "id": "eval-json-no-fences",
+        "name": "emits raw JSON without markdown fences when told to",
+        "category": "json-discipline",
+        "passed": 3,
+        "total": 3,
+        "failures": []
+      },
+      {
+        "id": "eval-json-nested",
+        "name": "produces a nested JSON structure on request",
+        "category": "json-discipline",
+        "passed": 3,
+        "total": 3,
+        "failures": []
+      },
+      {
+        "id": "eval-long-context-needle",
+        "name": "finds a needle buried in 16KB of filler",
+        "category": "long-context",
+        "passed": 0,
+        "total": 0,
+        "outcome": "skipped",
+        "failures": []
+      },
+      {
+        "id": "eval-reasoning-arithmetic",
+        "name": "multiplies two two-digit numbers",
+        "category": "reasoning",
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "id": "eval-reasoning-transitive",
+        "name": "follows a transitive chain",
+        "category": "reasoning",
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "id": "eval-reasoning-counting",
+        "name": "counts letters in a word",
+        "category": "reasoning",
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "id": "eval-knowledge-capital",
+        "name": "knows a non-obvious capital city",
+        "category": "knowledge",
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "id": "eval-knowledge-symbol",
+        "name": "knows a chemical symbol",
+        "category": "knowledge",
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "id": "eval-knowledge-author",
+        "name": "attributes a well-known novel",
+        "category": "knowledge",
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      }
+    ]
+  },
+  "agentic": {
+    "tasks": [
+      {
+        "id": "agentic-read",
+        "name": "reads the config instead of answering from priors",
+        "passed": true,
+        "steps": 3
+      },
+      {
+        "id": "agentic-edit",
+        "name": "finds where the port really lives and edits only that",
+        "passed": true,
+        "steps": 4
+      },
+      {
+        "id": "agentic-indirect",
+        "name": "follows the pointer in build.cfg instead of guessing",
+        "passed": true,
+        "steps": 5
+      }
+    ],
+    "passed": 3,
+    "total": 3,
+    "pct": 100
+  },
+  "fidelity": {
+    "pct": 100,
+    "slices": [
+      {
+        "id": "correctness",
+        "label": "Correctness",
+        "score": 1,
+        "weight": 0.4,
+        "detail": "36/36 items answered correctly",
+        "measured": true
+      },
+      {
+        "id": "confidence",
+        "label": "Confidence",
+        "score": 0,
+        "weight": 0.25,
+        "detail": "engine returned no logprobs",
+        "measured": false,
+        "unmeasuredReason": "engine returned no logprobs"
+      },
+      {
+        "id": "determinism",
+        "label": "Determinism",
+        "score": 1,
+        "weight": 0.25,
+        "detail": "3/3 greedy prompts reproduced byte-for-byte",
+        "measured": true
+      },
+      {
+        "id": "consistency",
+        "label": "Logprob consistency",
+        "score": 0,
+        "weight": 0.1,
+        "detail": "engine returned no top-k logprobs",
+        "measured": false,
+        "unmeasuredReason": "engine returned no top-k logprobs"
+      }
+    ],
+    "items": 36,
+    "firstDivergence": null,
+    "unmeasured": [
+      "Confidence",
+      "Logprob consistency"
+    ],
+    "reasoningCaveat": true
+  },
+  "usage": {
+    "inputTokens": 27110,
+    "outputTokens": 49745
+  },
+  "durationMs": 440163
+}

@@ -44,6 +44,7 @@ import { renderComparisonHtml } from "../src/core/report/compare";
 import { renderHtml } from "../src/core/report/html";
 import {
   ingestReportIntoLibrary,
+  LibraryEmptyError,
   resolveLibraryDir,
   syncLibrary,
 } from "../src/core/report/card/library";
@@ -326,14 +327,16 @@ async function main(): Promise<void> {
   // Rebuild library from existing saves without probing.
   if (args.library && !args.target) {
     const c = paletteFor(!args.noColor);
-    const result = syncLibrary(args.library);
-    if (result.runs === 0) {
-      console.error(
-        `no llmprobe --save JSON found in ${result.dir} (skip library.json and other catalogs)`,
-      );
-      process.exit(1);
+    try {
+      const result = syncLibrary(args.library);
+      logLibrarySync(c, result);
+    } catch (err) {
+      if (err instanceof LibraryEmptyError) {
+        console.error(err.message);
+        process.exit(1);
+      }
+      throw err;
     }
-    logLibrarySync(c, result);
     return;
   }
 

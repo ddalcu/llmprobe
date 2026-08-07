@@ -887,8 +887,8 @@ body.has-dock { padding-bottom: 110px; }
       <div class="brand">llmprobe</div>
       <h1>Model library</h1>
       <div class="meta">
-        <span id="library-count">3 models</span>
-        <span>auto-synced from runs/*.json</span>
+        <span id="library-count">4 models</span>
+        <span>auto-synced from this directory</span>
         <span>scores stay independent</span>
       </div>
     </div>
@@ -967,9 +967,10 @@ body.has-dock { padding-bottom: 110px; }
   </div>
 
   <p class="fine" style="margin-top:4px">
-    Regenerate after new probes:
-    <code>node runs/report-card/generate.mjs</code>
-    — drops new <code>runs/*.json</code> saves into this table automatically.
+    Auto-updates on <code>llmprobe … --library &lt;dir&gt;</code>, or when
+    <code>--save</code>/<code>--html</code> write into a directory that already
+    has <code>library.json</code>. Rebuild only:
+    <code>llmprobe --library &lt;dir&gt;</code>.
   </p>
 </div>
 
@@ -982,7 +983,7 @@ body.has-dock { padding-bottom: 110px; }
   </div>
 </div>
 
-<script>window.__LIBRARY__=[{"slug":"btl-4-optiq-4bit","href":"btl-4-optiq-4bit.html","model":"BTL-4-OptiQ-4bit","short":"BTL-4-OptiQ-4bit","engine":null,"baseUrl":"http://127.0.0.1:8080/v1","source":"my-run-btl4.json","core":100,"extended":92.9,"frontier":44.4,"conformance":92.4,"capability":100,"verdict":"strong","agenticPassed":3,"agenticTotal":3,"agenticRatio":1,"fidelity":100},{"slug":"qwen3-6-35b-a3b","href":"qwen3-6-35b-a3b.html","model":"Qwen3.6-35B-A3B-MLX-4bit","short":"Qwen3.6-35B-A3B","engine":null,"baseUrl":"http://127.0.0.1:8080/v1","source":"my-run-qwen36b.json","core":100,"extended":92.9,"frontier":44.4,"conformance":92.4,"capability":100,"verdict":"strong","agenticPassed":3,"agenticTotal":3,"agenticRatio":1,"fidelity":100},{"slug":"laguna-xs-2-1","href":"laguna-xs-2-1.html","model":"Laguna-XS-2.1-NVFP4-mlx","short":"Laguna-XS-2.1","engine":null,"baseUrl":"http://127.0.0.1:8080/v1","source":"my-run.json","core":100,"extended":92.9,"frontier":44.4,"conformance":93.6,"capability":100,"verdict":"strong","agenticPassed":3,"agenticTotal":3,"agenticRatio":1,"fidelity":100}];</script>
+<script>window.__LIBRARY__=[{"slug":"deepseek-v4-flash-0731-2-4bit-mixed","href":"deepseek-v4-flash-0731-2-4bit-mixed.html","model":"DeepSeek-V4-Flash-0731-2.4bit-mixed","short":"DeepSeek-V4-Flash-0731-2.4bit-mixed","engine":null,"baseUrl":"http://127.0.0.1:8080/v1","source":"deepseek-v4-flash-0731-2-4bit-mixed.json","core":100,"extended":92.9,"frontier":44.4,"conformance":88.8,"capability":94.4,"verdict":"strong","agenticPassed":3,"agenticTotal":3,"agenticRatio":1,"fidelity":100},{"slug":"laguna-xs-2-1","href":"laguna-xs-2-1.html","model":"Laguna-XS-2.1-NVFP4-mlx","short":"Laguna-XS-2.1","engine":null,"baseUrl":"http://127.0.0.1:8080/v1","source":"laguna-xs-2-1.json","core":100,"extended":92.9,"frontier":44.4,"conformance":93.6,"capability":100,"verdict":"strong","agenticPassed":3,"agenticTotal":3,"agenticRatio":1,"fidelity":100},{"slug":"qwen3-6-35b-a3b","href":"qwen3-6-35b-a3b.html","model":"Qwen3.6-35B-A3B-MLX-4bit","short":"Qwen3.6-35B-A3B","engine":null,"baseUrl":"http://127.0.0.1:8080/v1","source":"qwen3-6-35b-a3b.json","core":100,"extended":92.9,"frontier":44.4,"conformance":92.4,"capability":100,"verdict":"strong","agenticPassed":3,"agenticTotal":3,"agenticRatio":1,"fidelity":100},{"slug":"btl-4-optiq-4bit","href":"btl-4-optiq-4bit.html","model":"BTL-4-OptiQ-4bit","short":"BTL-4-OptiQ-4bit","engine":null,"baseUrl":"http://127.0.0.1:8080/v1","source":"report.json","core":100,"extended":92.9,"frontier":44.4,"conformance":92.4,"capability":100,"verdict":"strong","agenticPassed":3,"agenticTotal":3,"agenticRatio":1,"fidelity":100}];</script>
 <script>
 (function () {
   const catalog = window.__LIBRARY__;

@@ -7,6 +7,7 @@ import type { JsonReport } from "../json";
 import {
   ingestReportIntoLibrary,
   isLibraryDir,
+  LibraryEmptyError,
   resolveLibraryDir,
   syncLibrary,
 } from "./library";
@@ -104,7 +105,37 @@ describe("library auto-sync", () => {
     ).toBe(resolve(dir));
     expect(resolveLibraryDir({ save: "/tmp/no-lib/m.json" })).toBeNull();
   });
+
+  test("adopts probe JSON from the parent directory when the library is empty", () => {
+    const parent = mkdtempSync(join(tmpdir(), "llmprobe-parent-"));
+    const lib = join(parent, "report-card");
+    writeFileSync(
+      join(parent, "my-run-alpha.json"),
+      `${JSON.stringify(sample("alpha-model"), null, 2)}\n`,
+    );
+    writeFileSync(
+      join(parent, "my-run-beta.json"),
+      `${JSON.stringify(sample("beta-model"), null, 2)}\n`,
+    );
+    // Catalog junk in the library must not block discovery
+    mkdirSync(lib, { recursive: true });
+    writeFileSync(join(lib, "library.json"), '{"runs":[]}\n');
+    writeFileSync(join(lib, "view-model.json"), '{"version":1}\n');
+
+    const result = syncLibrary(lib);
+    expect(result.runs).toBe(2);
+    expect(existsSync(join(lib, "alpha-model.json")) || existsSync(join(lib, "alpha-model.html"))).toBe(true);
+    const index = readFileSync(join(lib, "index.html"), "utf8");
+    expect(index).toContain("alpha-model");
+    expect(index).toContain("beta-model");
+  });
+
+  test("refuses to write an empty catalog", () => {
+    const dir = mkdtempSync(join(tmpdir(), "llmprobe-empty-"));
+    writeFileSync(join(dir, "library.json"), '{"runs":[]}\n');
+    expect(() => syncLibrary(dir)).toThrow(LibraryEmptyError);
+  });
 });
 
-// local resolve import for type of resolve
+import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";

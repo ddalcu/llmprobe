@@ -1,4 +1,5 @@
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -6,7 +7,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import type { JsonReport } from "../json";
 import { normalizeJsonReport } from "../json";
@@ -17,12 +18,23 @@ import { THEME_BOOT, THEME_SCRIPT, themeSwitcherHtml } from "./theme";
 import { LIBRARY_SCRIPT } from "./library-script";
 import { esc, embedJson, shortModel, slug, tier } from "./shared";
 
+/** Catalog / non-report artifacts that must never enter the ranking table. */
 const SKIP_JSON = new Set([
   "library.json",
   "compare-model.json",
   "view-model.json",
-  "report.json",
 ]);
+
+export class LibraryEmptyError extends Error {
+  constructor(dir: string, detail?: string) {
+    super(
+      `no llmprobe --save reports found in ${dir}${detail ? ` (${detail})` : ""}. ` +
+        `Put probe JSON saves in this directory (or its parent), then re-run ` +
+        `\`llmprobe --library ${dir}\`.`,
+    );
+    this.name = "LibraryEmptyError";
+  }
+}
 
 export interface LibraryRun {
   slug: string;
@@ -44,25 +56,33 @@ export function isJsonReport(obj: unknown): obj is JsonReport {
   );
 }
 
-/** Discover valid --save reports in a library directory. */
-export function discoverLibraryRuns(dir: string): LibraryRun[] {
+function listCandidateJsonFiles(dir: string): string[] {
   const absDir = resolve(dir);
   if (!existsSync(absDir) || !statSync(absDir).isDirectory()) return [];
-
   const found: string[] = [];
   for (const name of readdirSync(absDir)) {
     if (!name.endsWith(".json")) continue;
     if (SKIP_JSON.has(name)) continue;
     const abs = join(absDir, name);
-    if (!statSync(abs).isFile()) continue;
+    try {
+      if (!statSync(abs).isFile()) continue;
+    } catch {
+      continue;
+    }
     found.push(abs);
   }
-  found.sort();
+  return found.sort();
+}
 
+function loadRunsFromFiles(
+  files: string[],
+  hrefDir: string,
+): LibraryRun[] {
   const runs: LibraryRun[] = [];
   const usedSlugs = new Map<string, number>();
+  const hrefRoot = resolve(hrefDir);
 
-  for (const abs of found) {
+  for (const abs of files) {
     let report: JsonReport;
     try {
       report = JSON.parse(readFileSync(abs, "utf8")) as JsonReport;
@@ -77,17 +97,71 @@ export function discoverLibraryRuns(dir: string): LibraryRun[] {
     usedSlugs.set(s, n);
     if (n > 1) s = `${s}-${n}`;
 
+    // Cards always live next to the library index.
+    const jsonName =
+      resolve(dirname(abs)) === hrefRoot
+        ? basename(abs)
+        : `${s}.json`;
+
     runs.push({
       slug: s,
       label: shortModel(report.target?.model) || s,
       report,
       href: `${s}.html`,
       src: abs,
-      jsonName: basename(abs),
+      jsonName,
     });
   }
 
   return runs;
+}
+
+/**
+ * Discover valid --save reports for a library directory.
+ *
+ * Uses JSON files inside the library, and also adopts any *additional* probe
+ * saves from the parent directory (prototype layout: saves in `runs/`, HTML in
+ * `runs/report-card/`). Parent files are copied into the library when missing
+ * so the next rebuild is self-contained.
+ *
+ * Identity for dedupe is `target.model` (then baseUrl+model).
+ */
+export function discoverLibraryRuns(
+  dir: string,
+  options: { adoptFromParent?: boolean } = {},
+): LibraryRun[] {
+  const absDir = resolve(dir);
+  const adopt = options.adoptFromParent !== false;
+
+  mkdirSync(absDir, { recursive: true });
+
+  const identity = (r: LibraryRun): string =>
+    `${r.report.target?.model ?? ""}@@${r.report.target?.baseUrl ?? ""}`;
+
+  const present = new Set(
+    loadRunsFromFiles(listCandidateJsonFiles(absDir), absDir).map(identity),
+  );
+
+  if (adopt) {
+    const parent = dirname(absDir);
+    if (parent && parent !== absDir) {
+      const parentRuns = loadRunsFromFiles(
+        listCandidateJsonFiles(parent),
+        absDir,
+      );
+      for (const run of parentRuns) {
+        const id = identity(run);
+        if (present.has(id)) continue;
+        const dest = join(absDir, run.jsonName);
+        if (resolve(run.src) !== resolve(dest) && !existsSync(dest)) {
+          copyFileSync(run.src, dest);
+        }
+        present.add(id);
+      }
+    }
+  }
+
+  return loadRunsFromFiles(listCandidateJsonFiles(absDir), absDir);
 }
 
 function runSummary(run: LibraryRun) {
@@ -251,12 +325,20 @@ export interface SyncLibraryResult {
 
 /**
  * Rebuild library index, compare workbench, and per-model cards from JSON saves in `dir`.
+ * Refuses to write an empty catalog (avoids wiping a good index).
  */
 export function syncLibrary(dir: string): SyncLibraryResult {
   const absDir = resolve(dir);
   mkdirSync(absDir, { recursive: true });
 
   const runs = discoverLibraryRuns(absDir);
+  if (runs.length === 0) {
+    throw new LibraryEmptyError(
+      absDir,
+      "no valid probe JSON — catalogs like library.json / view-model.json are ignored",
+    );
+  }
+
   const cardPaths: string[] = [];
 
   for (const run of runs) {
