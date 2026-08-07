@@ -1,0 +1,7 @@
+# Local probe saves and HTML dumps — keep personal runs out of git
+*.json
+*.html
+.DS_Store
+
+# Library stub (docs + rebuild wrapper only)
+!report-card/

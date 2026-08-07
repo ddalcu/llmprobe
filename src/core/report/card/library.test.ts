@@ -110,11 +110,11 @@ describe("library auto-sync", () => {
     const parent = mkdtempSync(join(tmpdir(), "llmprobe-parent-"));
     const lib = join(parent, "report-card");
     writeFileSync(
-      join(parent, "my-run-alpha.json"),
+      join(parent, "sample-alpha.json"),
       `${JSON.stringify(sample("alpha-model"), null, 2)}\n`,
     );
     writeFileSync(
-      join(parent, "my-run-beta.json"),
+      join(parent, "sample-beta.json"),
       `${JSON.stringify(sample("beta-model"), null, 2)}\n`,
     );
     // Catalog junk in the library must not block discovery

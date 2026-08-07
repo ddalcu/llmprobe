@@ -1,4 +1,4 @@
-/** Shared report-card CSS (themes + layout). Generated from prototype; keep in sync with runs/report-card/generate.mjs. */
+/** Shared report-card CSS (themes + layout). */
 export const CARD_STYLE = `
 /* Theme tokens — switched via data-theme on <html> (dropdown, not OS) */
 :root, [data-theme="light"] {
