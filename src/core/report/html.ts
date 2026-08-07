@@ -9,10 +9,7 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
 import type { JsonReport } from "./json";
-import {
-  renderCardHtml,
-  type CardHtmlOptions,
-} from "./card/single";
+import { renderCardHtml, type CardHtmlOptions } from "./card/single";
 import { esc as escShared, embedJson as embedJsonShared } from "./card/shared";
 
 export { CARD_STYLE as STYLE } from "./card/style.css";

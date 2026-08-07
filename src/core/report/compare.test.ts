@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import {
-  renderBenchmarkComparisonHtml,
-  renderComparisonHtml,
-} from "./compare";
+import { renderBenchmarkComparisonHtml, renderComparisonHtml } from "./compare";
 import type { JsonReport } from "./json";
 
 function report(over: Partial<JsonReport> = {}): JsonReport {
@@ -67,8 +64,18 @@ const bench = (
 describe("renderComparisonHtml", () => {
   test("renders the interactive model-picker workbench", () => {
     const html = renderComparisonHtml([
-      { label: "alpha", report: report({ target: { baseUrl: "http://a", model: "alpha-model" } }) },
-      { label: "beta", report: report({ target: { baseUrl: "http://b", model: "beta-model" } }) },
+      {
+        label: "alpha",
+        report: report({
+          target: { baseUrl: "http://a", model: "alpha-model" },
+        }),
+      },
+      {
+        label: "beta",
+        report: report({
+          target: { baseUrl: "http://b", model: "beta-model" },
+        }),
+      },
     ]);
 
     expect(html).toContain("compare-pickers");

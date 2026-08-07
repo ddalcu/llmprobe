@@ -5,7 +5,10 @@ import {
   buildPerspectiveInsights,
   type Perspective,
 } from "./insights";
-import { renderCompareWorkbenchHtml } from "./card/compare-workbench";
+import {
+  renderCompareWorkbenchHtml,
+  type CompareWorkbenchOptions,
+} from "./card/compare-workbench";
 
 /**
  * One page comparing several saved runs.
@@ -608,7 +611,10 @@ const COMPARE_SCRIPT = `
 `;
 
 /** Interactive compare workbench (default for `--compare`). */
-export function renderComparisonHtml(inputs: ComparisonInput[]): string {
+export function renderComparisonHtml(
+  inputs: ComparisonInput[],
+  options: CompareWorkbenchOptions = {},
+): string {
   return renderCompareWorkbenchHtml(
     inputs.map((input) => ({
       label: input.label,
@@ -616,6 +622,7 @@ export function renderComparisonHtml(inputs: ComparisonInput[]): string {
       href: input.href,
       file: input.file,
     })),
+    options,
   );
 }
 

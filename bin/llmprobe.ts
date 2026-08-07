@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 
 import {
@@ -44,6 +44,7 @@ import { renderComparisonHtml } from "../src/core/report/compare";
 import { renderHtml } from "../src/core/report/html";
 import {
   ingestReportIntoLibrary,
+  isLibraryDir,
   LibraryEmptyError,
   resolveLibraryDir,
   syncLibrary,
@@ -294,21 +295,36 @@ function runComparison(args: Args): void {
     report,
   }));
 
-  writeFileSync(args.html, renderComparisonHtml(inputs));
+  const htmlDir = dirname(resolve(args.html));
+  const libraryHref = isLibraryDir(htmlDir) ? "index.html" : null;
+  writeFileSync(args.html, renderComparisonHtml(inputs, { libraryHref }));
   console.log(
     `${c.gray("comparison of")} ${inputs.length} ${c.gray("runs →")} ${args.html}`,
   );
+  if (libraryHref) {
+    console.log(`${c.gray("  library →")} ${join(htmlDir, "index.html")}`);
+  }
 }
 
 function logLibrarySync(
   c: ReturnType<typeof paletteFor>,
   result: ReturnType<typeof syncLibrary>,
+  extra?: { ingested?: string },
 ): void {
   console.log(
-    `${c.gray("library")} ${result.runs} ${c.gray("run(s) →")} ${result.dir}`,
+    `${c.gray("library")} ${result.runs} model${result.runs === 1 ? "" : "s"} ${c.gray("→")} ${result.dir}`,
   );
+  if (extra?.ingested) {
+    console.log(`${c.gray("  ingested →")} ${extra.ingested}`);
+  }
+  if (result.models.length > 0 && result.models.length <= 12) {
+    console.log(`${c.gray("  models →")} ${result.models.join(", ")}`);
+  }
   console.log(`${c.gray("  index →")} ${result.indexPath}`);
   console.log(`${c.gray("  compare →")} ${result.comparePath}`);
+  console.log(
+    `${c.gray("  cards →")} ${result.cardPaths.length} report card${result.cardPaths.length === 1 ? "" : "s"}`,
+  );
 }
 
 async function main(): Promise<void> {
@@ -998,9 +1014,12 @@ async function main(): Promise<void> {
       args.save && resolve(dirname(args.save)) === resolve(libraryDir)
         ? basename(args.save)
         : `${slug(json.target.model)}.json`;
-    const { sync, jsonPath } = ingestReportIntoLibrary(libraryDir, json, {
-      preferredFileName,
-    });
+    const {
+      sync,
+      jsonPath,
+      slug: modelSlug,
+    } = ingestReportIntoLibrary(libraryDir, json, { preferredFileName });
+    const libraryCard = join(libraryDir, `${modelSlug}.html`);
     // Standalone --html still written when requested (may differ from library card).
     if (args.html) {
       const inLibrary = resolve(dirname(args.html)) === resolve(libraryDir);
@@ -1008,16 +1027,22 @@ async function main(): Promise<void> {
         args.html,
         renderHtml(json, {
           ...baselineContext,
+          // Always offer a way back when this run is part of a library.
           libraryHref: inLibrary ? "index.html" : undefined,
           label: preferredFileName,
         }),
       );
       log(`${c.gray("html report →")} ${args.html}`);
+      if (!inLibrary) {
+        log(
+          `${c.gray("  (library card →")} ${libraryCard}${c.gray("; open library →")} ${join(libraryDir, "index.html")}${c.gray(")")}`,
+        );
+      }
+    } else {
+      log(`${c.gray("html report →")} ${libraryCard}`);
     }
-    if (!quiet) logLibrarySync(c, sync);
-    else {
-      // Quiet modes still write the library; mention paths only if useful.
-      void jsonPath;
+    if (!quiet) {
+      logLibrarySync(c, sync, { ingested: `${modelSlug} · ${jsonPath}` });
     }
   } else if (args.html) {
     writeFileSync(args.html, renderHtml(json, baselineContext));

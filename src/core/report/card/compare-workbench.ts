@@ -94,9 +94,7 @@ export function renderCompareWorkbenchHtml(
   }
 
   const libraryHref =
-    options.libraryHref === null
-      ? null
-      : (options.libraryHref ?? "index.html");
+    options.libraryHref === null ? null : (options.libraryHref ?? "index.html");
   const libraryNav = libraryHref
     ? `<a class="btn" href="${esc(libraryHref)}">← Library</a>`
     : "";

@@ -140,8 +140,7 @@ export function renderCardHtml(
   const confTone = confMeasured
     ? toneForPct(conf.pct, { perfect: true })
     : "neutral";
-  const confToneStrict =
-    confMeasured && conf.pct < 100 ? "critical" : confTone;
+  const confToneStrict = confMeasured && conf.pct < 100 ? "critical" : confTone;
   const capTone = capMeasured ? verdictTone(cap.verdict) : "neutral";
 
   const coreHeadline = core ? `${core.pct}%` : "—";
@@ -154,8 +153,7 @@ export function renderCardHtml(
 
   const credits = (report.coverage?.credits ?? [])
     .map(
-      (c) =>
-        `<div class="fine">○ ${esc(c.label)} — detected, not scored</div>`,
+      (c) => `<div class="fine">○ ${esc(c.label)} — detected, not scored</div>`,
     )
     .join("");
 
@@ -190,7 +188,9 @@ export function renderCardHtml(
         .sort((a, b) => {
           const aFail = a.passed < a.total ? 0 : 1;
           const bFail = b.passed < b.total ? 0 : 1;
-          return aFail - bFail || (a.name || a.id).localeCompare(b.name || b.id);
+          return (
+            aFail - bFail || (a.name || a.id).localeCompare(b.name || b.id)
+          );
         });
       const evalRows =
         catEvals.length > 0

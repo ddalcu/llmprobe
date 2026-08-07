@@ -1,7 +1,4 @@
-import {
-  CATEGORY_FLOOR_PCT,
-  type EvalCategory,
-} from "../../outcome";
+import { CATEGORY_FLOOR_PCT, type EvalCategory } from "../../outcome";
 import type { JsonReport } from "../json";
 
 export { CATEGORY_FLOOR_PCT };

@@ -124,7 +124,10 @@ describe("library auto-sync", () => {
 
     const result = syncLibrary(lib);
     expect(result.runs).toBe(2);
-    expect(existsSync(join(lib, "alpha-model.json")) || existsSync(join(lib, "alpha-model.html"))).toBe(true);
+    expect(
+      existsSync(join(lib, "alpha-model.json")) ||
+        existsSync(join(lib, "alpha-model.html")),
+    ).toBe(true);
     const index = readFileSync(join(lib, "index.html"), "utf8");
     expect(index).toContain("alpha-model");
     expect(index).toContain("beta-model");

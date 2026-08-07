@@ -19,7 +19,7 @@
 
 HTML report cards, compare workbench, and library sync live under `src/core/report/card/`.
 Saving into a directory that already has `library.json` auto-syncs that library without re-passing `--library`.
-The offline prototype generator remains in `runs/report-card/` for visual iteration.
+`runs/report-card/` is a product library output directory; `node runs/report-card/generate.mjs` is a thin wrapper around `llmprobe --library`.
 
 Before opening a PR, run formatting, type checking, and the full test suite.
 

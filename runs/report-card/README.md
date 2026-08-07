@@ -1,68 +1,50 @@
-# Intent-based report cards (prototype)
+# Model library (product output)
 
-CLI story in visual form. Product `--html` is unchanged until this is approved.
+This directory is a **product** llmprobe library — not a separate design prototype.
 
-## Open these
+Canonical implementation: `src/core/report/card/`  
+CLI: `llmprobe --library <dir>`
 
-| File | What |
-|------|------|
-| [index.html](./index.html) | **Model library** — ranking table, sort, multi-select compare |
-| `*.html` (model slug) | Single-run report card |
-| `compare-*-vs-*.html` | Pairwise compare pages |
-| [compare.html](./compare.html) | Interactive compare — pick models per column |
-| [library.json](./library.json) | Catalog snapshot of discovered runs |
+## Open
 
-## Auto-sync
+| File                           | What                                                  |
+| ------------------------------ | ----------------------------------------------------- |
+| [index.html](./index.html)     | Model library — ranking, search, multi-select compare |
+| `*.html` (model slug)          | Single-run report card                                |
+| [compare.html](./compare.html) | Interactive compare (pickers + sticky freeze header)  |
+| [library.json](./library.json) | Catalog marker (enables auto-sync into this folder)   |
+
+## Rebuild / auto-sync
 
 ```bash
-# After any probe save into runs/
-llmprobe localhost:8080 --save runs/my-new-model.json
+# Rebuild from JSON already in this folder (and unique saves in parent runs/)
+npm run build:cli
+llmprobe --library runs/report-card
 
-# Rebuild the library + report cards + all compare pairs
+# Same via thin wrapper
 node runs/report-card/generate.mjs
+
+# Probe and ingest in one shot
+llmprobe localhost:8080 --library runs/report-card
+
+# Auto-sync: --save/--html into a dir that already has library.json
+llmprobe localhost:8080 --save runs/report-card/my-model.json
 ```
 
-The generator scans **`runs/*.json`** (top-level only) for valid llmprobe saves
-(`target` + `coverage.byTier`). Each model gets a report page; every pair gets a
-compare page; `index.html` lists them all.
-
-```bash
-# Or pass explicit saves only
-node runs/report-card/generate.mjs path/a.json path/b.json
-```
+Probe JSON may live in this directory or the parent (`runs/*.json`). Unique models
+from the parent are copied in on rebuild so the library stays self-contained.
 
 ## Library UX
 
-- **Sortable ranking table** — click column headers or use Sort by / direction
-- Columns: Model · Surface coverage (`Core|Ext|Front` color-coded) · Conformance · Capability · Agentic · Actions
-- **View** — open that model’s report card
-- **Compare** — select up to two models; floating dock → **Compare models** (`compare.html?a=&b=`)
-- **Quick compare** — opens blank compare workbench; choose Model A / Model B from dropdowns
-- Once a column has a model, **open report →** links to that model’s card
-- Report + compare pages link **← Library** back to the index
-
-Color scale for % cells: green ≥90 · yellow ≥70 · red below.
-
-## Themes
-
-Header dropdown (persists in `localStorage` as `llmprobe-theme`):
-
-| Theme | Notes |
-|-------|--------|
-| **Light** | Default — current warm editorial look |
-| **Dark** | Same layout, dark tokens |
-| **Cyber** | Neon cyan/magenta HUD palette + mono type (colors/fonts only) |
-
-Layout and information architecture are unchanged across themes.
-
-## Single-run layout
-
-**Overview (top)** — Coverage · Conformance · Capability (never averaged), then
-Agentic / Fidelity / Outcomes honesty, then CLI-order drill-down sections.
+- Sortable ranking table (headers or Sort by)
+- Search filters the table (no typeahead dropdown)
+- Columns: Model · Surface coverage (Core\|Ext\|Front) · Conformance · Capability · Agentic · Actions
+- **View** → report card · **Compare** → dock → **Compare models**
+- **Quick compare** → blank workbench with per-column model pickers
+- **← Library** on cards and compare · themes: Light / Dark / Cyber
 
 ## Design principles
 
-- Never blend the three primary scores  
-- fail ≠ unsupported ≠ inconclusive ≠ not measured  
-- Engine accent (blue) vs model accent (green) as domain cues only  
-- Offline single-file HTML  
+- Never blend Coverage, Conformance, and Capability
+- fail ≠ unsupported ≠ inconclusive ≠ not measured
+- Bench remains informational only

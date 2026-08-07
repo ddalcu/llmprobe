@@ -50,9 +50,9 @@ export function isJsonReport(obj: unknown): obj is JsonReport {
   const o = obj as JsonReport;
   return Boolean(
     o.target &&
-      (o.target.model || o.target.baseUrl) &&
-      o.coverage &&
-      Array.isArray(o.coverage.byTier),
+    (o.target.model || o.target.baseUrl) &&
+    o.coverage &&
+    Array.isArray(o.coverage.byTier),
   );
 }
 
@@ -74,10 +74,7 @@ function listCandidateJsonFiles(dir: string): string[] {
   return found.sort();
 }
 
-function loadRunsFromFiles(
-  files: string[],
-  hrefDir: string,
-): LibraryRun[] {
+function loadRunsFromFiles(files: string[], hrefDir: string): LibraryRun[] {
   const runs: LibraryRun[] = [];
   const usedSlugs = new Map<string, number>();
   const hrefRoot = resolve(hrefDir);
@@ -99,9 +96,7 @@ function loadRunsFromFiles(
 
     // Cards always live next to the library index.
     const jsonName =
-      resolve(dirname(abs)) === hrefRoot
-        ? basename(abs)
-        : `${s}.json`;
+      resolve(dirname(abs)) === hrefRoot ? basename(abs) : `${s}.json`;
 
     runs.push({
       slug: s,
@@ -196,8 +191,12 @@ function runSummary(run: LibraryRun) {
 }
 
 /** Ranking table + search + multi-select compare dock. */
-export function renderLibraryHtml(runs: LibraryRun[]): string {
+export function renderLibraryHtml(
+  runs: LibraryRun[],
+  options: { dirLabel?: string } = {},
+): string {
   const catalog = runs.map(runSummary);
+  const dirLabel = options.dirLabel ?? "this directory";
 
   return `<!DOCTYPE html>
 <html lang="en" data-theme="light">
@@ -216,7 +215,7 @@ export function renderLibraryHtml(runs: LibraryRun[]): string {
       <h1>Model library</h1>
       <div class="meta">
         <span id="library-count">${catalog.length} model${catalog.length === 1 ? "" : "s"}</span>
-        <span>auto-synced from this directory</span>
+        <span>auto-synced · ${esc(dirLabel)}</span>
         <span>scores stay independent</span>
       </div>
     </div>
@@ -237,7 +236,8 @@ export function renderLibraryHtml(runs: LibraryRun[]): string {
     <ul>
       <li><strong>Surface coverage</strong> shows Core | Extended | Frontier (green ≥90%, yellow ≥70%, red below).</li>
       <li><strong>Conformance</strong> and <strong>Capability</strong> stay separate — never averaged into one score.</li>
-      <li>Use <strong>Compare</strong> on two rows, then hit <strong>Compare models</strong> in the dock.</li>
+      <li>Use <strong>Compare</strong> on two rows, then <strong>Compare models</strong> in the dock — or open <strong>Quick compare</strong>.</li>
+      <li>Each probe with <code>--library</code> (or a save into this folder) refreshes the table automatically.</li>
     </ul>
   </div>
 
@@ -292,10 +292,11 @@ export function renderLibraryHtml(runs: LibraryRun[]): string {
   </div>
 
   <p class="fine" style="margin-top:4px">
-    Auto-updates on <code>llmprobe … --library &lt;dir&gt;</code>, or when
-    <code>--save</code>/<code>--html</code> write into a directory that already
-    has <code>library.json</code>. Rebuild only:
-    <code>llmprobe --library &lt;dir&gt;</code>.
+    Rebuild: <code>llmprobe --library ${esc(dirLabel)}</code>
+    · Probe into this library:
+    <code>llmprobe &lt;url&gt; --library ${esc(dirLabel)}</code>
+    · Auto-sync also runs when <code>--save</code>/<code>--html</code> write into
+    a folder that already has <code>library.json</code>.
   </p>
 </div>
 
@@ -318,9 +319,11 @@ export function renderLibraryHtml(runs: LibraryRun[]): string {
 export interface SyncLibraryResult {
   dir: string;
   runs: number;
+  models: string[];
   indexPath: string;
   comparePath: string;
   cardPaths: string[];
+  catalogPath: string;
 }
 
 /**
@@ -335,7 +338,8 @@ export function syncLibrary(dir: string): SyncLibraryResult {
   if (runs.length === 0) {
     throw new LibraryEmptyError(
       absDir,
-      "no valid probe JSON — catalogs like library.json / view-model.json are ignored",
+      "no valid probe JSON — put --save files here or in the parent folder; " +
+        "catalogs like library.json / view-model.json are ignored",
     );
   }
 
@@ -354,7 +358,10 @@ export function syncLibrary(dir: string): SyncLibraryResult {
   }
 
   const indexPath = join(absDir, "index.html");
-  writeFileSync(indexPath, renderLibraryHtml(runs));
+  writeFileSync(
+    indexPath,
+    renderLibraryHtml(runs, { dirLabel: basename(absDir) }),
+  );
 
   const comparePath = join(absDir, "compare.html");
   writeFileSync(
@@ -389,9 +396,11 @@ export function syncLibrary(dir: string): SyncLibraryResult {
   return {
     dir: absDir,
     runs: runs.length,
+    models: runs.map((r) => r.label),
     indexPath,
     comparePath,
     cardPaths,
+    catalogPath,
   };
 }
 
@@ -444,4 +453,3 @@ export function resolveLibraryDir(options: {
   }
   return null;
 }
-

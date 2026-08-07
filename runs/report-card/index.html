@@ -888,7 +888,7 @@ body.has-dock { padding-bottom: 110px; }
       <h1>Model library</h1>
       <div class="meta">
         <span id="library-count">4 models</span>
-        <span>auto-synced from this directory</span>
+        <span>auto-synced · report-card</span>
         <span>scores stay independent</span>
       </div>
     </div>
@@ -912,7 +912,8 @@ body.has-dock { padding-bottom: 110px; }
     <ul>
       <li><strong>Surface coverage</strong> shows Core | Extended | Frontier (green ≥90%, yellow ≥70%, red below).</li>
       <li><strong>Conformance</strong> and <strong>Capability</strong> stay separate — never averaged into one score.</li>
-      <li>Use <strong>Compare</strong> on two rows, then hit <strong>Compare models</strong> in the dock.</li>
+      <li>Use <strong>Compare</strong> on two rows, then <strong>Compare models</strong> in the dock — or open <strong>Quick compare</strong>.</li>
+      <li>Each probe with <code>--library</code> (or a save into this folder) refreshes the table automatically.</li>
     </ul>
   </div>
 
@@ -967,10 +968,11 @@ body.has-dock { padding-bottom: 110px; }
   </div>
 
   <p class="fine" style="margin-top:4px">
-    Auto-updates on <code>llmprobe … --library &lt;dir&gt;</code>, or when
-    <code>--save</code>/<code>--html</code> write into a directory that already
-    has <code>library.json</code>. Rebuild only:
-    <code>llmprobe --library &lt;dir&gt;</code>.
+    Rebuild: <code>llmprobe --library report-card</code>
+    · Probe into this library:
+    <code>llmprobe &lt;url&gt; --library report-card</code>
+    · Auto-sync also runs when <code>--save</code>/<code>--html</code> write into
+    a folder that already has <code>library.json</code>.
   </p>
 </div>
 
