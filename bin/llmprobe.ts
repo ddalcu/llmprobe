@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync } from "node:fs";
-import { basename } from "node:path";
+import { execFile } from "node:child_process";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { pathToFileURL } from "node:url";
 
 import {
   ADAPTERS,
@@ -37,10 +39,21 @@ import { paletteFor } from "../src/core/report/colors";
 import {
   buildJsonReport,
   diffBaseline,
+  type ReportPhase,
+  type ReportRunScope,
   type JsonReport,
 } from "../src/core/report/json";
 import { renderComparisonHtml } from "../src/core/report/compare";
 import { renderHtml } from "../src/core/report/html";
+import {
+  ingestReportIntoLibrary,
+  isLibraryDir,
+  libraryIndexHrefFrom,
+  LibraryEmptyError,
+  resolveLibraryDir,
+  syncLibrary,
+} from "../src/core/report/card/library";
+import { slug } from "../src/core/report/card/shared";
 import { renderMarkdown } from "../src/core/report/markdown";
 import { renderReport } from "../src/core/report/terminal";
 import {
@@ -74,8 +87,12 @@ interface Args {
   baseline?: string;
   save?: string;
   html?: string;
+  /** Directory for the model library (index + cards + compare); auto-synced. */
+  library?: string;
   /** Saved reports to put side by side instead of probing an engine. */
   compare?: string[];
+  /** Do not open the HTML report in a browser after --html. */
+  noOpen: boolean;
   noColor: boolean;
   help: boolean;
 }
@@ -88,6 +105,7 @@ function parseArgs(argv: string[]): Args {
     bench: false,
     benchOnly: false,
     timeoutSec: 60,
+    noOpen: false,
     noColor: false,
     help: false,
   };
@@ -138,6 +156,12 @@ function parseArgs(argv: string[]): Args {
         break;
       case "--html":
         args.html = next();
+        break;
+      case "--library":
+        args.library = next();
+        break;
+      case "--no-open":
+        args.noOpen = true;
         break;
       case "--compare": {
         // Variadic: everything up to the next flag. Comparing two files is the
@@ -195,7 +219,8 @@ implements, and separately grades the model's capability.
 Options:
   -k, --api-key <key>   API key (optional for local engines)
   -m, --model <name>    Model to test (default: interactive picker from
-                        /v1/models on a TTY, otherwise the first model)
+                        /v1/models on a TTY; first model if non-interactive.
+                        Required when /v1/models is empty or unreachable)
       --quick           Surface probe + core smoke tests only
       --full            Everything, including the slow tests (long context, caching)
       --bench           Add a performance benchmark: decode tok/s, TTFT, prefill,
@@ -206,10 +231,15 @@ Options:
       --markdown        README-ready report with badges
       --baseline <f>    Diff against a saved run and flag regressions
       --save <f>        Write the JSON report to a file
-      --html <f>        Write a self-contained HTML report with charts
-      --compare <f...>  Build one comparison page from saved --save reports
-                        instead of probing. Needs --html; context curves are
-                        overlaid, one coloured line per run.
+      --html <f>        Write a report card and auto-maintain a model library
+                        beside it (<dir>/report-card/), update past runs, and
+                        open the card in your browser (see --no-open)
+      --library <dir>   Explicit library directory (optional with --html).
+                        Also: llmprobe --library <dir> rebuilds without probing
+      --no-open         Do not open the HTML report in a browser after --html
+      --compare <f...>  Interactive compare workbench from saved --save reports
+                        instead of probing. Needs --html. Pick models per column;
+                        sticky freeze header while scrolling.
       --budget <n>      Hard ceiling on total tokens (paid endpoints)
       --timeout <sec>   Per-request timeout (default: 60; --bench requests are
                         never timed out — a cold prefill takes what it takes)
@@ -223,8 +253,31 @@ Examples:
   llmprobe https://openrouter.ai/api/v1 -k $OPENROUTER_API_KEY
   llmprobe localhost:8080 --save baselines/llama-cpp.json
   llmprobe localhost:8080 --baseline baselines/llama-cpp.json
+  llmprobe localhost:8080 --html runs/my-run.html  # library + browser open
+  llmprobe localhost:8080 --model X --html runs/out.html --no-open
+  llmprobe --library runs/report-card              # rebuild library only
   llmprobe --compare a.json b.json c.json --html compare.html
 `;
+
+/** Open a local HTML file in the default browser (best-effort). */
+function openInBrowser(filePath: string): void {
+  const abs = resolve(filePath);
+  const fileUrl = pathToFileURL(abs).href;
+  const opts = { detached: true, stdio: "ignore" as const };
+  try {
+    if (process.platform === "darwin") {
+      // Prefer file:// URL so Finder/browser handoff is reliable.
+      execFile("open", [fileUrl], opts, () => undefined)?.unref?.();
+    } else if (process.platform === "win32") {
+      execFile("cmd", ["/c", "start", "", fileUrl], opts, () => undefined)?.unref?.(
+      );
+    } else {
+      execFile("xdg-open", [fileUrl], opts, () => undefined)?.unref?.();
+    }
+  } catch {
+    // Non-fatal: CI / headless environments may lack a browser opener.
+  }
+}
 
 /**
  * Build one page from several saved runs. Probes nothing — the reports already
@@ -274,9 +327,35 @@ function runComparison(args: Args): void {
     report,
   }));
 
-  writeFileSync(args.html, renderComparisonHtml(inputs));
+  const htmlDir = dirname(resolve(args.html));
+  const libraryHref = isLibraryDir(htmlDir) ? "index.html" : null;
+  writeFileSync(args.html, renderComparisonHtml(inputs, { libraryHref }));
   console.log(
     `${c.gray("comparison of")} ${inputs.length} ${c.gray("runs →")} ${args.html}`,
+  );
+  if (libraryHref) {
+    console.log(`${c.gray("  library →")} ${join(htmlDir, "index.html")}`);
+  }
+}
+
+function logLibrarySync(
+  c: ReturnType<typeof paletteFor>,
+  result: ReturnType<typeof syncLibrary>,
+  extra?: { ingested?: string },
+): void {
+  console.log(
+    `${c.gray("library")} ${result.runs} model${result.runs === 1 ? "" : "s"} ${c.gray("→")} ${result.dir}`,
+  );
+  if (extra?.ingested) {
+    console.log(`${c.gray("  ingested →")} ${extra.ingested}`);
+  }
+  if (result.models.length > 0 && result.models.length <= 12) {
+    console.log(`${c.gray("  models →")} ${result.models.join(", ")}`);
+  }
+  console.log(`${c.gray("  index →")} ${result.indexPath}`);
+  console.log(`${c.gray("  compare →")} ${result.comparePath}`);
+  console.log(
+    `${c.gray("  cards →")} ${result.cardPaths.length} report card${result.cardPaths.length === 1 ? "" : "s"}`,
   );
 }
 
@@ -290,6 +369,22 @@ async function main(): Promise<void> {
 
   if (args.compare) {
     runComparison(args);
+    return;
+  }
+
+  // Rebuild library from existing saves without probing.
+  if (args.library && !args.target) {
+    const c = paletteFor(!args.noColor);
+    try {
+      const result = syncLibrary(args.library);
+      logLibrarySync(c, result);
+    } catch (err) {
+      if (err instanceof LibraryEmptyError) {
+        console.error(err.message);
+        process.exit(1);
+      }
+      throw err;
+    }
     return;
   }
 
@@ -407,6 +502,7 @@ async function main(): Promise<void> {
   let model = args.model ?? "";
   let serverHeader: string | null = null;
   let modelIds: string[] = [];
+  let modelsListError: string | null = null;
   try {
     const res = await fetch(`${baseUrl}/models`, {
       headers: bearerAuth({ apiKey } as RunConfig),
@@ -414,13 +510,23 @@ async function main(): Promise<void> {
     });
     serverHeader = res.headers.get("server");
     if (!model) {
-      const data = (await res.json()) as { data?: Array<{ id?: string }> };
-      modelIds = (data?.data ?? [])
-        .map((m) => m.id)
-        .filter((id): id is string => typeof id === "string" && id.length > 0);
+      if (!res.ok) {
+        modelsListError = `GET ${baseUrl}/models → HTTP ${res.status}`;
+      } else {
+        const data = (await res.json()) as { data?: Array<{ id?: string }> };
+        modelIds = (data?.data ?? [])
+          .map((m) => m.id)
+          .filter(
+            (id): id is string => typeof id === "string" && id.length > 0,
+          );
+        if (modelIds.length === 0) {
+          modelsListError = `GET ${baseUrl}/models returned no model ids`;
+        }
+      }
     }
-  } catch {
-    // Fall through to the model error below.
+  } catch (err) {
+    modelsListError =
+      err instanceof Error ? err.message : "failed to list /v1/models";
   }
 
   if (!model && modelIds.length > 0) {
@@ -428,6 +534,13 @@ async function main(): Promise<void> {
       !quiet && process.stdin.isTTY === true && process.stdout.isTTY === true;
     if (modelIds.length === 1 || !interactive) {
       model = modelIds[0]!;
+      if (!interactive && modelIds.length > 1) {
+        log(
+          c.gray(
+            `  (non-interactive — using first model: ${model}; pass --model to pick another)`,
+          ),
+        );
+      }
     } else {
       const rl = createInterface({
         input: process.stdin,
@@ -447,7 +560,20 @@ async function main(): Promise<void> {
 
   if (!model) {
     console.error(
-      `\n${c.red("Error:")} could not determine a model — pass one with --model.`,
+      `\n${c.red("Error:")} could not determine a model — pass one with --model <id>.`,
+    );
+    if (modelsListError) {
+      console.error(c.gray(`  ${modelsListError}`));
+    }
+    console.error(
+      c.gray(
+        "  Tip: list models with curl, e.g. curl -s http://localhost:8080/v1/models",
+      ),
+    );
+    console.error(
+      c.gray(
+        "  Example: llmprobe localhost:8080 --model my-model --library runs/report-card",
+      ),
     );
     process.exit(2);
   }
@@ -825,16 +951,225 @@ async function main(): Promise<void> {
     durationMs: Date.now() - startedAt,
   };
 
+  const phase = (
+    status: ReportPhase,
+    reason?: string,
+  ): { status: ReportPhase; reason?: string } => ({ status, reason });
+  const runScope: ReportRunScope = {
+    depth: args.depth,
+    mode: args.benchOnly ? "bench-only" : "probe",
+    startedAt: new Date(startedAt).toISOString(),
+    phases: {
+      coverage: phase(
+        unprobed.size > 0 ? "partial" : "measured",
+        unprobed.size > 0
+          ? `${unprobed.size} items were not probed`
+          : undefined,
+      ),
+      conformance: phase(
+        args.benchOnly
+          ? "not-run"
+          : budgetHit
+            ? "interrupted"
+            : args.depth === "quick"
+              ? "partial"
+              : conformanceResults.length > 0
+                ? "measured"
+                : "unavailable",
+        args.benchOnly
+          ? "benchmark-only run"
+          : budgetHit
+            ? "token budget exhausted"
+            : args.depth === "quick"
+              ? "quick depth omits slow conformance checks"
+              : conformanceResults.length > 0
+                ? undefined
+                : "no conformance results",
+      ),
+      capability: phase(
+        args.benchOnly || args.depth === "quick"
+          ? "not-run"
+          : budgetHit
+            ? "interrupted"
+            : evalResults.length > 0
+              ? "measured"
+              : "unavailable",
+        args.benchOnly
+          ? "benchmark-only run"
+          : args.depth === "quick"
+            ? "quick depth omits capability evals"
+            : budgetHit
+              ? "token budget exhausted"
+              : evalResults.length > 0
+                ? undefined
+                : "no capability evals",
+      ),
+      agentic: phase(
+        agentic
+          ? "measured"
+          : args.benchOnly || args.depth === "quick"
+            ? "not-run"
+            : budgetHit
+              ? "interrupted"
+              : !ctx.evalSurface ||
+                  featureSupport.get("tools")?.supported !== true
+                ? "unavailable"
+                : "failed",
+        agentic
+          ? undefined
+          : args.benchOnly
+            ? "benchmark-only run"
+            : args.depth === "quick"
+              ? "quick depth omits agentic tasks"
+              : budgetHit
+                ? "token budget exhausted"
+                : !ctx.evalSurface
+                  ? "no chat-shaped evaluation surface"
+                  : featureSupport.get("tools")?.supported !== true
+                    ? "tool calling unavailable"
+                    : "agentic phase did not produce a score",
+      ),
+      fidelity: phase(
+        fidelity
+          ? "measured"
+          : args.benchOnly || args.depth === "quick"
+            ? "not-run"
+            : budgetHit
+              ? "interrupted"
+              : !ctx.evalSurface
+                ? "unavailable"
+                : "failed",
+        fidelity
+          ? undefined
+          : args.benchOnly
+            ? "benchmark-only run"
+            : args.depth === "quick"
+              ? "quick depth omits fidelity"
+              : budgetHit
+                ? "token budget exhausted"
+                : !ctx.evalSurface
+                  ? "no chat-shaped evaluation surface"
+                  : "fidelity phase did not produce a score",
+      ),
+      performance: phase(
+        bench
+          ? "measured"
+          : !args.bench
+            ? "not-run"
+            : budgetHit
+              ? "interrupted"
+              : !ctx.evalSurface
+                ? "unavailable"
+                : "failed",
+        bench
+          ? undefined
+          : !args.bench
+            ? "benchmark not requested"
+            : budgetHit
+              ? "token budget exhausted"
+              : !ctx.evalSurface
+                ? "no chat-shaped evaluation surface"
+                : "benchmark did not produce a report",
+      ),
+    },
+    budget: { limitTokens: args.budget, exhausted: budgetHit },
+  };
+
   const json = buildJsonReport(report, {
     entries,
     conformance: conformanceResults,
     evals: evalResults,
+    run: runScope,
   });
 
-  if (args.save) writeFileSync(args.save, `${JSON.stringify(json, null, 2)}\n`);
-  if (args.html) {
-    writeFileSync(args.html, renderHtml(json));
+  let baselineContext: Parameters<typeof renderHtml>[1] | undefined;
+  let baselineDiff: ReturnType<typeof diffBaseline> | undefined;
+  if (args.baseline) {
+    const baseline = JSON.parse(
+      readFileSync(args.baseline, "utf8"),
+    ) as JsonReport;
+    baselineDiff = diffBaseline(baseline, json);
+    baselineContext = {
+      baseline: {
+        label: args.baseline,
+        regressions: baselineDiff.regressions.map(
+          (item) => `${item.id}: ${item.before} → ${item.after}`,
+        ),
+        improvements: baselineDiff.improvements.map(
+          (item) => `${item.id}: ${item.before} → ${item.after}`,
+        ),
+      },
+    };
+  }
+
+  if (args.save) {
+    mkdirSync(dirname(resolve(args.save)), { recursive: true });
+    writeFileSync(args.save, `${JSON.stringify(json, null, 2)}\n`);
+    log(`${c.gray("json report →")} ${args.save}`);
+  }
+
+  // --html always maintains a model library so ← Library and past runs work
+  // without a separate --library flag. Explicit --library still wins.
+  const libraryDir = resolveLibraryDir({
+    library: args.library,
+    save: args.save,
+    html: args.html,
+  });
+
+  let openedHtml: string | null = null;
+
+  if (libraryDir) {
+    mkdirSync(libraryDir, { recursive: true });
+    // Prefer keeping the user's --save basename when it already lives in the library.
+    const preferredFileName =
+      args.save && resolve(dirname(args.save)) === resolve(libraryDir)
+        ? basename(args.save)
+        : `${slug(json.target.model)}.json`;
+    const {
+      sync,
+      jsonPath,
+      slug: modelSlug,
+    } = ingestReportIntoLibrary(libraryDir, json, { preferredFileName });
+    const libraryCard = join(libraryDir, `${modelSlug}.html`);
+
+    if (args.html) {
+      mkdirSync(dirname(resolve(args.html)), { recursive: true });
+      const libraryHref = libraryIndexHrefFrom(args.html, libraryDir);
+      writeFileSync(
+        args.html,
+        renderHtml(json, {
+          ...baselineContext,
+          libraryHref,
+          label: preferredFileName,
+        }),
+      );
+      log(`${c.gray("html report →")} ${args.html}`);
+      if (resolve(args.html) !== resolve(libraryCard)) {
+        log(
+          `${c.gray("  library card →")} ${libraryCard}${c.gray(" · library →")} ${join(libraryDir, "index.html")}`,
+        );
+      }
+      openedHtml = args.html;
+    } else if (args.library) {
+      // Explicit library-only probe: open the library card for this model.
+      log(`${c.gray("html report →")} ${libraryCard}`);
+      openedHtml = libraryCard;
+    }
+
+    if (!quiet) {
+      logLibrarySync(c, sync, { ingested: `${modelSlug} · ${jsonPath}` });
+    }
+  } else if (args.html) {
+    // Unreachable when resolveLibraryDir always defaults from --html; keep safe.
+    mkdirSync(dirname(resolve(args.html)), { recursive: true });
+    writeFileSync(args.html, renderHtml(json, baselineContext));
     log(`${c.gray("html report →")} ${args.html}`);
+    openedHtml = args.html;
+  }
+
+  if (openedHtml && !args.noOpen && !quiet) {
+    openInBrowser(openedHtml);
+    log(`${c.gray("opened →")} ${resolve(openedHtml)}`);
   }
 
   if (args.json) {

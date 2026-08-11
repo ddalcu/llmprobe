@@ -31,14 +31,44 @@ function sampleReport(): JsonReport {
         },
       ],
       credits: [{ id: "ollama-chat", label: "Ollama native /api/chat" }],
-      entries: [],
+      entries: [
+        {
+          id: "chat",
+          label: "chat/completions",
+          kind: "surface",
+          tier: "core",
+          supported: true,
+        },
+      ],
     },
     conformance: {
       pct: 96,
       passed: 48,
       total: 50,
       bySurface: [{ surface: "chat", passed: 48, total: 50, pct: 96 }],
-      results: [],
+      results: [
+        {
+          id: "chat-basic",
+          name: "chat basic",
+          surface: "chat",
+          outcome: "pass",
+          failures: [],
+        },
+        {
+          id: "chat-fail",
+          name: "chat fail",
+          surface: "chat",
+          outcome: "fail",
+          failures: [
+            {
+              id: "must-1",
+              label: "must assert",
+              severity: "MUST",
+              message: "broken",
+            },
+          ],
+        },
+      ],
     },
     capability: {
       pct: 78,
@@ -48,91 +78,29 @@ function sampleReport(): JsonReport {
         { category: "json-discipline", passed: 4, total: 6, pct: 67 },
       ],
       weakCategories: [],
-      evals: [],
-    },
-    bench: {
-      streamCaveat: null,
-      decodeTokPerSec: {
-        median: 42.3,
-        min: 39.1,
-        max: 44,
-        samples: [39.1, 42.3, 44],
-      },
-      ttftMs: { median: 380, min: 310, max: 520, samples: [310, 380, 520] },
-      prefillTokPerSec: {
-        median: 910,
-        min: 890,
-        max: 930,
-        samples: [890, 910, 930],
-      },
-      prefillPromptTokens: 2048,
-      speculative: {
-        predictableTokPerSec: 71.2,
-        novelTokPerSec: 39.4,
-        ratio: 1.81,
-        verdict: "effective",
-        tokensPerStep: 2.4,
-        tokensPerStepNote: null,
-        reasoningCaveat: false,
-      },
-      prefixCache: {
-        coldTtftMs: 3410,
-        warmTtftMs: 190,
-        speedup: 17.9,
-        cachedTokens: 1536,
-        promptTokens: 1624,
-        verdict: "active",
-      },
-      batching: {
-        streams: 4,
-        singleTokPerSec: 45.9,
-        aggregateTokPerSec: 168,
-        efficiency: 0.92,
-        worstTtftMs: 310,
-        verdict: "batched",
-      },
-      loadDrift: {
-        firstTokPerSec: 42.3,
-        lastTokPerSec: 36.1,
-        driftPct: -14.7,
-        elapsedMs: 237_000,
-        verdict: "degraded",
-      },
-      machine: {
-        platform: "darwin",
-        arch: "arm64",
-        cpu: "Apple M3",
-        memGB: 64,
-      },
-      contextScaling: [
+      evals: [
         {
-          targetTokens: 512,
-          inputTokens: 540,
-          decodeTokPerSec: 41.9,
-          ttftMs: 90,
-          prefillTokPerSec: 6000,
-          speculative: {
-            predictableTokPerSec: 74.1,
-            predictableTokensPerStep: 4.1,
-            ratio: 1.77,
-            verdict: "effective",
-            tokensPerStep: 2.3,
-            note: null,
-          },
-          runs: 3,
-          note: null,
-        },
-        {
-          targetTokens: 32768,
-          inputTokens: null,
-          decodeTokPerSec: null,
-          ttftMs: null,
-          prefillTokPerSec: null,
-          speculative: null,
-          runs: 0,
-          note: "HTTP 400 — context window exceeded",
+          id: "eval-tool-select-weather",
+          name: "picks weather tool",
+          category: "tool-selection",
+          passed: 3,
+          total: 3,
+          failures: [],
         },
       ],
+    },
+    agentic: {
+      tasks: [
+        {
+          id: "agentic-read",
+          name: "reads the config",
+          passed: true,
+          steps: 3,
+        },
+      ],
+      passed: 1,
+      total: 1,
+      pct: 100,
     },
     usage: { inputTokens: 90_000, outputTokens: 10_000 },
     durationMs: 123_456,
@@ -140,45 +108,46 @@ function sampleReport(): JsonReport {
 }
 
 describe("renderHtml", () => {
-  test("renders a self-contained page with all sections and charts", () => {
+  test("renders the intent-based report card with overview and drill-downs", () => {
     const html = renderHtml(sampleReport());
 
-    // Chart.js inlined — the page must work offline, no CDN.
-    expect(html).toContain("Chart");
-    expect(html).not.toContain("cdn.jsdelivr");
-    expect(html.length).toBeGreaterThan(100_000);
-
-    for (const id of [
-      "capability-chart",
-      "context-decode-chart",
-      "context-ttft-chart",
-      "context-prefill-chart",
-      "context-step-chart",
-      "speculative-chart",
-    ]) {
-      expect(html).toContain(`id="${id}"`);
-    }
-
-    // The data is present as text too, never chart-only.
-    expect(html).toContain("Tool selection");
-    expect(html).toContain("Apple M3");
-    expect(html).toContain("context window exceeded");
+    expect(html).toContain("data-theme-select");
+    expect(html).toContain("Surface coverage");
+    expect(html).toContain("Engine conformance");
+    expect(html).toContain("Model capability");
+    expect(html).toContain("capable");
     expect(html).toContain("✗ responses");
-    expect(html).toContain("✓ capable");
+    expect(html).toContain("conf-tbody");
+    expect(html).toContain("data-surface-filter");
+    expect(html).toContain("Three independent scores");
+    // Offline — no CDN.
+    expect(html).not.toContain("cdn.jsdelivr");
   });
 
   test("a hostile model name cannot break out of markup or scripts", () => {
     const html = renderHtml(sampleReport());
     expect(html).not.toContain("</script><b>");
+    // Escaped in HTML text content (not raw tag breakout).
+    expect(html).toContain("&lt;/script&gt;");
   });
 
-  test("omits bench markup when the benchmark did not run", () => {
-    const report = { ...sampleReport(), bench: undefined };
+  test("includes library link when libraryHref is provided", () => {
+    const html = renderHtml(sampleReport(), { libraryHref: "index.html" });
+    expect(html).toContain('href="index.html"');
+    expect(html).toContain("Library");
+  });
+
+  test("keeps unmeasured categories explicit", () => {
+    const report = sampleReport();
+    report.capability = {
+      ...report.capability,
+      categories: [],
+      unmeasured: ["tool-selection", "tool-restraint"],
+      verdict: "below-floor",
+      pct: 0,
+    };
     const html = renderHtml(report);
-    // The chart script always names the ids (it no-ops on a missing canvas);
-    // what must disappear is the canvas markup itself.
-    expect(html).not.toContain('id="context-decode-chart"');
-    expect(html).not.toContain('id="speculative-chart"');
-    expect(html).toContain('id="capability-chart"');
+    expect(html).toContain("never measured");
+    expect(html).toContain("Tool selection");
   });
 });
