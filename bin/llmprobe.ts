@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { execFile } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import pkg from "../package.json" with { type: "json" };
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { pathToFileURL } from "node:url";
@@ -46,14 +47,12 @@ import {
 import { renderComparisonHtml } from "../src/core/report/compare";
 import { renderHtml } from "../src/core/report/html";
 import {
+  HOME_LIBRARY_DIR,
   ingestReportIntoLibrary,
   isLibraryDir,
-  libraryIndexHrefFrom,
   LibraryEmptyError,
-  resolveLibraryDir,
   syncLibrary,
 } from "../src/core/report/card/library";
-import { slug } from "../src/core/report/card/shared";
 import { renderMarkdown } from "../src/core/report/markdown";
 import { renderReport } from "../src/core/report/terminal";
 import {
@@ -86,15 +85,21 @@ interface Args {
   budget?: number;
   baseline?: string;
   save?: string;
+  /** Export a standalone report card to this path. No library side effects. */
   html?: string;
+  /** Skip recording this run in the library. */
+  noSave: boolean;
+  /** `--library` given with no directory: act on the home library. */
+  libraryDefault: boolean;
   /** Directory for the model library (index + cards + compare); auto-synced. */
   library?: string;
   /** Saved reports to put side by side instead of probing an engine. */
   compare?: string[];
-  /** Do not open the HTML report in a browser after --html. */
-  noOpen: boolean;
+  /** Open the HTML report in a browser after --html. Opt-in. */
+  open: boolean;
   noColor: boolean;
   help: boolean;
+  version: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -105,23 +110,51 @@ function parseArgs(argv: string[]): Args {
     bench: false,
     benchOnly: false,
     timeoutSec: 60,
-    noOpen: false,
+    noSave: false,
+    libraryDefault: false,
+    open: false,
     noColor: false,
     help: false,
+    version: false,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]!;
-    const next = () => argv[++i];
+
+    /**
+     * Consume this flag's value, refusing to eat the next flag.
+     *
+     * `--html --quick` used to bind "--quick" as a filename and silently drop
+     * the depth, turning a quick probe into a full one — on a paid endpoint,
+     * money spent on a run nobody asked for.
+     */
+    const value = (): string => {
+      const v = argv[i + 1];
+      if (v === undefined || v.startsWith("-")) {
+        console.error(`${arg} needs a value`);
+        process.exit(1);
+      }
+      return argv[++i]!;
+    };
+
+    const numberValue = (): number => {
+      const raw = value();
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n <= 0) {
+        console.error(`${arg} needs a positive number, got "${raw}"`);
+        process.exit(1);
+      }
+      return n;
+    };
 
     switch (arg) {
       case "-k":
       case "--api-key":
-        args.apiKey = next();
+        args.apiKey = value();
         break;
       case "-m":
       case "--model":
-        args.model = next();
+        args.model = value();
         break;
       case "--quick":
         args.depth = "quick";
@@ -143,25 +176,35 @@ function parseArgs(argv: string[]): Args {
         args.benchOnly = true;
         break;
       case "--timeout":
-        args.timeoutSec = Number(next());
+        args.timeoutSec = numberValue();
         break;
       case "--budget":
-        args.budget = Number(next());
+        args.budget = numberValue();
         break;
       case "--baseline":
-        args.baseline = next();
+        args.baseline = value();
         break;
       case "--save":
-        args.save = next();
+        args.save = value();
         break;
       case "--html":
-        args.html = next();
+        args.html = value();
         break;
-      case "--library":
-        args.library = next();
+      case "--library": {
+        // Bare --library means the home library; with a path it picks another.
+        const v = argv[i + 1];
+        if (v === undefined || v.startsWith("-")) {
+          args.libraryDefault = true;
+        } else {
+          args.library = value();
+        }
         break;
-      case "--no-open":
-        args.noOpen = true;
+      }
+      case "--no-save":
+        args.noSave = true;
+        break;
+      case "--open":
+        args.open = true;
         break;
       case "--compare": {
         // Variadic: everything up to the next flag. Comparing two files is the
@@ -179,6 +222,10 @@ function parseArgs(argv: string[]): Args {
       case "-h":
       case "--help":
         args.help = true;
+        break;
+      case "-v":
+      case "--version":
+        args.version = true;
         break;
       default:
         if (!arg.startsWith("-") && !args.target) args.target = arg;
@@ -204,7 +251,7 @@ const fmtTokens = (n: number): string =>
 
 const fmtCount = (n: number): string => n.toLocaleString("en-US");
 
-const HELP = `llmprobe — LLM engine conformance & capability suite
+const HELP = `llmprobe v${pkg.version} — LLM engine conformance & capability suite
 
 Usage: llmprobe <base-url> [options]
 
@@ -215,6 +262,9 @@ implements, and separately grades the model's capability.
   Conformance  of what IS implemented, how correct is it (MUST assertions only)
   Capability   below floor / capable / strong (deterministic evals, calibrated for 12B+)
   Agentic      multi-step tool tasks in a simulated workspace (harder than the floor)
+
+Every run is recorded in ~/.llmprobe — the model library, with a ranking table
+and a report card per run. See --library, --open and --no-save.
 
 Options:
   -k, --api-key <key>   API key (optional for local engines)
@@ -231,19 +281,19 @@ Options:
       --markdown        README-ready report with badges
       --baseline <f>    Diff against a saved run and flag regressions
       --save <f>        Write the JSON report to a file
-      --html <f>        Write a report card and auto-maintain a model library
-                        beside it (<dir>/report-card/), update past runs, and
-                        open the card in your browser (see --no-open)
-      --library <dir>   Explicit library directory (optional with --html).
-                        Also: llmprobe --library <dir> rebuilds without probing
-      --no-open         Do not open the HTML report in a browser after --html
+      --html <f>        Export a standalone report card to this path
+      --library [dir]   Use a different library than ~/.llmprobe. With no
+                        target URL, rebuilds the library without probing
+      --no-save         Do not record this run in the library
+      --open            Open the report card (or the library, with --library)
       --compare <f...>  Interactive compare workbench from saved --save reports
-                        instead of probing. Needs --html. Pick models per column;
+                        instead of probing. Pick models per column;
                         sticky freeze header while scrolling.
       --budget <n>      Hard ceiling on total tokens (paid endpoints)
       --timeout <sec>   Per-request timeout (default: 60; --bench requests are
                         never timed out — a cold prefill takes what it takes)
       --no-color        Disable ANSI colour
+  -v, --version         Print the llmprobe version
   -h, --help            Show this help
 
 Examples:
@@ -253,9 +303,11 @@ Examples:
   llmprobe https://openrouter.ai/api/v1 -k $OPENROUTER_API_KEY
   llmprobe localhost:8080 --save baselines/llama-cpp.json
   llmprobe localhost:8080 --baseline baselines/llama-cpp.json
-  llmprobe localhost:8080 --html runs/my-run.html  # library + browser open
-  llmprobe localhost:8080 --model X --html runs/out.html --no-open
-  llmprobe --library runs/report-card              # rebuild library only
+  llmprobe localhost:8080 --open                   # probe, open the card
+  llmprobe localhost:8080 --html runs/my-run.html  # also export a card here
+  llmprobe localhost:8080 --library runs/lib       # record in a project library
+  llmprobe --library --open                        # open ~/.llmprobe
+  llmprobe --library runs/lib                      # rebuild, no probing
   llmprobe --compare a.json b.json c.json --html compare.html
 `;
 
@@ -263,17 +315,22 @@ Examples:
 function openInBrowser(filePath: string): void {
   const abs = resolve(filePath);
   const fileUrl = pathToFileURL(abs).href;
-  const opts = { detached: true, stdio: "ignore" as const };
+  // spawn, not execFile: detached + unref is what lets the CLI exit without
+  // waiting on the browser, and execFile has no such option.
+  const [cmd, cmdArgs] =
+    process.platform === "darwin"
+      ? // Prefer file:// URL so Finder/browser handoff is reliable.
+        ["open", [fileUrl]]
+      : process.platform === "win32"
+        ? ["cmd", ["/c", "start", "", fileUrl]]
+        : ["xdg-open", [fileUrl]];
   try {
-    if (process.platform === "darwin") {
-      // Prefer file:// URL so Finder/browser handoff is reliable.
-      execFile("open", [fileUrl], opts, () => undefined)?.unref?.();
-    } else if (process.platform === "win32") {
-      execFile("cmd", ["/c", "start", "", fileUrl], opts, () => undefined)?.unref?.(
-      );
-    } else {
-      execFile("xdg-open", [fileUrl], opts, () => undefined)?.unref?.();
-    }
+    const child = spawn(cmd as string, cmdArgs as string[], {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.on("error", () => undefined);
+    child.unref();
   } catch {
     // Non-fatal: CI / headless environments may lack a browser opener.
   }
@@ -291,10 +348,8 @@ function runComparison(args: Args): void {
     console.error("--compare needs at least two saved JSON reports");
     process.exit(1);
   }
-  if (!args.html) {
-    console.error("--compare needs --html <file> to write the comparison to");
-    process.exit(1);
-  }
+  // Defaults into the library so `--compare a.json b.json` just works.
+  const outPath = args.html ?? join(HOME_LIBRARY_DIR, "compare.html");
 
   const loaded = files.map((file) => {
     let report: JsonReport;
@@ -327,11 +382,12 @@ function runComparison(args: Args): void {
     report,
   }));
 
-  const htmlDir = dirname(resolve(args.html));
+  const htmlDir = dirname(resolve(outPath));
+  mkdirSync(htmlDir, { recursive: true });
   const libraryHref = isLibraryDir(htmlDir) ? "index.html" : null;
-  writeFileSync(args.html, renderComparisonHtml(inputs, { libraryHref }));
+  writeFileSync(outPath, renderComparisonHtml(inputs, { libraryHref }));
   console.log(
-    `${c.gray("comparison of")} ${inputs.length} ${c.gray("runs →")} ${args.html}`,
+    `${c.gray("comparison of")} ${inputs.length} ${c.gray("runs →")} ${outPath}`,
   );
   if (libraryHref) {
     console.log(`${c.gray("  library →")} ${join(htmlDir, "index.html")}`);
@@ -362,6 +418,11 @@ function logLibrarySync(
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
+  if (args.version) {
+    console.log(pkg.version);
+    process.exit(0);
+  }
+
   if (args.help) {
     console.log(HELP);
     process.exit(0);
@@ -373,11 +434,13 @@ async function main(): Promise<void> {
   }
 
   // Rebuild library from existing saves without probing.
-  if (args.library && !args.target) {
+  if ((args.library || args.libraryDefault) && !args.target) {
     const c = paletteFor(!args.noColor);
+    const dir = args.library ?? HOME_LIBRARY_DIR;
     try {
-      const result = syncLibrary(args.library);
+      const result = syncLibrary(dir);
       logLibrarySync(c, result);
+      if (args.open) openInBrowser(result.indexPath);
     } catch (err) {
       if (err instanceof LibraryEmptyError) {
         console.error(err.message);
@@ -403,7 +466,9 @@ async function main(): Promise<void> {
   const apiKey = args.apiKey ?? process.env.LLMPROBE_API_KEY ?? "";
   const startedAt = Date.now();
 
-  log(`${c.bold("llmprobe")} ${c.gray("·")} probing ${root}`);
+  log(
+    `${c.bold("llmprobe")} ${c.gray(`v${pkg.version}`)} ${c.gray("·")} probing ${root}`,
+  );
   log();
 
   // ── 1. Surface discovery ────────────────────────────────────────────────
@@ -1108,66 +1173,50 @@ async function main(): Promise<void> {
     log(`${c.gray("json report →")} ${args.save}`);
   }
 
-  // --html always maintains a model library so ← Library and past runs work
-  // without a separate --library flag. Explicit --library still wins.
-  const libraryDir = resolveLibraryDir({
-    library: args.library,
-    save: args.save,
-    html: args.html,
-  });
+  // Every run is recorded, so a library exists without anyone opting in — you
+  // cannot compare engines you forgot to save. --no-save skips it.
+  const libraryDir = args.noSave ? null : (args.library ?? HOME_LIBRARY_DIR);
 
   let openedHtml: string | null = null;
+  let libraryCard: string | null = null;
 
   if (libraryDir) {
+    const firstRun = !existsSync(libraryDir);
     mkdirSync(libraryDir, { recursive: true });
-    // Prefer keeping the user's --save basename when it already lives in the library.
+    // Keep the user's --save basename when it already lives in the library.
+    // Otherwise let the library name the file: it keys on model + endpoint, and
+    // a model-only name here silently overwrote the other engine's run.
     const preferredFileName =
       args.save && resolve(dirname(args.save)) === resolve(libraryDir)
         ? basename(args.save)
-        : `${slug(json.target.model)}.json`;
+        : undefined;
     const {
       sync,
       jsonPath,
       slug: modelSlug,
     } = ingestReportIntoLibrary(libraryDir, json, { preferredFileName });
-    const libraryCard = join(libraryDir, `${modelSlug}.html`);
+    libraryCard = join(libraryDir, `${modelSlug}.html`);
+    openedHtml = libraryCard;
 
-    if (args.html) {
-      mkdirSync(dirname(resolve(args.html)), { recursive: true });
-      const libraryHref = libraryIndexHrefFrom(args.html, libraryDir);
-      writeFileSync(
-        args.html,
-        renderHtml(json, {
-          ...baselineContext,
-          libraryHref,
-          label: preferredFileName,
-        }),
+    if (firstRun) {
+      log(
+        `${c.gray("recording runs in")} ${libraryDir} ${c.gray("— --no-save to skip")}`,
       );
-      log(`${c.gray("html report →")} ${args.html}`);
-      if (resolve(args.html) !== resolve(libraryCard)) {
-        log(
-          `${c.gray("  library card →")} ${libraryCard}${c.gray(" · library →")} ${join(libraryDir, "index.html")}`,
-        );
-      }
-      openedHtml = args.html;
-    } else if (args.library) {
-      // Explicit library-only probe: open the library card for this model.
-      log(`${c.gray("html report →")} ${libraryCard}`);
-      openedHtml = libraryCard;
     }
-
     if (!quiet) {
       logLibrarySync(c, sync, { ingested: `${modelSlug} · ${jsonPath}` });
     }
-  } else if (args.html) {
-    // Unreachable when resolveLibraryDir always defaults from --html; keep safe.
+  }
+
+  // A standalone export: its own file, no ← Library link, nothing else touched.
+  if (args.html) {
     mkdirSync(dirname(resolve(args.html)), { recursive: true });
     writeFileSync(args.html, renderHtml(json, baselineContext));
     log(`${c.gray("html report →")} ${args.html}`);
     openedHtml = args.html;
   }
 
-  if (openedHtml && !args.noOpen && !quiet) {
+  if (openedHtml && args.open && !quiet) {
     openInBrowser(openedHtml);
     log(`${c.gray("opened →")} ${resolve(openedHtml)}`);
   }

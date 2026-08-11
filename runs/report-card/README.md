@@ -1,40 +1,43 @@
 # Model library (local output)
 
-Empty stub for an llmprobe **model library**. No sample probe data is shipped.
+Empty stub for a **project-local** llmprobe model library. No sample probe data
+is shipped.
 
-You usually **do not** need to pass `--library` yourself. Any probe with
-`--html` auto-creates and updates a library next to the HTML file:
+You usually do not need this. Every probe is recorded in `~/.llmprobe` with no
+flags at all:
+
+```bash
+llmprobe localhost:8080 --model <id> --open
+```
+
+Pass `--library` only when you want this repo's runs kept separately from the
+machine-wide ones:
 
 ```bash
 npm run build:cli
 
-# First run from an empty runs/ — builds library, cards, and opens the browser
-llmprobe localhost:8080 --model <id> --html runs/my-run-1.html
-
-# Later runs add models to the same library
-llmprobe localhost:8080 --model <id> --html runs/my-run-2.html
+llmprobe localhost:8080 --model <id> --library runs/report-card
 ```
 
 That produces (gitignored):
 
-| Path                            | Role                                                          |
-| ------------------------------- | ------------------------------------------------------------- |
-| `runs/my-run-1.html`            | This run’s report card (← Library → `report-card/index.html`) |
-| `runs/report-card/index.html`   | Ranking table of **all** past + current runs                  |
-| `runs/report-card/compare.html` | Interactive multi-model compare                               |
-| `runs/report-card/<slug>.html`  | Library copy of each model card                               |
-| `runs/report-card/<slug>.json`  | Ingested probe JSON                                           |
-| `runs/report-card/library.json` | Catalog                                                       |
+| Path                            | Role                                         |
+| ------------------------------- | -------------------------------------------- |
+| `runs/report-card/index.html`   | Ranking table of **all** past + current runs |
+| `runs/report-card/compare.html` | Interactive multi-model compare              |
+| `runs/report-card/<slug>.html`  | Report card per run (model + endpoint)       |
+| `runs/report-card/<slug>.json`  | Ingested probe JSON                          |
+| `runs/report-card/library.json` | Catalog                                      |
 
 ## Optional commands
 
 ```bash
-# Explicit library dir / rebuild without probing
+# Rebuild pages from existing JSON, no probing
 llmprobe --library runs/report-card
 node runs/report-card/generate.mjs
 
-# Probe without opening a browser (CI)
-llmprobe localhost:8080 --model <id> --html runs/out.html --no-open
+# Export a standalone card somewhere (touches no library)
+llmprobe localhost:8080 --model <id> --html runs/out.html
 ```
 
 ## Themes

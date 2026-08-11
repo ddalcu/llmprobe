@@ -52,6 +52,36 @@ export function slug(name: string | undefined | null): string {
   );
 }
 
+/** Human-facing endpoint: host and port, no protocol, no trailing /v1. */
+export function endpointLabel(baseUrl: string | undefined | null): string {
+  if (!baseUrl) return "";
+  const raw = String(baseUrl).trim();
+  try {
+    return new URL(raw.includes("://") ? raw : `http://${raw}`).host;
+  } catch {
+    return raw.replace(/^[a-z]+:\/\//i, "").split("/")[0] ?? "";
+  }
+}
+
+/**
+ * Library identity: which model, on which endpoint.
+ *
+ * Two engines serving one model is the comparison llmprobe exists for, so the
+ * URL — not the model name alone — is what separates their entries. Keying on
+ * the model alone made a second probe silently overwrite the first.
+ */
+export function runSlug(
+  model: string | undefined | null,
+  baseUrl: string | undefined | null,
+): string {
+  const host = endpointLabel(baseUrl)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 32);
+  return host ? `${slug(model)}--${host}` : slug(model);
+}
+
 export function tier(
   report: JsonReport,
   name: string,

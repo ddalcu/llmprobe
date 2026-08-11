@@ -92,6 +92,18 @@ function extractToolCalls(raw: unknown): ToolCall[] {
   }));
 }
 
+/**
+ * The thinking channel, under either name the ecosystem uses. DeepSeek/vLLM
+ * lineage says `reasoning_content`; Ollama's OpenAI-compat layer says
+ * `reasoning`. Neither is in the spec, so an engine picks one and we read both.
+ */
+function reasoningField(obj: unknown): string | null {
+  const o = obj as { reasoning_content?: unknown; reasoning?: unknown } | null;
+  if (typeof o?.reasoning_content === "string") return o.reasoning_content;
+  if (typeof o?.reasoning === "string") return o.reasoning;
+  return null;
+}
+
 export const chatAdapter: SurfaceAdapter = {
   id: "chat",
   label: "chat/completions",
@@ -202,10 +214,7 @@ export const chatAdapter: SurfaceAdapter = {
       },
       // Not part of the spec, but several engines surface it and we want to be
       // able to check it doesn't leak into `content`.
-      reasoningText:
-        typeof choice?.message?.reasoning_content === "string"
-          ? choice.message.reasoning_content
-          : null,
+      reasoningText: reasoningField(choice?.message),
       logprobs: choice?.logprobs ?? undefined,
       raw,
     };
@@ -213,11 +222,14 @@ export const chatAdapter: SurfaceAdapter = {
 
   frameText(payload: unknown): string {
     const delta = (payload as any)?.choices?.[0]?.delta;
-    if (typeof delta?.content === "string") return delta.content;
-    if (typeof delta?.reasoning_content === "string") {
-      return delta.reasoning_content;
+    // Content first, but only if it carries something. Ollama sends
+    // `content: ""` alongside every reasoning delta; returning that empty
+    // string drops the whole thinking phase out of the timing window, and the
+    // bench then charges all the output tokens to the visible answer alone.
+    if (typeof delta?.content === "string" && delta.content !== "") {
+      return delta.content;
     }
-    return "";
+    return reasoningField(delta) ?? "";
   },
 
   parseStream(frames: SSEFrame[]): StreamReply {
@@ -242,9 +254,7 @@ export const chatAdapter: SurfaceAdapter = {
       const delta = choice?.delta;
 
       if (typeof delta?.content === "string") text += delta.content;
-      if (typeof delta?.reasoning_content === "string") {
-        reasoningText += delta.reasoning_content;
-      }
+      reasoningText += reasoningField(delta) ?? "";
 
       for (const tc of delta?.tool_calls ?? []) {
         const index = typeof tc.index === "number" ? tc.index : 0;

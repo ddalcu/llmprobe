@@ -179,7 +179,7 @@ export const LIBRARY_SCRIPT = `
         '<tr data-slug="' + row.slug + '"' + (isSel ? ' class="selected"' : "") + ">" +
         '<td class="rank-num">' + (i + 1) + "</td>" +
         '<td><div class="rank-model">' + escText(row.short) +
-          '<span class="sub">' + escText(row.engine || row.baseUrl || row.source || "") + "</span></div></td>" +
+          '<span class="sub">' + escText(row.endpoint || row.engine || row.source || "") + "</span></div></td>" +
         "<td>" + tierCell(row) + "</td>" +
         '<td class="metric-cell ' + confT + '">' + fmtPct(row.conformance) + "</td>" +
         '<td class="metric-cell ' + capT + '">' + fmtPct(row.capability) +

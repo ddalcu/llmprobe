@@ -7,6 +7,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 
 import type { JsonReport } from "../json";
@@ -16,7 +17,14 @@ import { renderCompareWorkbenchHtml } from "./compare-workbench";
 import { CARD_STYLE } from "./style.css";
 import { THEME_BOOT, THEME_SCRIPT, themeSwitcherHtml } from "./theme";
 import { LIBRARY_SCRIPT } from "./library-script";
-import { esc, embedJson, shortModel, slug, tier } from "./shared";
+import {
+  endpointLabel,
+  esc,
+  embedJson,
+  runSlug,
+  shortModel,
+  tier,
+} from "./shared";
 
 /** Catalog / non-report artifacts that must never enter the ranking table. */
 const SKIP_JSON = new Set([
@@ -89,7 +97,10 @@ function loadRunsFromFiles(files: string[], hrefDir: string): LibraryRun[] {
     if (!isJsonReport(report)) continue;
     report = normalizeJsonReport(report);
 
-    let s = slug(report.target?.model || basename(abs, ".json"));
+    let s = runSlug(
+      report.target?.model || basename(abs, ".json"),
+      report.target?.baseUrl,
+    );
     const n = (usedSlugs.get(s) ?? 0) + 1;
     usedSlugs.set(s, n);
     if (n > 1) s = `${s}-${n}`;
@@ -100,7 +111,7 @@ function loadRunsFromFiles(files: string[], hrefDir: string): LibraryRun[] {
 
     runs.push({
       slug: s,
-      label: shortModel(report.target?.model) || s,
+      label: runLabel(report),
       report,
       href: `${s}.html`,
       src: abs,
@@ -159,6 +170,13 @@ export function discoverLibraryRuns(
   return loadRunsFromFiles(listCandidateJsonFiles(absDir), absDir);
 }
 
+/** Model, plus the endpoint that tells two runs of it apart. */
+function runLabel(report: JsonReport): string {
+  const model = shortModel(report.target?.model) || "run";
+  const host = endpointLabel(report.target?.baseUrl);
+  return host ? `${model} · ${host}` : model;
+}
+
 function runSummary(run: LibraryRun) {
   const r = run.report;
   const core = tier(r, "core");
@@ -173,6 +191,8 @@ function runSummary(run: LibraryRun) {
     short: shortModel(r.target?.model ?? run.label),
     engine: r.target?.engine ?? null,
     baseUrl: r.target?.baseUrl ?? null,
+    // What separates two rows for the same model, so it is what the row shows.
+    endpoint: endpointLabel(r.target?.baseUrl),
     source: run.jsonName,
     core: core?.pct ?? null,
     extended: ext?.pct ?? null,
@@ -416,7 +436,10 @@ export function ingestReportIntoLibrary(
   const absDir = resolve(dir);
   mkdirSync(absDir, { recursive: true });
   const normalized = normalizeJsonReport(report);
-  const s = slug(normalized.target?.model || "run");
+  const s = runSlug(
+    normalized.target?.model || "run",
+    normalized.target?.baseUrl,
+  );
   const jsonName = options.preferredFileName?.endsWith(".json")
     ? basename(options.preferredFileName)
     : `${s}.json`;
@@ -436,51 +459,8 @@ export function isLibraryDir(dir: string): boolean {
 }
 
 /**
- * Infer a library directory for auto-sync.
- *
- * Priority:
- * 1. Explicit `--library`
- * 2. Parent of `--save` / `--html` if it already has `library.json`
- * 3. With `--html`: `<html-dir>/report-card` (or the html dir itself when it
- *    is already named `report-card`) so a bare `--html runs/foo.html` builds
- *    a full library under `runs/report-card/` without extra flags
+ * Where every run is recorded unless --library points elsewhere: one library
+ * per machine, so probes accumulate across projects instead of scattering a
+ * report-card/ beside whatever directory you happened to be in.
  */
-export function resolveLibraryDir(options: {
-  library?: string;
-  save?: string;
-  html?: string;
-}): string | null {
-  if (options.library) return resolve(options.library);
-
-  for (const p of [options.save, options.html]) {
-    if (!p) continue;
-    const parent = resolve(p, "..");
-    if (isLibraryDir(parent)) return parent;
-  }
-
-  if (options.html) {
-    const htmlDir = dirname(resolve(options.html));
-    if (basename(htmlDir) === "report-card" || isLibraryDir(htmlDir)) {
-      return htmlDir;
-    }
-    return join(htmlDir, "report-card");
-  }
-
-  return null;
-}
-
-/**
- * Relative href from an HTML file to the library index (so ← Library works
- * whether the card lives in the library dir or next to it).
- */
-export function libraryIndexHrefFrom(
-  htmlPath: string,
-  libraryDir: string,
-): string {
-  const fromDir = dirname(resolve(htmlPath));
-  const index = join(resolve(libraryDir), "index.html");
-  let rel = relative(fromDir, index);
-  if (!rel || rel === "index.html") return "index.html";
-  // Browsers want forward slashes in file URLs / relative links
-  return rel.split("\\").join("/");
-}
+export const HOME_LIBRARY_DIR = join(homedir(), ".llmprobe");

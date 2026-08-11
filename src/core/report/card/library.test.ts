@@ -7,16 +7,14 @@ import type { JsonReport } from "../json";
 import {
   ingestReportIntoLibrary,
   isLibraryDir,
-  libraryIndexHrefFrom,
   LibraryEmptyError,
-  resolveLibraryDir,
   syncLibrary,
 } from "./library";
 
-function sample(model: string): JsonReport {
+function sample(model: string, baseUrl = "http://localhost/v1"): JsonReport {
   return {
     version: 2,
-    target: { baseUrl: "http://localhost/v1", model, engine: "test" },
+    target: { baseUrl, model, engine: "test" },
     coverage: {
       byTier: [
         {
@@ -79,6 +77,42 @@ describe("library auto-sync", () => {
     expect(card).toContain("Surface coverage");
   });
 
+  test("same model on two endpoints keeps both runs", () => {
+    const dir = mkdtempSync(join(tmpdir(), "llmprobe-lib-"));
+    const llama = ingestReportIntoLibrary(
+      dir,
+      sample("qwen3-30b", "http://localhost:8080/v1"),
+    );
+    const ollama = ingestReportIntoLibrary(
+      dir,
+      sample("qwen3-30b", "http://localhost:11434/v1"),
+    );
+
+    // Comparing engines on one model is the point of the library. Keying on
+    // the model alone made the second probe silently overwrite the first.
+    expect(ollama.jsonPath).not.toBe(llama.jsonPath);
+    expect(existsSync(llama.jsonPath)).toBe(true);
+    expect(ollama.sync.runs).toBe(2);
+
+    const index = readFileSync(join(dir, "index.html"), "utf8");
+    expect(index).toContain("localhost:8080");
+    expect(index).toContain("localhost:11434");
+  });
+
+  test("re-probing the same endpoint updates in place", () => {
+    const dir = mkdtempSync(join(tmpdir(), "llmprobe-lib-"));
+    const first = ingestReportIntoLibrary(
+      dir,
+      sample("qwen3-30b", "http://localhost:8080/v1"),
+    );
+    const again = ingestReportIntoLibrary(
+      dir,
+      sample("qwen3-30b", "http://localhost:8080/v1"),
+    );
+    expect(again.jsonPath).toBe(first.jsonPath);
+    expect(again.sync.runs).toBe(1);
+  });
+
   test("syncLibrary rebuilds from existing JSON without re-ingest", () => {
     const dir = mkdtempSync(join(tmpdir(), "llmprobe-lib-"));
     writeFileSync(
@@ -88,41 +122,6 @@ describe("library auto-sync", () => {
     const result = syncLibrary(dir);
     expect(result.runs).toBe(1);
     expect(isLibraryDir(dir)).toBe(true);
-  });
-
-  test("resolveLibraryDir prefers --library then existing library parents", () => {
-    const dir = mkdtempSync(join(tmpdir(), "llmprobe-lib-"));
-    writeFileSync(join(dir, "library.json"), "{}\n");
-    expect(
-      resolveLibraryDir({
-        library: dir,
-        save: "/tmp/other/x.json",
-      }),
-    ).toBe(resolve(dir));
-    expect(
-      resolveLibraryDir({
-        save: join(dir, "m.json"),
-      }),
-    ).toBe(resolve(dir));
-    expect(resolveLibraryDir({ save: "/tmp/no-lib/m.json" })).toBeNull();
-  });
-
-  test("resolveLibraryDir auto-creates report-card beside --html", () => {
-    expect(resolveLibraryDir({ html: "runs/my-run-1.html" })).toBe(
-      resolve("runs/report-card"),
-    );
-    expect(resolveLibraryDir({ html: "/tmp/out/report-card/model.html" })).toBe(
-      resolve("/tmp/out/report-card"),
-    );
-  });
-
-  test("libraryIndexHrefFrom is relative so ← Library works from sibling cards", () => {
-    expect(libraryIndexHrefFrom("runs/my-run-1.html", "runs/report-card")).toBe(
-      "report-card/index.html",
-    );
-    expect(
-      libraryIndexHrefFrom("runs/report-card/model.html", "runs/report-card"),
-    ).toBe("index.html");
   });
 
   test("adopts probe JSON from the parent directory when the library is empty", () => {
@@ -143,10 +142,7 @@ describe("library auto-sync", () => {
 
     const result = syncLibrary(lib);
     expect(result.runs).toBe(2);
-    expect(
-      existsSync(join(lib, "alpha-model.json")) ||
-        existsSync(join(lib, "alpha-model.html")),
-    ).toBe(true);
+    expect(existsSync(join(lib, "alpha-model--localhost.html"))).toBe(true);
     const index = readFileSync(join(lib, "index.html"), "utf8");
     expect(index).toContain("alpha-model");
     expect(index).toContain("beta-model");

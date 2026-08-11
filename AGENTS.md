@@ -12,9 +12,9 @@
 - `npm run prettier --write .` formats the repository; use `npx prettier --check . --ignore-unknown` to mirror CI.
 - `npm run build:cli` creates the executable ESM bundle.
 - `npm run probe -- localhost:8080 --full` builds and probes a live engine.
-- `npm run probe -- localhost:8080 --html report.html` writes the intent-based report card.
-- `npm run probe -- localhost:8080 --html runs/out.html` writes a report card, auto-builds/updates `runs/report-card/` library (past + current runs), and opens the card in a browser (`--no-open` to skip).
-- `npm run probe -- --library runs/report-card` rebuilds a library from existing `*.json` saves (no probe).
+- `npm run probe -- localhost:8080` records the run in `~/.llmprobe` (the model library); `--open` opens the card, `--no-save` skips recording.
+- `npm run probe -- localhost:8080 --html runs/out.html` also exports a standalone report card to that path.
+- `npm run probe -- --library [dir]` rebuilds a library from existing `*.json` saves (no probe).
 - `npm run probe -- --compare a.json b.json --html compare.html` writes the interactive compare workbench.
 
 HTML report cards, compare workbench, and library sync live under `src/core/report/card/`.

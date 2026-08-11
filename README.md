@@ -179,40 +179,39 @@ Surface discovery is free: it probes with empty-body POSTs, which every engine r
 
 **Catch-all servers.** Not every engine 404s a path it doesn't have. LM Studio answers _every_ unknown path with `HTTP 200` and `{"error":"Unexpected endpoint or method. (POST /v1/images/generations)"}` — so a status-only probe credits it with audio, images, and endpoints it has never heard of. llmprobe first asks for an endpoint that cannot exist, fingerprints whatever the server says, and reads any matching reply as absent. Coverage is the number people quote; getting this wrong would have been the most damaging bug in the tool.
 
-## HTML report & model library (`--html`)
+## Model library & report cards
 
-`--html` writes a self-contained **report card** (Coverage / Conformance / Capability first, plus Agentic and Fidelity, with drill-downs and Light/Dark/Cyber themes). It also auto-maintains a **model library** beside the file (`<html-dir>/report-card/`) so past and current runs show up in one ranking table, and opens the card in your browser when the run finishes.
-
-**Always rebuild (or use the probe script) so you get the latest code:**
+Every probe is recorded in `~/.llmprobe` — no flag needed. That directory is
+your **model library**: a ranking table of every run, a compare workbench, and a
+self-contained **report card** per run (Coverage / Conformance / Capability
+first, plus Agentic and Fidelity, with drill-downs and Light/Dark/Cyber themes).
 
 ```bash
-# Preferred — rebuilds then runs
-npm run probe -- 127.0.0.1:8080 -k pass --model <id> --html runs/my-run-3.html
-
-# Or explicitly
-npm run build:cli
-npx llmprobe 127.0.0.1:8080 -k pass --model <id> --html runs/my-run-3.html
+llmprobe 127.0.0.1:8080 -k pass --model <id> --open
 ```
 
-You should see logs like:
-
-```text
-html report → runs/my-run-3.html
-  library card → runs/report-card/...
-library 3 models → .../runs/report-card
-opened → /full/path/runs/my-run-3.html
+```
+library 3 models → /Users/you/.llmprobe
+  ingested → my-model--127-0-0-1-8080 · /Users/you/.llmprobe/my-model--127-0-0-1-8080.json
+  index → /Users/you/.llmprobe/index.html
+opened → /Users/you/.llmprobe/my-model--127-0-0-1-8080.html
 ```
 
-Then:
+Recording by default is the point: you cannot rank engines you forgot to save.
+Each run is filed under its model _and_ endpoint, so the same model probed on
+llama.cpp and on Ollama gives you two rows to compare, not one overwriting the
+other.
 
-- Browser opens the **model report card**
-- **← Library** goes to the ranking table (all past + new runs)
+| you want                                            | flag                          |
+| --------------------------------------------------- | ----------------------------- |
+| open this run's card                                | `--open`                      |
+| open the library                                    | `--library --open`            |
+| a card at a specific path (CI artifact, attachment) | `--html <path>`               |
+| a project-local library instead of the home one     | `--library <dir>`             |
+| rebuild pages after upgrading llmprobe              | `--library [dir]` with no URL |
+| don't record this run                               | `--no-save`                   |
 
-Skip browser (CI): add `--no-open`.
-
-From an empty `runs/` folder, a single successful `--html` run creates the library (`index.html`, `compare.html`, per-model cards and JSON). Later probes with `--html` update `library.json` and the table so returning to the library shows history.
-
-Optional: `--library <dir>` forces a specific library path, or rebuilds without probing (`llmprobe --library runs/report-card`).
+`--html` is a pure export: it writes that one file and touches nothing else.
 
 ```bash
 llmprobe localhost:8080 --bench --html report.html
