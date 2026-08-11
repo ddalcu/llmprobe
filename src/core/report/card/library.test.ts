@@ -1,4 +1,10 @@
-import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
@@ -146,6 +152,95 @@ describe("library auto-sync", () => {
     const index = readFileSync(join(lib, "index.html"), "utf8");
     expect(index).toContain("alpha-model");
     expect(index).toContain("beta-model");
+  });
+
+  test("the catalog carries each run's own timestamp, not the rebuild's", () => {
+    const dir = mkdtempSync(join(tmpdir(), "llmprobe-date-"));
+
+    const dated = sample("dated-model");
+    dated.run = {
+      depth: "default",
+      mode: "probe",
+      startedAt: "2026-01-02T03:04:05.000Z",
+      phases: {
+        coverage: { status: "measured" },
+        conformance: { status: "measured" },
+        capability: { status: "measured" },
+        agentic: { status: "not-run" },
+        fidelity: { status: "not-run" },
+        performance: { status: "not-run" },
+      },
+    };
+    writeFileSync(join(dir, "dated.json"), `${JSON.stringify(dated)}\n`);
+
+    // A v1 save has no run block at all. It must fall back to when the file
+    // was written — stamping it "now" would float every legacy run to the top
+    // of a most-recent-first table on every rebuild.
+    const legacy = sample("legacy-model");
+    legacy.version = 1;
+    delete legacy.run;
+    const legacyPath = join(dir, "legacy.json");
+    writeFileSync(legacyPath, `${JSON.stringify(legacy)}\n`);
+    const legacyMtime = statSync(legacyPath).mtime.toISOString();
+
+    syncLibrary(dir);
+    const catalog = JSON.parse(
+      readFileSync(join(dir, "library.json"), "utf8"),
+    ) as { runs: Array<{ model: string; recordedAt: string }> };
+    const byModel = (m: string) =>
+      catalog.runs.find((r) => r.model === m)!.recordedAt;
+
+    expect(byModel("dated-model")).toBe("2026-01-02T03:04:05.000Z");
+    expect(byModel("legacy-model")).toBe(legacyMtime);
+  });
+
+  test("performance columns read null, not zero, when a run had no benchmark", () => {
+    const dir = mkdtempSync(join(tmpdir(), "llmprobe-bench-"));
+
+    const benched = sample("benched-model", "http://localhost:1/v1");
+    benched.bench = {
+      decodeTokPerSec: { median: 82.4, min: 80, max: 85, samples: [82.4] },
+      streamCaveat: null,
+      ttftMs: { median: 240, min: 220, max: 260, samples: [240] },
+      prefillTokPerSec: { median: 1900, min: 1800, max: 2000, samples: [1900] },
+      prefillPromptTokens: 2048,
+      speculative: null,
+      prefixCache: null,
+      batching: null,
+      loadDrift: null,
+      machine: { platform: "darwin", arch: "arm64", cpu: null, memGB: 64 },
+      contextScaling: null,
+    };
+    writeFileSync(join(dir, "benched.json"), `${JSON.stringify(benched)}\n`);
+    writeFileSync(
+      join(dir, "plain.json"),
+      `${JSON.stringify(sample("plain-model", "http://localhost:2/v1"))}\n`,
+    );
+
+    syncLibrary(dir);
+    const catalog = JSON.parse(
+      readFileSync(join(dir, "library.json"), "utf8"),
+    ) as {
+      runs: Array<{
+        model: string;
+        decode: number | null;
+        prefill: number | null;
+        ttft: number | null;
+      }>;
+    };
+    const row = (m: string) => catalog.runs.find((r) => r.model === m)!;
+
+    expect(row("benched-model")).toMatchObject({
+      decode: 82.4,
+      prefill: 1900,
+      ttft: 240,
+    });
+    // Zero would rank a never-benchmarked engine as the slowest one measured.
+    expect(row("plain-model")).toMatchObject({
+      decode: null,
+      prefill: null,
+      ttft: null,
+    });
   });
 
   test("refuses to write an empty catalog", () => {

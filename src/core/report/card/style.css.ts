@@ -115,7 +115,7 @@ body {
 }
 a { color: var(--engine); text-decoration: none; }
 a:hover { text-decoration: underline; }
-.wrap { max-width: 1080px; margin: 0 auto; padding: 28px 18px 72px; }
+.wrap { max-width: 1360px; margin: 0 auto; padding: 28px 18px 72px; }
 
 /* header */
 .top {
@@ -183,11 +183,12 @@ a:hover { text-decoration: underline; }
 
 .hero {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  /* auto-fit, not a fixed 3: a --bench-only card has two tiles, a --bench run
+     has four, and both should fill the row rather than leave a hole. */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
   gap: 12px;
   margin-bottom: 12px;
 }
-@media (max-width: 820px) { .hero { grid-template-columns: 1fr; } }
 
 .card {
   background: var(--surface);
@@ -258,11 +259,10 @@ a:hover { text-decoration: underline; }
 
 .secondary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
   gap: 12px;
   margin-bottom: 28px;
 }
-@media (max-width: 820px) { .secondary { grid-template-columns: 1fr; } }
 .sec-card {
   background: color-mix(in srgb, var(--surface) 88%, transparent);
   border: 1px dashed var(--line-strong);
@@ -469,6 +469,11 @@ a:hover { text-decoration: underline; }
 }
 .missing span { margin-right: 12px; white-space: nowrap; }
 .fine { color: var(--muted); font-size: 12.5px; margin: 2px 0 6px; }
+.fine .note, .drill-table .note { color: var(--muted); font-size: 12px; }
+.scope-note {
+  margin-top: 10px; max-width: 70ch; line-height: 1.5;
+  border-left: 2px solid var(--line-strong); padding-left: 10px;
+}
 
 .surface-grid {
   display: grid;
@@ -680,7 +685,8 @@ footer.page .sep { opacity: .4; }
 }
 .rank-table {
   width: 100%; border-collapse: collapse; font-size: 13.5px;
-  min-width: 860px;
+  /* Eleven columns now — the wrap scrolls rather than crushing the numbers. */
+  min-width: 1120px;
 }
 .rank-table th {
   text-align: left; padding: 12px 12px;
@@ -708,7 +714,15 @@ footer.page .sep { opacity: .4; }
   color: var(--muted); width: 36px;
 }
 .rank-model {
+  display: block;
   font-weight: 750; color: var(--ink); line-height: 1.25;
+  text-decoration: none;
+}
+/* The name is the second way into the card, beside the View button. */
+a.rank-model:hover { color: var(--engine); text-decoration: underline; }
+a.rank-model:hover .sub { text-decoration: none; }
+a.rank-model:focus-visible {
+  outline: 2px solid var(--engine); outline-offset: 3px; border-radius: 6px;
 }
 .rank-model .sub {
   display: block; font-weight: 500; font-size: 12px; color: var(--muted);
@@ -729,6 +743,14 @@ footer.page .sep { opacity: .4; }
 .tier-stack .t.neutral { color: var(--muted); background: var(--surface-2); }
 .metric-cell {
   font-weight: 750; font-variant-numeric: tabular-nums; font-size: 14px;
+}
+.perf-cell {
+  font-variant-numeric: tabular-nums; font-size: 13px; white-space: nowrap;
+  font-family: var(--mono); color: var(--ink-2);
+}
+.when-cell {
+  color: var(--muted); font-size: 12.5px; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .metric-cell.good { color: var(--good); }
 .metric-cell.caution { color: var(--caution); }

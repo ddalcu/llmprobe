@@ -95,6 +95,19 @@ export interface MockDefects {
    */
   reasoningRequiresOptIn?: boolean;
   /**
+   * Behave like Muse-Glimmer: the thinking default is gated on TOOL PRESENCE —
+   * on when the request carries tools, off when it does not. A tool-less probe
+   * reads such a model as not thinking at all.
+   */
+  reasoningWithTools?: boolean;
+  /**
+   * Report a length-style finish on a COMPLETE tool call, the way any engine
+   * does when the turn happens to end on the token cap — a reasoning model
+   * that spent most of a small budget thinking lands here every time. Not a
+   * defect: the harness must not read it as one.
+   */
+  toolCallHitsCap?: boolean;
+  /**
    * Stall (1s) any chat completion whose prompt exceeds this many bytes —
    * enough to trip a client timeout set below the stall. Models real engines
    * whose prefill of a big prompt outlasts the per-request timeout.
@@ -293,7 +306,7 @@ function respondTo(body: any, defects: MockDefects) {
 
     return {
       toolCalls: [{ name, args: { city: "Paris", unit: "celsius" } }],
-      finishReason: "tool_calls",
+      finishReason: defects.toolCallHitsCap ? "length" : "tool_calls",
       outputTokens: 12,
     };
   }
@@ -352,7 +365,8 @@ function respondTo(body: any, defects: MockDefects) {
 
   const showsReasoning =
     defects.reasoningModel ||
-    (defects.reasoningRequiresOptIn && body.reasoning_effort !== undefined);
+    (defects.reasoningRequiresOptIn && body.reasoning_effort !== undefined) ||
+    (defects.reasoningWithTools && body.tools?.length > 0);
 
   return {
     content,

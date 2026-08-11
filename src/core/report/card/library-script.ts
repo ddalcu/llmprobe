@@ -16,7 +16,7 @@ export const LIBRARY_SCRIPT = `
   const goBtn = document.getElementById("compare-go");
   const clearBtn = document.getElementById("compare-clear");
 
-  let sortKey = "capability";
+  let sortKey = "date";
   let sortDir = "desc";
   let query = "";
   /** @type {string[]} */
@@ -77,7 +77,14 @@ export const LIBRARY_SCRIPT = `
       case "capability": return row.capability;
       case "agentic": return row.agenticRatio;
       case "fidelity": return row.fidelity;
-      default: return row.capability;
+      case "decode": return row.decode;
+      case "prefill": return row.prefill;
+      case "ttft": return row.ttft;
+      case "date": {
+        const t = row.recordedAt ? Date.parse(row.recordedAt) : NaN;
+        return Number.isNaN(t) ? null : t;
+      }
+      default: return row.recordedAt ? Date.parse(row.recordedAt) : null;
     }
   }
 
@@ -109,6 +116,37 @@ export const LIBRARY_SCRIPT = `
     return n == null ? "—" : n + "%";
   }
 
+  /** 8656.8 → "8.7k". Throughput spans two orders of magnitude across engines. */
+  function fmtRate(n) {
+    if (n == null || Number.isNaN(n)) return "—";
+    if (n >= 1000) return Math.round(n / 100) / 10 + "k";
+    return String(Math.round(n * 10) / 10);
+  }
+
+  function fmtLatency(ms) {
+    if (ms == null || Number.isNaN(ms)) return "—";
+    return ms >= 1000 ? Math.round(ms / 100) / 10 + "s" : Math.round(ms) + "ms";
+  }
+
+  /** "3h ago" for a fresh run, a plain date once it stops being news. */
+  function fmtWhen(iso) {
+    if (!iso) return "—";
+    const t = Date.parse(iso);
+    if (Number.isNaN(t)) return "—";
+    const mins = Math.round((Date.now() - t) / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return mins + "m ago";
+    if (mins < 60 * 24) return Math.round(mins / 60) + "h ago";
+    const days = Math.round(mins / (60 * 24));
+    if (days < 7) return days + "d ago";
+    const d = new Date(t);
+    return d.toLocaleDateString(undefined, {
+      day: "numeric",
+      month: "short",
+      year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
+    });
+  }
+
   function tierCell(row) {
     const parts = [
       ["core", row.core],
@@ -136,7 +174,8 @@ export const LIBRARY_SCRIPT = `
     if (filterMeta) {
       filterMeta.textContent = query.trim()
         ? "Filtered by “" + query.trim() + "” · click headers to sort · select up to 2 to compare"
-        : "Click column headers to sort · select up to 2 models to compare";
+        : (sortKey === "date" && sortDir === "desc" ? "Newest first · " : "") +
+          "click column headers to sort · select up to 2 models to compare";
     }
     if (searchClear) {
       searchClear.classList.toggle("visible", query.trim().length > 0);
@@ -153,7 +192,7 @@ export const LIBRARY_SCRIPT = `
 
     if (rows.length === 0) {
       tbody.innerHTML =
-        '<tr><td colspan="7"><div class="empty-filter">No models match your search. Clear the filter to see the full library.</div></td></tr>';
+        '<tr><td colspan="11"><div class="empty-filter">No models match your search. Clear the filter to see the full library.</div></td></tr>';
       return;
     }
 
@@ -178,14 +217,19 @@ export const LIBRARY_SCRIPT = `
       return (
         '<tr data-slug="' + row.slug + '"' + (isSel ? ' class="selected"' : "") + ">" +
         '<td class="rank-num">' + (i + 1) + "</td>" +
-        '<td><div class="rank-model">' + escText(row.short) +
-          '<span class="sub">' + escText(row.endpoint || row.engine || row.source || "") + "</span></div></td>" +
+        '<td><a class="rank-model" href="' + escText(row.href) + '">' + escText(row.short) +
+          '<span class="sub">' + escText(row.endpoint || row.engine || row.source || "") + "</span></a></td>" +
         "<td>" + tierCell(row) + "</td>" +
         '<td class="metric-cell ' + confT + '">' + fmtPct(row.conformance) + "</td>" +
         '<td class="metric-cell ' + capT + '">' + fmtPct(row.capability) +
           (row.verdict ? '<span class="verdict">' + escText(row.verdict) + "</span>" : "") +
         "</td>" +
         '<td class="metric-cell ' + agentT + '">' + agent + "</td>" +
+        '<td class="perf-cell">' + fmtRate(row.decode) + "</td>" +
+        '<td class="perf-cell">' + fmtRate(row.prefill) + "</td>" +
+        '<td class="perf-cell">' + fmtLatency(row.ttft) + "</td>" +
+        '<td class="when-cell" title="' + escText(row.recordedAt || "") + '">' +
+          escText(fmtWhen(row.recordedAt)) + "</td>" +
         '<td><div class="row-actions">' +
           '<a class="btn-sm view" href="' + escText(row.href) + '">View</a>' +
           '<button type="button" class="btn-sm compare-add' + (isSel ? " active" : "") +
@@ -286,6 +330,14 @@ export const LIBRARY_SCRIPT = `
     });
   }
 
+  /**
+   * Best-first when a metric is picked: names read A→Z and time-to-first-token
+   * is a latency, so both want ascending. Every score wants the high end first.
+   */
+  function defaultDir(key) {
+    return key === "model" || key === "ttft" ? "asc" : "desc";
+  }
+
   function setSort(key, dir) {
     if (key) sortKey = key;
     if (dir) sortDir = dir;
@@ -293,7 +345,9 @@ export const LIBRARY_SCRIPT = `
   }
 
   if (sortSelect) {
-    sortSelect.addEventListener("change", () => setSort(sortSelect.value, null));
+    sortSelect.addEventListener("change", () =>
+      setSort(sortSelect.value, defaultDir(sortSelect.value)),
+    );
   }
   if (dirSelect) {
     dirSelect.addEventListener("change", () => setSort(null, dirSelect.value));
@@ -324,7 +378,7 @@ export const LIBRARY_SCRIPT = `
         sortDir = sortDir === "asc" ? "desc" : "asc";
       } else {
         sortKey = key;
-        sortDir = key === "model" ? "asc" : "desc";
+        sortDir = defaultDir(key);
       }
       renderTable();
     });

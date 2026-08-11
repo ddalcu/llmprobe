@@ -433,4 +433,24 @@ describe("buildCoverageEntries", () => {
     const logprobs = entries.find((e) => e.item.id === "logprobs")!;
     expect(logprobs.detail).toBe("accepted but ignored");
   });
+
+  test("an unprobed feature carries no detail claiming it was looked for", () => {
+    // "not probed" beside "not detected" is a contradiction, and the half a
+    // reader believes is the wrong one: nothing looked for JSON mode here.
+    const entries = buildCoverageEntries(
+      SURFACES,
+      new Set(["chat", "models"]),
+      new Map(),
+      new Set(["json-mode"]),
+    );
+
+    const json = entries.find((e) => e.item.id === "json-mode")!;
+    expect(json.probed).toBe(false);
+    expect(json.detail).toBeUndefined();
+
+    // Everything else still explains itself.
+    const streaming = entries.find((e) => e.item.id === "streaming")!;
+    expect(streaming.probed).toBe(true);
+    expect(streaming.detail).toBe("not detected");
+  });
 });

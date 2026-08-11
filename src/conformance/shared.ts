@@ -610,6 +610,17 @@ export function sharedTests(
         // one there would fail a perfectly compliant engine.
         if (adapter.capabilities.signalsToolFinishReason) {
           const reason = res.reply.finishReason;
+          // A turn that ended on the token cap reports a length-style finish by
+          // spec — OpenAI does the same — so it tells us nothing about what the
+          // engine signals when the model stops on its own. Reasoning models
+          // land here whenever thinking eats most of the budget: the call is
+          // complete and valid, and the cap is ours, not the engine's.
+          if (reason !== null && isLengthStyleFinish(reason)) {
+            throw new Inconclusive(
+              `the turn hit the token cap (finish reason "${reason}"), so the ` +
+                "budget decided it — nothing learned about the tool-stop signal",
+            );
+          }
           a.must(
             `${s}-tool-finish`,
             "a tool call reports a tool-style finish reason",
@@ -708,6 +719,20 @@ export function sharedTests(
           `HTTP ${res.status}: ${res.text.slice(0, 200)}`,
         );
         if (res.status !== 200) return;
+
+        // Empty content plus a length-style finish is a starved budget, not a
+        // broken tool-result path: the model was still thinking when the cap
+        // arrived. Empty content on a clean stop still fails, as it should.
+        if (
+          res.reply.text.length === 0 &&
+          res.reply.finishReason !== null &&
+          isLengthStyleFinish(res.reply.finishReason)
+        ) {
+          throw new Inconclusive(
+            "the continuation hit the token cap before any visible text " +
+              `(finish reason "${res.reply.finishReason}")`,
+          );
+        }
 
         a.must(
           `${s}-tool-result-continues`,

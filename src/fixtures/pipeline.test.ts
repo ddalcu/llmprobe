@@ -538,6 +538,23 @@ describe("reasoning models", () => {
     expect(withHeadroom.conformance.pct).toBe(100);
   });
 
+  test("a cap-truncated turn cannot fail the engine on its finish reason", async () => {
+    // Live 2026-08-11 against mlx-serve + Muse-Glimmer: the engine emitted a
+    // complete, valid tool call and reported `length`, because the model had
+    // spent 100 of its 128 tokens thinking and the call landed on the cap.
+    // OpenAI reports `length` on a truncated turn too, so that run says nothing
+    // about what the engine signals on a clean tool stop — scoring it cost a
+    // day of chasing a bug in the engine that was never there.
+    const run = await probeAndRun({ toolCallHitsCap: true });
+
+    const tools = find(run.results, "chat-tool-serialization")!;
+    expect(tools.outcome).toBe("inconclusive");
+    expect(failedIds(run.results)).not.toContain("chat-tool-finish");
+
+    // The assertions it DID reach still count — the call itself was checked.
+    expect(tools.assertions.map((a) => a.id)).toContain("chat-tool-args-json");
+  });
+
   test("headroom does not leak into the truncation tests", async () => {
     // `max_tokens: 1` must still truncate, or the finish-reason check becomes
     // meaningless — the one place where a small budget is the entire point.

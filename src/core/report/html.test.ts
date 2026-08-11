@@ -138,7 +138,13 @@ describe("renderHtml", () => {
   });
 
   test("keeps unmeasured categories explicit", () => {
-    const report = sampleReport();
+    const report = benchOnlyReport();
+    // The evals were attempted and produced nothing — an engine that refuses
+    // every tool call. Unlike --bench-only, that is a result worth showing.
+    report.run!.phases.capability = {
+      status: "unavailable",
+      reason: "no capability evals",
+    };
     report.capability = {
       ...report.capability,
       categories: [],
@@ -149,5 +155,133 @@ describe("renderHtml", () => {
     const html = renderHtml(report);
     expect(html).toContain("never measured");
     expect(html).toContain("Tool selection");
+  });
+});
+
+/** A --bench-only save: surfaces discovered, every scored phase skipped. */
+function benchOnlyReport(): JsonReport {
+  const report = sampleReport();
+  report.version = 2;
+  report.run = {
+    depth: "quick",
+    mode: "bench-only",
+    startedAt: "2026-08-11T22:40:09.006Z",
+    phases: {
+      coverage: { status: "measured" },
+      conformance: { status: "not-run", reason: "benchmark-only run" },
+      capability: { status: "not-run", reason: "benchmark-only run" },
+      agentic: { status: "not-run", reason: "benchmark-only run" },
+      fidelity: { status: "not-run", reason: "benchmark-only run" },
+      performance: { status: "measured" },
+    },
+    budget: { exhausted: false },
+  };
+  report.conformance = { pct: 0, passed: 0, total: 0, bySurface: [], results: [] };
+  report.capability = {
+    pct: 0,
+    verdict: "below-floor",
+    categories: [],
+    weakCategories: [],
+    evals: [],
+  };
+  delete report.agentic;
+  report.bench = {
+    decodeTokPerSec: { median: 82.4, min: 80, max: 85, samples: [80, 82.4, 85] },
+    streamCaveat: null,
+    ttftMs: { median: 240, min: 220, max: 260, samples: [220, 240, 260] },
+    prefillTokPerSec: { median: 1900, min: 1800, max: 2000, samples: [1800, 1900, 2000] },
+    prefillPromptTokens: 4096,
+    speculative: {
+      predictableTokPerSec: 140,
+      novelTokPerSec: 82,
+      ratio: 1.7,
+      verdict: "effective",
+      tokensPerStep: 2.4,
+      tokensPerStepNote: null,
+      reasoningCaveat: false,
+    },
+    prefixCache: {
+      coldTtftMs: 900,
+      warmTtftMs: 120,
+      speedup: 7.5,
+      cachedTokens: 4000,
+      promptTokens: 4096,
+      verdict: "active",
+    },
+    batching: {
+      streams: 4,
+      singleTokPerSec: 82,
+      aggregateTokPerSec: 260,
+      efficiency: 0.79,
+      worstTtftMs: 1400,
+      verdict: "batched",
+    },
+    loadDrift: {
+      firstTokPerSec: 84,
+      lastTokPerSec: 81,
+      driftPct: -3.6,
+      elapsedMs: 180_000,
+      verdict: "steady",
+    },
+    machine: { platform: "darwin", arch: "arm64", cpu: "Apple M3 Max", memGB: 64 },
+    contextScaling: [
+      {
+        targetTokens: 512,
+        inputTokens: 530,
+        decodeTokPerSec: 84,
+        ttftMs: 180,
+        prefillTokPerSec: 2900,
+        speculative: null,
+        runs: 1,
+        note: null,
+      },
+      {
+        targetTokens: 32_768,
+        inputTokens: null,
+        decodeTokPerSec: null,
+        ttftMs: null,
+        prefillTokPerSec: null,
+        speculative: null,
+        runs: 0,
+        note: "context window exceeded",
+      },
+    ],
+  };
+  return report;
+}
+
+describe("renderHtml — benchmark runs", () => {
+  test("renders the performance section from bench data", () => {
+    const html = renderHtml(benchOnlyReport());
+
+    expect(html).toContain("Performance");
+    expect(html).toContain("82.4");
+    expect(html).toContain("Apple M3 Max");
+    expect(html).toContain("Prefix cache");
+    expect(html).toContain("Concurrency");
+    expect(html).toContain("context window exceeded");
+  });
+
+  test("a bench-only run does not show unrun phases as failures", () => {
+    const html = renderHtml(benchOnlyReport());
+
+    // The scored cards never ran — showing 0% / below-floor reads as an
+    // engine that failed everything rather than one nobody measured.
+    expect(html).not.toContain("below-floor");
+    expect(html).not.toContain('id="conformance"');
+    expect(html).not.toContain('id="capability"');
+    expect(html).not.toContain('id="agentic"');
+    expect(html).not.toContain('id="fidelity"');
+    // ...and it says so, rather than leaving the reader to notice.
+    expect(html).toContain("benchmark-only run");
+  });
+
+  test("a full run keeps every measured section", () => {
+    const html = renderHtml(sampleReport());
+
+    expect(html).toContain('id="conformance"');
+    expect(html).toContain('id="capability"');
+    expect(html).toContain('id="agentic"');
+    expect(html).not.toContain('id="performance"');
   });
 });

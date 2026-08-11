@@ -21,7 +21,7 @@ import {
 } from "../src/core/client";
 import { createContext } from "../src/core/context";
 import { detectEngine } from "../src/core/engine-id";
-import { pickModel } from "../src/core/model-picker";
+import { pickModels } from "../src/core/model-picker";
 import type {
   ConformanceResult,
   CreditEntry,
@@ -35,7 +35,7 @@ import {
   probeEndpoint,
 } from "../src/core/probe";
 import { detectReasoning, REASONING_HEADROOM } from "../src/core/reasoning";
-import { CREDITS, SURFACES } from "../src/core/registry";
+import { CREDITS, FEATURES, SURFACES } from "../src/core/registry";
 import { paletteFor } from "../src/core/report/colors";
 import {
   buildJsonReport,
@@ -46,6 +46,7 @@ import {
 } from "../src/core/report/json";
 import { renderComparisonHtml } from "../src/core/report/compare";
 import { renderHtml } from "../src/core/report/html";
+import { slug } from "../src/core/report/card/shared";
 import {
   HOME_LIBRARY_DIR,
   ingestReportIntoLibrary,
@@ -270,7 +271,9 @@ Options:
   -k, --api-key <key>   API key (optional for local engines)
   -m, --model <name>    Model to test (default: interactive picker from
                         /v1/models on a TTY; first model if non-interactive.
-                        Required when /v1/models is empty or unreachable)
+                        Required when /v1/models is empty or unreachable).
+                        The picker takes a comma list (e.g. 1,3,5) and runs
+                        each pick in turn, one report card per model
       --quick           Surface probe + core smoke tests only
       --full            Everything, including the slow tests (long context, caching)
       --bench           Add a performance benchmark: decode tok/s, TTFT, prefill,
@@ -415,235 +418,68 @@ function logLibrarySync(
   );
 }
 
-async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+/** Everything the per-model probe needs that discovery already worked out. */
+interface ProbeShared {
+  args: Args;
+  baseUrl: string;
+  apiKey: string;
+  present: Set<string>;
+  credits: CreditEntry[];
+  adapterById: Map<string, SurfaceAdapter>;
+  evalSurface: string | null;
+  serverHeader: string | null;
+  c: ReturnType<typeof paletteFor>;
+  log: (line?: string) => void;
+  quiet: boolean;
+  /** Several models were picked, so per-run output files need distinct names. */
+  multi: boolean;
+}
 
-  if (args.version) {
-    console.log(pkg.version);
-    process.exit(0);
-  }
+interface ProbeOutcome {
+  /** Set when the target stopped answering; every score is partial. */
+  incomplete: string | null;
+  regressed: boolean;
+  budgetHit: boolean;
+  engineFailed: boolean;
+  /** Report card written for this run, if any. */
+  card: string | null;
+  libraryIndex: string | null;
+}
 
-  if (args.help) {
-    console.log(HELP);
-    process.exit(0);
-  }
+/** runs/probe.html + "qwen3-8b" → runs/probe-qwen3-8b.html */
+function perModelPath(path: string, model: string, multi: boolean): string {
+  if (!multi) return path;
+  const name = basename(path);
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : "";
+  return join(dirname(path), `${stem}-${slug(model)}${ext}`);
+}
 
-  if (args.compare) {
-    runComparison(args);
-    return;
-  }
-
-  // Rebuild library from existing saves without probing.
-  if ((args.library || args.libraryDefault) && !args.target) {
-    const c = paletteFor(!args.noColor);
-    const dir = args.library ?? HOME_LIBRARY_DIR;
-    try {
-      const result = syncLibrary(dir);
-      logLibrarySync(c, result);
-      if (args.open) openInBrowser(result.indexPath);
-    } catch (err) {
-      if (err instanceof LibraryEmptyError) {
-        console.error(err.message);
-        process.exit(1);
-      }
-      throw err;
-    }
-    return;
-  }
-
-  if (!args.target) {
-    console.log(HELP);
-    process.exit(1);
-  }
-
-  const quiet = args.json || args.markdown;
-  const c = paletteFor(!args.noColor && !quiet);
-  const log = (line = "") => {
-    if (!quiet) console.log(line);
-  };
-
-  const root = normalizeRoot(args.target);
-  const apiKey = args.apiKey ?? process.env.LLMPROBE_API_KEY ?? "";
-  const startedAt = Date.now();
-
-  log(
-    `${c.bold("llmprobe")} ${c.gray(`v${pkg.version}`)} ${c.gray("·")} probing ${root}`,
-  );
-  log();
-
-  // ── 1. Surface discovery ────────────────────────────────────────────────
-  // Empty-body POSTs: the server rejects them on validation long before any
-  // inference runs, so mapping the whole surface costs nothing in tokens.
-
-  const adapterById = new Map<string, SurfaceAdapter>(
-    ADAPTERS.map((adapter) => [adapter.id, adapter]),
-  );
-
-  const headersFor = (surfaceId: string): Record<string, string> => {
-    const adapter = adapterById.get(surfaceId);
-    const partial = { apiKey } as RunConfig;
-    return adapter ? adapter.headers(partial) : bearerAuth(partial);
-  };
-
-  // Some servers (LM Studio) answer every unknown path with HTTP 200 and an
-  // error body. Learn what "not here" looks like before trusting any probe.
-  const catchAll = await detectCatchAll(root, headersFor("chat"), 8000);
-  if (catchAll) {
-    log(
-      c.gray(
-        `  (server answers unknown paths with HTTP ${catchAll.statuses.join("/")}; matching replies are read as absent)`,
-      ),
-    );
-  }
-
-  const present = new Set<string>();
-  let effectiveBase: string | null = null;
-  let reachable = false;
-
-  for (const surface of SURFACES) {
-    const probe = await probeEndpoint({
-      root,
-      method: surface.method,
-      path: surface.path,
-      headers: headersFor(surface.id),
-      timeoutMs: 8000,
-      catchAll,
-    });
-
-    if (probe.status !== "network-error") reachable = true;
-
-    if (probe.present) {
-      present.add(surface.id);
-      effectiveBase ??= probe.effectiveBaseUrl ?? `${root}/v1`;
-    }
-
-    log(
-      `  ${probe.present ? c.green("✓") : c.gray("✗")} ${surface.label.padEnd(24)} ${c.gray(
-        probe.present ? `HTTP ${probe.status}` : (probe.reason ?? "absent"),
-      )}`,
-    );
-  }
-
-  if (!reachable) {
-    console.error(
-      `\n${c.red("Error:")} cannot reach ${root}. Is the engine running?`,
-    );
-    process.exit(2);
-  }
-
-  if (present.size === 0) {
-    console.error(
-      `\n${c.red("Error:")} no standard surface found at ${root} — not an OpenAI-compatible endpoint?`,
-    );
-    process.exit(2);
-  }
-
-  const baseUrl = effectiveBase ?? `${root}/v1`;
-
-  // Detected, shown, worth exactly zero points.
-  const creditProbes = await probeCredits(
-    root,
-    CREDITS,
-    headersFor("chat"),
-    5000,
-    catchAll,
-  );
-  const credits: CreditEntry[] = creditProbes
-    .filter((probe) => probe.present)
-    .map((probe) => ({ id: probe.credit.id, label: probe.credit.label }));
-
-  for (const credit of credits) {
-    log(
-      `  ${c.yellow("○")} ${credit.label.padEnd(24)} ${c.gray("detected, not scored")}`,
-    );
-  }
-
-  // ── 2. Resolve the model + read the engine's identity header ─────────────
-  // The `Server` header is the only trustworthy engine identifier. Guessing
-  // from the surface (e.g. "it serves /api/chat, so it's Ollama") is wrong —
-  // mlx-serve, LM Studio and llama.cpp all ship the Ollama-compatible shim
-  // without being Ollama.
-
-  let model = args.model ?? "";
-  let serverHeader: string | null = null;
-  let modelIds: string[] = [];
-  let modelsListError: string | null = null;
-  try {
-    const res = await fetch(`${baseUrl}/models`, {
-      headers: bearerAuth({ apiKey } as RunConfig),
-      signal: AbortSignal.timeout(8000),
-    });
-    serverHeader = res.headers.get("server");
-    if (!model) {
-      if (!res.ok) {
-        modelsListError = `GET ${baseUrl}/models → HTTP ${res.status}`;
-      } else {
-        const data = (await res.json()) as { data?: Array<{ id?: string }> };
-        modelIds = (data?.data ?? [])
-          .map((m) => m.id)
-          .filter(
-            (id): id is string => typeof id === "string" && id.length > 0,
-          );
-        if (modelIds.length === 0) {
-          modelsListError = `GET ${baseUrl}/models returned no model ids`;
-        }
-      }
-    }
-  } catch (err) {
-    modelsListError =
-      err instanceof Error ? err.message : "failed to list /v1/models";
-  }
-
-  if (!model && modelIds.length > 0) {
-    const interactive =
-      !quiet && process.stdin.isTTY === true && process.stdout.isTTY === true;
-    if (modelIds.length === 1 || !interactive) {
-      model = modelIds[0]!;
-      if (!interactive && modelIds.length > 1) {
-        log(
-          c.gray(
-            `  (non-interactive — using first model: ${model}; pass --model to pick another)`,
-          ),
-        );
-      }
-    } else {
-      const rl = createInterface({
-        input: process.stdin,
-        output: process.stdout,
-      });
-      try {
-        model = await pickModel(modelIds, {
-          ask: (question) => rl.question(question),
-          print: (line) => console.log(line),
-        });
-      } finally {
-        rl.close();
-      }
-      log();
-    }
-  }
-
-  if (!model) {
-    console.error(
-      `\n${c.red("Error:")} could not determine a model — pass one with --model <id>.`,
-    );
-    if (modelsListError) {
-      console.error(c.gray(`  ${modelsListError}`));
-    }
-    console.error(
-      c.gray(
-        "  Tip: list models with curl, e.g. curl -s http://localhost:8080/v1/models",
-      ),
-    );
-    console.error(
-      c.gray(
-        "  Example: llmprobe localhost:8080 --model my-model --library runs/report-card",
-      ),
-    );
-    process.exit(2);
-  }
-
-  const evalSurface = primarySurface(present);
+/**
+ * One model, end to end: conformance, capability, agentic, fidelity, benchmark,
+ * then every requested output. Surface discovery is shared and already done —
+ * probing four models on one endpoint maps it once, not four times.
+ */
+async function probeModel(
+  model: string,
+  startedAt: number,
+  shared: ProbeShared,
+): Promise<ProbeOutcome> {
+  const {
+    args,
+    baseUrl,
+    apiKey,
+    present,
+    credits,
+    adapterById,
+    evalSurface,
+    serverHeader,
+    c,
+    log,
+    quiet,
+    multi,
+  } = shared;
 
   const baseConfig: RunConfig = {
     baseUrl,
@@ -1000,7 +836,10 @@ async function main(): Promise<void> {
     SURFACES,
     present,
     featureSupport,
-    unprobed,
+    // --bench-only never ran a conformance test, so nothing was learned about
+    // any feature. Left empty, every one of them would print as "not detected"
+    // — a wall of red for checks nobody asked to run.
+    args.benchOnly ? new Set(FEATURES.map((f) => f.id)) : unprobed,
   );
 
   const report: RunReport = {
@@ -1167,10 +1006,19 @@ async function main(): Promise<void> {
     };
   }
 
-  if (args.save) {
-    mkdirSync(dirname(resolve(args.save)), { recursive: true });
-    writeFileSync(args.save, `${JSON.stringify(json, null, 2)}\n`);
-    log(`${c.gray("json report →")} ${args.save}`);
+  // With several models in one command, one --save path would have every run
+  // overwriting the last. Each gets the model's slug appended instead.
+  const savePath = args.save
+    ? perModelPath(args.save, model, multi)
+    : undefined;
+  const htmlPath = args.html
+    ? perModelPath(args.html, model, multi)
+    : undefined;
+
+  if (savePath) {
+    mkdirSync(dirname(resolve(savePath)), { recursive: true });
+    writeFileSync(savePath, `${JSON.stringify(json, null, 2)}\n`);
+    log(`${c.gray("json report →")} ${savePath}`);
   }
 
   // Every run is recorded, so a library exists without anyone opting in — you
@@ -1178,7 +1026,6 @@ async function main(): Promise<void> {
   const libraryDir = args.noSave ? null : (args.library ?? HOME_LIBRARY_DIR);
 
   let openedHtml: string | null = null;
-  let libraryCard: string | null = null;
 
   if (libraryDir) {
     const firstRun = !existsSync(libraryDir);
@@ -1187,16 +1034,15 @@ async function main(): Promise<void> {
     // Otherwise let the library name the file: it keys on model + endpoint, and
     // a model-only name here silently overwrote the other engine's run.
     const preferredFileName =
-      args.save && resolve(dirname(args.save)) === resolve(libraryDir)
-        ? basename(args.save)
+      savePath && resolve(dirname(savePath)) === resolve(libraryDir)
+        ? basename(savePath)
         : undefined;
     const {
       sync,
       jsonPath,
       slug: modelSlug,
     } = ingestReportIntoLibrary(libraryDir, json, { preferredFileName });
-    libraryCard = join(libraryDir, `${modelSlug}.html`);
-    openedHtml = libraryCard;
+    openedHtml = join(libraryDir, `${modelSlug}.html`);
 
     if (firstRun) {
       log(
@@ -1209,16 +1055,11 @@ async function main(): Promise<void> {
   }
 
   // A standalone export: its own file, no ← Library link, nothing else touched.
-  if (args.html) {
-    mkdirSync(dirname(resolve(args.html)), { recursive: true });
-    writeFileSync(args.html, renderHtml(json, baselineContext));
-    log(`${c.gray("html report →")} ${args.html}`);
-    openedHtml = args.html;
-  }
-
-  if (openedHtml && args.open && !quiet) {
-    openInBrowser(openedHtml);
-    log(`${c.gray("opened →")} ${resolve(openedHtml)}`);
+  if (htmlPath) {
+    mkdirSync(dirname(resolve(htmlPath)), { recursive: true });
+    writeFileSync(htmlPath, renderHtml(json, baselineContext));
+    log(`${c.gray("html report →")} ${htmlPath}`);
+    openedHtml = htmlPath;
   }
 
   if (args.json) {
@@ -1268,17 +1109,303 @@ async function main(): Promise<void> {
     }
   }
 
-  // Non-zero on a MUST failure, a regression, or an exhausted budget, so this
-  // works as a CI gate. Note the model's score never affects the exit code —
-  // llmprobe gates on the engine, not on how clever the model is.
   const engineFailed =
     report.conformance.total > 0 && report.conformance.pct < 100;
 
+  return {
+    incomplete,
+    regressed,
+    budgetHit,
+    engineFailed,
+    card: openedHtml,
+    libraryIndex: libraryDir ? join(libraryDir, "index.html") : null,
+  };
+}
+
+async function main(): Promise<void> {
+  const args = parseArgs(process.argv.slice(2));
+
+  if (args.version) {
+    console.log(pkg.version);
+    process.exit(0);
+  }
+
+  if (args.help) {
+    console.log(HELP);
+    process.exit(0);
+  }
+
+  if (args.compare) {
+    runComparison(args);
+    return;
+  }
+
+  // Rebuild library from existing saves without probing.
+  if ((args.library || args.libraryDefault) && !args.target) {
+    const c = paletteFor(!args.noColor);
+    const dir = args.library ?? HOME_LIBRARY_DIR;
+    try {
+      const result = syncLibrary(dir);
+      logLibrarySync(c, result);
+      if (args.open) openInBrowser(result.indexPath);
+    } catch (err) {
+      if (err instanceof LibraryEmptyError) {
+        console.error(err.message);
+        process.exit(1);
+      }
+      throw err;
+    }
+    return;
+  }
+
+  if (!args.target) {
+    console.log(HELP);
+    process.exit(1);
+  }
+
+  const quiet = args.json || args.markdown;
+  const c = paletteFor(!args.noColor && !quiet);
+  const log = (line = "") => {
+    if (!quiet) console.log(line);
+  };
+
+  const root = normalizeRoot(args.target);
+  const apiKey = args.apiKey ?? process.env.LLMPROBE_API_KEY ?? "";
+  const startedAt = Date.now();
+
+  log(
+    `${c.bold("llmprobe")} ${c.gray(`v${pkg.version}`)} ${c.gray("·")} probing ${root}`,
+  );
+  log();
+
+  // ── 1. Surface discovery ────────────────────────────────────────────────
+  // Empty-body POSTs: the server rejects them on validation long before any
+  // inference runs, so mapping the whole surface costs nothing in tokens.
+
+  const adapterById = new Map<string, SurfaceAdapter>(
+    ADAPTERS.map((adapter) => [adapter.id, adapter]),
+  );
+
+  const headersFor = (surfaceId: string): Record<string, string> => {
+    const adapter = adapterById.get(surfaceId);
+    const partial = { apiKey } as RunConfig;
+    return adapter ? adapter.headers(partial) : bearerAuth(partial);
+  };
+
+  // Some servers (LM Studio) answer every unknown path with HTTP 200 and an
+  // error body. Learn what "not here" looks like before trusting any probe.
+  const catchAll = await detectCatchAll(root, headersFor("chat"), 8000);
+  if (catchAll) {
+    log(
+      c.gray(
+        `  (server answers unknown paths with HTTP ${catchAll.statuses.join("/")}; matching replies are read as absent)`,
+      ),
+    );
+  }
+
+  const present = new Set<string>();
+  let effectiveBase: string | null = null;
+  let reachable = false;
+
+  for (const surface of SURFACES) {
+    const probe = await probeEndpoint({
+      root,
+      method: surface.method,
+      path: surface.path,
+      headers: headersFor(surface.id),
+      timeoutMs: 8000,
+      catchAll,
+    });
+
+    if (probe.status !== "network-error") reachable = true;
+
+    if (probe.present) {
+      present.add(surface.id);
+      effectiveBase ??= probe.effectiveBaseUrl ?? `${root}/v1`;
+    }
+
+    log(
+      `  ${probe.present ? c.green("✓") : c.gray("✗")} ${surface.label.padEnd(24)} ${c.gray(
+        probe.present ? `HTTP ${probe.status}` : (probe.reason ?? "absent"),
+      )}`,
+    );
+  }
+
+  if (!reachable) {
+    console.error(
+      `\n${c.red("Error:")} cannot reach ${root}. Is the engine running?`,
+    );
+    process.exit(2);
+  }
+
+  if (present.size === 0) {
+    console.error(
+      `\n${c.red("Error:")} no standard surface found at ${root} — not an OpenAI-compatible endpoint?`,
+    );
+    process.exit(2);
+  }
+
+  const baseUrl = effectiveBase ?? `${root}/v1`;
+
+  // Detected, shown, worth exactly zero points.
+  const creditProbes = await probeCredits(
+    root,
+    CREDITS,
+    headersFor("chat"),
+    5000,
+    catchAll,
+  );
+  const credits: CreditEntry[] = creditProbes
+    .filter((probe) => probe.present)
+    .map((probe) => ({ id: probe.credit.id, label: probe.credit.label }));
+
+  for (const credit of credits) {
+    log(
+      `  ${c.yellow("○")} ${credit.label.padEnd(24)} ${c.gray("detected, not scored")}`,
+    );
+  }
+
+  // ── 2. Resolve the model + read the engine's identity header ─────────────
+  // The `Server` header is the only trustworthy engine identifier. Guessing
+  // from the surface (e.g. "it serves /api/chat, so it's Ollama") is wrong —
+  // mlx-serve, LM Studio and llama.cpp all ship the Ollama-compatible shim
+  // without being Ollama.
+
+  // One or more: the interactive picker takes "1,3,5" and runs each in turn,
+  // which is why this is a list.
+  let models: string[] = args.model ? [args.model] : [];
+  let serverHeader: string | null = null;
+  let modelIds: string[] = [];
+  let modelsListError: string | null = null;
+  try {
+    const res = await fetch(`${baseUrl}/models`, {
+      headers: bearerAuth({ apiKey } as RunConfig),
+      signal: AbortSignal.timeout(8000),
+    });
+    serverHeader = res.headers.get("server");
+    if (models.length === 0) {
+      if (!res.ok) {
+        modelsListError = `GET ${baseUrl}/models → HTTP ${res.status}`;
+      } else {
+        const data = (await res.json()) as { data?: Array<{ id?: string }> };
+        modelIds = (data?.data ?? [])
+          .map((m) => m.id)
+          .filter(
+            (id): id is string => typeof id === "string" && id.length > 0,
+          );
+        if (modelIds.length === 0) {
+          modelsListError = `GET ${baseUrl}/models returned no model ids`;
+        }
+      }
+    }
+  } catch (err) {
+    modelsListError =
+      err instanceof Error ? err.message : "failed to list /v1/models";
+  }
+
+  if (models.length === 0 && modelIds.length > 0) {
+    const interactive =
+      !quiet && process.stdin.isTTY === true && process.stdout.isTTY === true;
+    if (modelIds.length === 1 || !interactive) {
+      models = [modelIds[0]!];
+      if (!interactive && modelIds.length > 1) {
+        log(
+          c.gray(
+            `  (non-interactive — using first model: ${models[0]}; pass --model to pick another)`,
+          ),
+        );
+      }
+    } else {
+      const rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+      try {
+        models = await pickModels(modelIds, {
+          ask: (question) => rl.question(question),
+          print: (line) => console.log(line),
+        });
+      } finally {
+        rl.close();
+      }
+      log();
+    }
+  }
+
+  if (models.length === 0) {
+    console.error(
+      `\n${c.red("Error:")} could not determine a model — pass one with --model <id>.`,
+    );
+    if (modelsListError) {
+      console.error(c.gray(`  ${modelsListError}`));
+    }
+    console.error(
+      c.gray(
+        "  Tip: list models with curl, e.g. curl -s http://localhost:8080/v1/models",
+      ),
+    );
+    console.error(
+      c.gray(
+        "  Example: llmprobe localhost:8080 --model my-model --library runs/report-card",
+      ),
+    );
+    process.exit(2);
+  }
+
+  const evalSurface = primarySurface(present);
+
+  const outcomes: ProbeOutcome[] = [];
+  const shared: ProbeShared = {
+    args,
+    baseUrl,
+    apiKey,
+    present,
+    credits,
+    adapterById,
+    evalSurface,
+    serverHeader,
+    c,
+    log,
+    quiet,
+    multi: models.length > 1,
+  };
+
+  for (const [index, target] of models.entries()) {
+    if (models.length > 1) {
+      log();
+      log(
+        `${c.bold(`── model ${index + 1}/${models.length}`)} ${c.gray("·")} ${target}`,
+      );
+    }
+    // The first run owns the discovery time it benefited from; the rest time
+    // only themselves, since discovery ran once for all of them.
+    outcomes.push(
+      await probeModel(target, index === 0 ? startedAt : Date.now(), shared),
+    );
+  }
+
+  // With several models the library index is the page worth landing on — it is
+  // where they sit side by side. A single run opens its own card.
+  if (args.open && !quiet) {
+    const single = outcomes.length === 1 ? outcomes[0]!.card : null;
+    const target = single ?? outcomes.find((o) => o.libraryIndex)?.libraryIndex;
+    if (target) {
+      openInBrowser(target);
+      log(`${c.gray("opened →")} ${resolve(target)}`);
+    }
+  }
+
+  // Non-zero on a MUST failure, a regression, or an exhausted budget, so this
+  // works as a CI gate. Note the model's score never affects the exit code —
+  // llmprobe gates on the engine, not on how clever the model is.
+  //
   // A run that never finished is its own exit code: exit 1 means "the engine
   // failed a MUST", and a dead target has not earned that verdict.
-  if (incomplete) process.exit(2);
+  if (outcomes.some((o) => o.incomplete)) process.exit(2);
 
-  process.exit(regressed || budgetHit || engineFailed ? 1 : 0);
+  process.exit(
+    outcomes.some((o) => o.regressed || o.budgetHit || o.engineFailed) ? 1 : 0,
+  );
 }
 
 main().catch((error) => {

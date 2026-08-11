@@ -51,6 +51,8 @@ export interface LibraryRun {
   href: string;
   src: string;
   jsonName: string;
+  /** When this run happened — its own `run.startedAt`, else the file's mtime. */
+  recordedAt: string;
 }
 
 export function isJsonReport(obj: unknown): obj is JsonReport {
@@ -95,6 +97,11 @@ function loadRunsFromFiles(files: string[], hrefDir: string): LibraryRun[] {
       continue;
     }
     if (!isJsonReport(report)) continue;
+    // Read the timestamp before normalizing: normalizeJsonReport stamps a v1
+    // report with "now", which on a most-recent-first table would float every
+    // legacy run to the top on every rebuild. The file's mtime is the honest
+    // answer for a save that never recorded when it ran.
+    const recordedAt = report.run?.startedAt ?? mtimeIso(abs);
     report = normalizeJsonReport(report);
 
     let s = runSlug(
@@ -116,6 +123,7 @@ function loadRunsFromFiles(files: string[], hrefDir: string): LibraryRun[] {
       href: `${s}.html`,
       src: abs,
       jsonName,
+      recordedAt,
     });
   }
 
@@ -170,6 +178,14 @@ export function discoverLibraryRuns(
   return loadRunsFromFiles(listCandidateJsonFiles(absDir), absDir);
 }
 
+function mtimeIso(path: string): string {
+  try {
+    return statSync(path).mtime.toISOString();
+  } catch {
+    return new Date(0).toISOString();
+  }
+}
+
 /** Model, plus the endpoint that tells two runs of it apart. */
 function runLabel(report: JsonReport): string {
   const model = shortModel(report.target?.model) || "run";
@@ -187,6 +203,7 @@ function runSummary(run: LibraryRun) {
   return {
     slug: run.slug,
     href: run.href,
+    recordedAt: run.recordedAt,
     model: r.target?.model ?? run.label,
     short: shortModel(r.target?.model ?? run.label),
     engine: r.target?.engine ?? null,
@@ -207,6 +224,11 @@ function runSummary(run: LibraryRun) {
         ? r.agentic.passed / r.agentic.total
         : null,
     fidelity: r.fidelity?.pct ?? null,
+    // Only present when --bench ran. Null, never zero: a run nobody
+    // benchmarked must not rank as the slowest engine in the library.
+    decode: r.bench?.decodeTokPerSec?.median ?? null,
+    prefill: r.bench?.prefillTokPerSec?.median ?? null,
+    ttft: r.bench?.ttftMs?.median ?? null,
   };
 }
 
@@ -256,6 +278,7 @@ export function renderLibraryHtml(
     <ul>
       <li><strong>Surface coverage</strong> shows Core | Extended | Frontier (green ≥90%, yellow ≥70%, red below).</li>
       <li><strong>Conformance</strong> and <strong>Capability</strong> stay separate — never averaged into one score.</li>
+      <li><strong>Decode</strong>, <strong>Prefill</strong> and <strong>TTFT</strong> come from <code>--bench</code> runs only, and are hardware-dependent: compare them across engines on one machine, never across machines.</li>
       <li>Use <strong>Compare</strong> on two rows, then <strong>Compare models</strong> in the dock — or open <strong>Quick compare</strong>.</li>
       <li>Each probe with <code>--library</code> (or a save into this folder) refreshes the table automatically.</li>
     </ul>
@@ -276,6 +299,10 @@ export function renderLibraryHtml(
     <div class="sort-ctrl">
       <label for="sort-key">Sort by</label>
       <select id="sort-key">
+        <option value="date">Most recent</option>
+        <option value="decode">Decode tok/s</option>
+        <option value="prefill">Prefill tok/s</option>
+        <option value="ttft">Time to first token</option>
         <option value="capability">Model capability</option>
         <option value="conformance">Engine conformance</option>
         <option value="coverage">Coverage (Core→Ext→Front)</option>
@@ -291,7 +318,7 @@ export function renderLibraryHtml(
         <option value="asc">Low → high</option>
       </select>
     </div>
-    <div class="library-count" id="filter-meta">Click column headers to sort · select up to 2 models to compare</div>
+    <div class="library-count" id="filter-meta">Newest first · click column headers to sort · select up to 2 models to compare</div>
   </div>
 
   <div class="rank-wrap">
@@ -302,8 +329,12 @@ export function renderLibraryHtml(
           <th scope="col" data-sort="model">Model <span class="sort-ind">↕</span></th>
           <th scope="col" data-sort="coverage" title="Core | Extended | Frontier">Surface coverage <span class="sort-ind">↕</span></th>
           <th scope="col" data-sort="conformance">Conformance <span class="sort-ind">↕</span></th>
-          <th scope="col" data-sort="capability" class="active">Capability <span class="sort-ind">▼</span></th>
+          <th scope="col" data-sort="capability">Capability <span class="sort-ind">↕</span></th>
           <th scope="col" data-sort="agentic">Agentic <span class="sort-ind">↕</span></th>
+          <th scope="col" data-sort="decode" title="Steady-state decode throughput, tok/s — hardware-dependent">Decode <span class="sort-ind">↕</span></th>
+          <th scope="col" data-sort="prefill" title="Prompt ingestion rate, tok/s — hardware-dependent">Prefill <span class="sort-ind">↕</span></th>
+          <th scope="col" data-sort="ttft" title="Time to first token — lower is better">TTFT <span class="sort-ind">↕</span></th>
+          <th scope="col" data-sort="date" class="active">Last run <span class="sort-ind">▼</span></th>
           <th scope="col">Actions</th>
         </tr>
       </thead>

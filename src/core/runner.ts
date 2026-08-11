@@ -372,6 +372,7 @@ export function buildCoverageEntries(
   for (const feature of FEATURES) {
     const found = featureSupport.get(feature.id);
     const supported = found?.supported === true;
+    const probed = !unprobed.has(feature.id);
 
     entries.push({
       item: {
@@ -381,13 +382,16 @@ export function buildCoverageEntries(
         tier: feature.tier,
       },
       supported,
-      probed: !unprobed.has(feature.id),
-      detail: supported
-        ? undefined
-        : (found?.detail ??
-          (present.has(feature.surface)
-            ? "not detected"
-            : `${feature.surface} not implemented`)),
+      probed,
+      // Nothing ran, so nothing is known: a detail here would read as a
+      // finding ("not detected") for a check that was never made.
+      detail:
+        supported || !probed
+          ? undefined
+          : (found?.detail ??
+            (present.has(feature.surface)
+              ? "not detected"
+              : `${feature.surface} not implemented`)),
     });
   }
 

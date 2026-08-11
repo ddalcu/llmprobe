@@ -179,6 +179,21 @@ Surface discovery is free: it probes with empty-body POSTs, which every engine r
 
 **Catch-all servers.** Not every engine 404s a path it doesn't have. LM Studio answers _every_ unknown path with `HTTP 200` and `{"error":"Unexpected endpoint or method. (POST /v1/images/generations)"}` — so a status-only probe credits it with audio, images, and endpoints it has never heard of. llmprobe first asks for an endpoint that cannot exist, fingerprints whatever the server says, and reads any matching reply as absent. Coverage is the number people quote; getting this wrong would have been the most damaging bug in the tool.
 
+## Picking models
+
+Probing several models on one endpoint is one command. The model picker takes a comma list and runs each pick in turn — the same as running the command once per model, except surface discovery happens once instead of N times:
+
+```
+Select a model:
+   1. Qwen3.5-0.8B-MLX-4bit
+   2. Llama-3.2-3B-Instruct-4bit
+   3. gemma-4-12B-it-qat-4bit
+  several at once: comma-separated, e.g. 1,3,4 — each runs in turn
+Model [1-3, comma-separated, default 1]: 1,3
+```
+
+Each model gets its own card, library row and exit-code verdict; the command exits non-zero if any of them regressed or failed a MUST. With `--save` or `--html`, the model is appended to the filename so the runs do not overwrite each other. This works for any run, not just `--bench-only` — a comma list on a full probe costs the whole suite per model, so it is worth knowing what that costs on a paid endpoint.
+
 ## Model library & report cards
 
 Every probe is recorded in `~/.llmprobe` — no flag needed. That directory is
@@ -202,6 +217,13 @@ Each run is filed under its model _and_ endpoint, so the same model probed on
 llama.cpp and on Ollama gives you two rows to compare, not one overwriting the
 other.
 
+The table sorts newest-first by default — the run you just did is row 1 — and
+every column is sortable: coverage, conformance, capability, agentic, and the
+`--bench` numbers (decode tok/s, prefill tok/s, TTFT). Picking a metric sorts it
+best-first, which for TTFT means ascending. Runs with no benchmark read `—` and
+sink to the bottom rather than ranking as the slowest engine you own. Click a
+model name (or **View**) to open its report card.
+
 | you want                                            | flag                          |
 | --------------------------------------------------- | ----------------------------- |
 | open this run's card                                | `--open`                      |
@@ -222,6 +244,8 @@ llmprobe localhost:8080 --bench --html report.html
 ```bash
 llmprobe localhost:8080 --bench-only --full --save mtp.json
 ```
+
+The report card follows the same rule: it shows the sections this run actually measured — surface coverage and Performance for a `--bench-only` run — and names the ones it skipped instead of drawing them as zeros.
 
 Every measured run reports its own number as it completes, rather than leaving the terminal to say only that something is happening. A single 64k rung can take minutes, so the ladder does the same:
 

@@ -1,5 +1,6 @@
-import type { JsonReport } from "../json";
+import type { JsonReport, ReportRunScope } from "../json";
 import { normalizeJsonReport } from "../json";
+import { benchSection } from "./bench";
 import { CARD_STYLE } from "./style.css";
 import { THEME_BOOT, THEME_SCRIPT, themeSwitcherHtml } from "./theme";
 import { REPORT_SCRIPT } from "./report-script";
@@ -135,6 +136,28 @@ export function renderCardHtml(
   const fidelity = report.fidelity;
   const must = mustFailures(report);
   const outcomes = outcomeCounts(report);
+  const bench = report.bench;
+
+  // What this run actually measured. A --bench-only or --quick run never
+  // touched the scored phases, and rendering their empty cards reads as an
+  // engine that failed everything rather than one nobody asked about.
+  const phases = report.run?.phases;
+  const ran = (key: keyof ReportRunScope["phases"]): boolean =>
+    (phases?.[key]?.status ?? "measured") !== "not-run";
+  const notRun = (
+    ["conformance", "capability", "agentic", "fidelity"] as Array<
+      keyof ReportRunScope["phases"]
+    >
+  ).filter((key) => !ran(key));
+  const notRunReasons = [
+    ...new Set(notRun.map((key) => phases?.[key]?.reason).filter(Boolean)),
+  ] as string[];
+  const scopeNote =
+    notRun.length > 0
+      ? `<p class="fine scope-note">Not run in this probe: ${notRun.join(", ")}${
+          notRunReasons.length > 0 ? ` — ${esc(notRunReasons.join("; "))}` : ""
+        }. Only what was measured is shown below.</p>`
+      : "";
 
   const covTone = toneForPct(core?.pct);
   const confTone = confMeasured
@@ -346,6 +369,58 @@ export function renderCardHtml(
     options.label ? `file: ${options.label}` : null,
   ].filter(Boolean);
 
+  const coverageCard = `<article class="card engine">
+      <div class="card-kicker">Surface coverage</div>
+      <div class="card-value ${covTone}">${esc(coreHeadline)}</div>
+      <div class="card-sub">
+        <span>Core ${core ? `${core.supported}/${core.total}` : "—"}</span>
+        ${core?.missing?.length ? `<span class="badge critical">${core.missing.length} core gap${core.missing.length > 1 ? "s" : ""}</span>` : `<span class="badge good">core complete</span>`}
+      </div>
+      ${miniTiers(report)}
+      <div class="card-note">How much of the standard API surface exists. Missing features are listed on purpose.</div>
+    </article>`;
+
+  const conformanceCard = `<article class="card engine">
+      <div class="card-kicker">Engine conformance</div>
+      <div class="card-value ${confToneStrict}">${esc(confHeadline)}</div>
+      <div class="card-sub">
+        ${confMeasured ? `<span>${conf.passed}/${conf.total} MUST</span>` : `<span>not measured</span>`}
+        ${must.length ? `<span class="badge critical">${must.length} violation${must.length > 1 ? "s" : ""}</span>` : confMeasured ? `<span class="badge good">no MUST fails</span>` : ""}
+      </div>
+      <div class="card-note">Of the surfaces that exist, how correct are the MUST behaviors. Unsupported ≠ fail.</div>
+    </article>`;
+
+  const capabilityCard = `<article class="card model">
+      <div class="card-kicker">Model capability</div>
+      <div class="card-value ${capTone}">${esc(capHeadline)}</div>
+      <div class="card-sub">
+        ${capMeasured ? `<span class="badge ${capTone}">${esc(cap.verdict)}</span>` : `<span>not measured</span>`}
+        ${capMeasured ? `<span>${cap.categories.length} categories</span>` : ""}
+      </div>
+      <div class="card-note">Practical floor for tools, JSON, instructions — graded below floor / capable / strong.</div>
+    </article>`;
+
+  // Only when the benchmark ran: a headline rate belongs beside the scores it
+  // is not, rather than buried under the section that explains it.
+  const performanceCard = bench
+    ? `<article class="card neutral">
+      <div class="card-kicker">Performance</div>
+      <div class="card-value">${bench.decodeTokPerSec ? `${Math.round(bench.decodeTokPerSec.median * 10) / 10}` : "—"}</div>
+      <div class="card-sub">
+        <span>tok/s decode</span>
+        ${bench.ttftMs ? `<span class="badge">${Math.round(bench.ttftMs.median)} ms first token</span>` : ""}
+      </div>
+      <div class="card-note">Informational — hardware-dependent and never scored. Same-machine comparisons only.</div>
+    </article>`
+    : "";
+
+  const heroCards = [
+    coverageCard,
+    ran("conformance") ? conformanceCard : "",
+    ran("capability") ? capabilityCard : "",
+    performanceCard,
+  ].filter(Boolean);
+
   const outcomeHonesty = `<div class="outcome-lines">
     <div class="outcome-line good"><span class="ol-label">Pass</span><span class="ol-n">${outcomes.pass}</span></div>
     <div class="outcome-line critical"><span class="ol-label">Fail</span><span class="ol-n">${outcomes.fail}</span></div>
@@ -354,6 +429,34 @@ export function renderCardHtml(
     <div class="outcome-line muted"><span class="ol-label">Skipped</span><span class="ol-n">${outcomes.skipped}</span></div>
   </div>
   <div class="card-note">Unsupported and inconclusive are not zeros and not fails.</div>`;
+
+  const secondaryCards = [
+    ran("agentic")
+      ? `<div class="sec-card">
+      <div class="card-kicker">Agentic</div>
+      <div class="card-value ${agentic ? (agentic.passed === agentic.total ? "good" : agentic.passed === 0 ? "critical" : "caution") : ""}">${agentic ? `${agentic.passed}/${agentic.total}` : "—"}</div>
+      <div class="card-note">Harder multi-step bar. Never blended into capability.</div>
+    </div>`
+      : "",
+    ran("fidelity")
+      ? `<div class="sec-card">
+      <div class="card-kicker">Engine fidelity</div>
+      <div class="card-value ${fidelity ? toneForPct(fidelity.pct) : ""}">${fidelity ? `${fidelity.pct}%` : "—"}</div>
+      <div class="card-note">Same-model only — holds the model constant so the number is the engine.</div>
+    </div>`
+      : "",
+    ran("conformance")
+      ? `<div class="sec-card">
+      <div class="card-kicker">Outcomes honesty</div>
+      ${outcomeHonesty}
+    </div>`
+      : "",
+  ].filter(Boolean);
+
+  const secondaryRow =
+    secondaryCards.length > 0
+      ? `<div class="secondary" aria-label="Secondary signals">${secondaryCards.join("\n")}</div>`
+      : "";
 
   const baselineSection = options.baseline
     ? `<section class="section" id="baseline">
@@ -384,97 +487,8 @@ export function renderCardHtml(
     </section>`
     : "";
 
-  return `<!DOCTYPE html>
-<html lang="en" data-theme="light">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>llmprobe · ${esc(shortModel(model))}</title>
-<script>${THEME_BOOT}</script>
-<style>${CARD_STYLE}</style>
-</head>
-<body>
-<div class="wrap">
-  <header class="top">
-    <div>
-      <div class="brand">llmprobe report card</div>
-      <h1>${esc(model)}</h1>
-      <div class="meta">
-        ${engine ? `<span>${esc(engine)}</span>` : ""}
-        ${baseUrl ? `<span>${esc(baseUrl)}</span>` : ""}
-      </div>
-    </div>
-    <nav class="nav-links" aria-label="Reports">${nav}${themeSwitcherHtml()}</nav>
-  </header>
-
-  <div class="overview-label">
-    <h2>Overview</h2>
-    <p>Three independent scores — never averaged</p>
-  </div>
-  <div class="hero" aria-label="Primary scores">
-    <article class="card engine">
-      <div class="card-kicker">Surface coverage</div>
-      <div class="card-value ${covTone}">${esc(coreHeadline)}</div>
-      <div class="card-sub">
-        <span>Core ${core ? `${core.supported}/${core.total}` : "—"}</span>
-        ${core?.missing?.length ? `<span class="badge critical">${core.missing.length} core gap${core.missing.length > 1 ? "s" : ""}</span>` : `<span class="badge good">core complete</span>`}
-      </div>
-      ${miniTiers(report)}
-      <div class="card-note">How much of the standard API surface exists. Missing features are listed on purpose.</div>
-    </article>
-
-    <article class="card engine">
-      <div class="card-kicker">Engine conformance</div>
-      <div class="card-value ${confToneStrict}">${esc(confHeadline)}</div>
-      <div class="card-sub">
-        ${confMeasured ? `<span>${conf.passed}/${conf.total} MUST</span>` : `<span>not measured</span>`}
-        ${must.length ? `<span class="badge critical">${must.length} violation${must.length > 1 ? "s" : ""}</span>` : confMeasured ? `<span class="badge good">no MUST fails</span>` : ""}
-      </div>
-      <div class="card-note">Of the surfaces that exist, how correct are the MUST behaviors. Unsupported ≠ fail.</div>
-    </article>
-
-    <article class="card model">
-      <div class="card-kicker">Model capability</div>
-      <div class="card-value ${capTone}">${esc(capHeadline)}</div>
-      <div class="card-sub">
-        ${capMeasured ? `<span class="badge ${capTone}">${esc(cap.verdict)}</span>` : `<span>not measured</span>`}
-        ${capMeasured ? `<span>${cap.categories.length} categories</span>` : ""}
-      </div>
-      <div class="card-note">Practical floor for tools, JSON, instructions — graded below floor / capable / strong.</div>
-    </article>
-  </div>
-
-  <div class="secondary" aria-label="Secondary signals">
-    <div class="sec-card">
-      <div class="card-kicker">Agentic</div>
-      <div class="card-value ${agentic ? (agentic.passed === agentic.total ? "good" : agentic.passed === 0 ? "critical" : "caution") : ""}">${agentic ? `${agentic.passed}/${agentic.total}` : "—"}</div>
-      <div class="card-note">Harder multi-step bar. Never blended into capability.</div>
-    </div>
-    <div class="sec-card">
-      <div class="card-kicker">Engine fidelity</div>
-      <div class="card-value ${fidelity ? toneForPct(fidelity.pct) : ""}">${fidelity ? `${fidelity.pct}%` : "—"}</div>
-      <div class="card-note">Same-model only — holds the model constant so the number is the engine.</div>
-    </div>
-    <div class="sec-card">
-      <div class="card-kicker">Outcomes honesty</div>
-      ${outcomeHonesty}
-    </div>
-  </div>
-
-  <div class="story">
-    ${baselineSection}
-    <section class="section" id="coverage">
-      <div class="section-head">
-        <h2>Surface coverage <span class="tag engine">engine</span></h2>
-        <div class="score ${covTone}">Core ${esc(coreHeadline)}</div>
-      </div>
-      <p class="lede">Per tier, never averaged. Click Core / Extended / Frontier to expand every feature under that tier.</p>
-      <p class="hint-click">Click a tier row to expand · missing features sort first</p>
-      ${tierBlocks(report)}
-      ${credits}
-    </section>
-
-    <section class="section" id="conformance">
+  const conformanceSection = ran("conformance")
+    ? `    <section class="section" id="conformance">
       <div class="section-head">
         <h2>Engine conformance <span class="tag engine">engine</span></h2>
         <div class="score ${confToneStrict}">${esc(confHeadline)}</div>
@@ -507,9 +521,11 @@ export function renderCardHtml(
           <tbody id="conf-tbody"></tbody>
         </table>
       </div>
-    </section>
+    </section>`
+    : "";
 
-    <section class="section" id="capability">
+  const capabilitySection = ran("capability")
+    ? `    <section class="section" id="capability">
       <div class="section-head">
         <h2>Model capability <span class="tag model">model</span></h2>
         <div class="score ${capTone}">${capMeasured ? `${esc(capHeadline)} · ${esc(cap.verdict)}` : "—"}</div>
@@ -518,18 +534,22 @@ export function renderCardHtml(
       <p class="hint-click">Click a category row to expand evals</p>
       ${capMeasured ? cats : `<p class="fine">Capability not measured.</p>`}
       ${weakNote}${unmeasNote}
-    </section>
+    </section>`
+    : "";
 
-    <section class="section" id="agentic">
+  const agenticSection = ran("agentic")
+    ? `    <section class="section" id="agentic">
       <div class="section-head">
         <h2>Agentic <span class="tag model">model</span></h2>
         <div class="score ${agentic ? (agentic.passed === agentic.total ? "good" : "caution") : ""}">${agentic ? `${agentic.passed}/${agentic.total} tasks` : "—"}</div>
       </div>
       <p class="lede">Multi-step tool use in a simulated workspace — harder than the capability floor, never blended into it.</p>
       ${tasks}
-    </section>
+    </section>`
+    : "";
 
-    <section class="section" id="fidelity">
+  const fidelitySection = ran("fidelity")
+    ? `    <section class="section" id="fidelity">
       <div class="section-head">
         <h2>Engine fidelity <span class="tag engine">engine</span></h2>
         <div class="score ${fidelity ? toneForPct(fidelity.pct) : ""}">${fidelity ? `${fidelity.pct}%` : "—"}</div>
@@ -541,7 +561,69 @@ export function renderCardHtml(
           ? `<div class="fine">· ${fidelity.unmeasured.map(esc).join(", ")} not measured</div>`
           : ""
       }
+    </section>`
+    : "";
+
+  const performanceSection = bench ? benchSection(bench) : "";
+
+  return `<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>llmprobe · ${esc(shortModel(model))}</title>
+<script>${THEME_BOOT}</script>
+<style>${CARD_STYLE}</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="brand">llmprobe report card</div>
+      <h1>${esc(model)}</h1>
+      <div class="meta">
+        ${engine ? `<span>${esc(engine)}</span>` : ""}
+        ${baseUrl ? `<span>${esc(baseUrl)}</span>` : ""}
+        ${report.run?.mode === "bench-only" ? `<span class="badge">benchmark only</span>` : ""}
+        ${report.run?.depth && report.run.depth !== "default" ? `<span class="badge">--${esc(report.run.depth)}</span>` : ""}
+      </div>
+      ${scopeNote}
+    </div>
+    <nav class="nav-links" aria-label="Reports">${nav}${themeSwitcherHtml()}</nav>
+  </header>
+
+  <div class="overview-label">
+    <h2>Overview</h2>
+    <p>${
+      ran("conformance") && ran("capability")
+        ? "Three independent scores — never averaged"
+        : "Only what this run measured — the scores stay independent"
+    }</p>
+  </div>
+  <div class="hero" aria-label="Primary scores">
+    ${heroCards.join("\n")}
+  </div>
+
+  ${secondaryRow}
+
+  <div class="story">
+    ${baselineSection}
+    <section class="section" id="coverage">
+      <div class="section-head">
+        <h2>Surface coverage <span class="tag engine">engine</span></h2>
+        <div class="score ${covTone}">Core ${esc(coreHeadline)}</div>
+      </div>
+      <p class="lede">Per tier, never averaged. Click Core / Extended / Frontier to expand every feature under that tier.</p>
+      <p class="hint-click">Click a tier row to expand · missing features sort first</p>
+      ${tierBlocks(report)}
+      ${credits}
     </section>
+
+    ${conformanceSection}
+    ${capabilitySection}
+    ${agenticSection}
+    ${fidelitySection}
+    ${performanceSection}
   </div>
 
   <footer class="page">
