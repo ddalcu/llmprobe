@@ -447,6 +447,12 @@ export interface BenchReport {
    * classic per-frame math would have inflated them.
    */
   streamCaveat: string | null;
+  /**
+   * Which length mode produced the decode figures: forced-to-cap via
+   * ignore_eos/min_tokens (equal work per model) or the model's natural stop
+   * (the engine ignored the flags). Methodology must be visible, never silent.
+   */
+  decodeLengthNote?: string | null;
   /** Time to first generated token, ms. */
   ttftMs: BenchStat | null;
   /** Prompt ingestion rate, tokens/sec, from a deliberately long prompt. */

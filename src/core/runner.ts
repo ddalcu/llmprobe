@@ -4,6 +4,7 @@ import type { ConformanceTest, EvalDef, RunContext } from "./context";
 import type {
   ConformanceResult,
   CoverageEntry,
+  CreditEntry,
   EvalResult,
   EvalSample,
 } from "./outcome";
@@ -32,6 +33,8 @@ export interface UnreachableRun {
 export interface ConformanceRun {
   results: ConformanceResult[];
   featureSupport: FeatureSupport;
+  /** Zero-point observations tests made on the way past — detected, not scored. */
+  credits: CreditEntry[];
   /**
    * Set when the run stopped because the target stopped answering. Everything
    * below is partial by definition, and the caller must not chart it as a
@@ -59,6 +62,7 @@ export async function runConformance(
 ): Promise<ConformanceRun> {
   const results: ConformanceResult[] = [];
   const featureSupport: FeatureSupport = new Map();
+  const credits: CreditEntry[] = [];
   const skippedFeatures = new Set<string>();
   let consecutiveUnreachable = 0;
   let lastAnswered = "the run start";
@@ -131,6 +135,8 @@ export async function runConformance(
     try {
       const verdict = (await test.run(ctx, asserter)) ?? {};
       answered();
+
+      if (verdict.credit) credits.push(verdict.credit);
 
       // A test may report the feature missing *and* record MUST failures. That
       // is exactly the "accepted the param, silently ignored it" case: it costs
@@ -261,7 +267,7 @@ export async function runConformance(
     [...skippedFeatures].filter((feature) => !featureSupport.has(feature)),
   );
 
-  return { results, featureSupport, unprobed, unreachable };
+  return { results, featureSupport, credits, unprobed, unreachable };
 }
 
 export async function runEvals(

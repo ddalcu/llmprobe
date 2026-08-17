@@ -56,6 +56,15 @@ export const SURFACES: SurfaceDef[] = [
     chatShaped: true,
   },
   {
+    // Agent clients call this before every request to budget context; an
+    // engine that ships /v1/messages without it silently breaks them.
+    id: "count-tokens",
+    label: "messages/count_tokens",
+    tier: "extended",
+    method: "POST",
+    path: "/messages/count_tokens",
+  },
+  {
     id: "embeddings",
     label: "embeddings",
     tier: "extended",

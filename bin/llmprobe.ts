@@ -529,6 +529,8 @@ async function probeModel(
   let evalResults: EvalResult[] = [];
   let featureSupport: FeatureSupport = new Map();
   let unprobed = new Set<string>();
+  /** Credits the tests themselves earned — the endpoint probes ran before this. */
+  let testCredits: CreditEntry[] = [];
   let budgetHit = false;
   /** Set when the target stopped answering — everything after it is partial. */
   let incomplete: string | null = null;
@@ -582,6 +584,7 @@ async function probeModel(
     conformanceResults = run.results;
     featureSupport = run.featureSupport;
     unprobed = run.unprobed;
+    testCredits = run.credits;
 
     if (run.unreachable) {
       const { after, notRun, reason } = run.unreachable;
@@ -845,7 +848,7 @@ async function probeModel(
   const report: RunReport = {
     target: { baseUrl, model, engine: detectEngine(serverHeader) },
     ...(incomplete ? { incomplete } : {}),
-    coverage: scoreCoverage(entries, credits),
+    coverage: scoreCoverage(entries, [...credits, ...testCredits]),
     conformance: scoreConformance(conformanceResults),
     capability: scoreCapability(evalResults),
     agentic,
@@ -1187,7 +1190,10 @@ async function main(): Promise<void> {
   );
 
   const headersFor = (surfaceId: string): Record<string, string> => {
-    const adapter = adapterById.get(surfaceId);
+    // count_tokens is Anthropic-shaped but has no chat adapter of its own.
+    const adapter = adapterById.get(
+      surfaceId === "count-tokens" ? "messages" : surfaceId,
+    );
     const partial = { apiKey } as RunConfig;
     return adapter ? adapter.headers(partial) : bearerAuth(partial);
   };

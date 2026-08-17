@@ -1,10 +1,15 @@
 import { z } from "zod";
 
-import { bearerAuth } from "../core/adapter";
+import { bearerAuth, type Turn } from "../core/adapter";
 import { Inconclusive, isLengthStyleFinish } from "../core/assert";
-import type { ConformanceTest } from "../core/context";
+import type { ConformanceTest, TestVerdict } from "../core/context";
 import { checkSSEFraming } from "../core/sse";
+import { messagesAdapter } from "../surfaces/messages/adapter";
 import { TINY_PNG_BYTES } from "./fixtures";
+
+/** Same job as shared.ts's runNonce: a warm cache from an earlier run must never serve this one. */
+const surfacesNonce =
+  Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
 /**
  * `/v1/models` has no generated schema in this repo (it isn't in the forked
@@ -531,6 +536,115 @@ export const responsesOnlyTests: ConformanceTest[] = [
   },
 ];
 
+// ── /v1/messages/count_tokens ───────────────────────────────────────────────
+
+export const countTokensTests: ConformanceTest[] = [
+  {
+    id: "count-tokens",
+    name: "messages/count_tokens: token counting",
+    surface: "count-tokens",
+    tier: "extended",
+    async run(ctx, a) {
+      const headers = messagesAdapter.headers(ctx.config);
+      const question =
+        "What is the capital of France? Reply with the city name only.";
+      const short = [{ role: "user", content: question }];
+      const long = [
+        ...short,
+        { role: "assistant", content: "Paris." },
+        {
+          role: "user",
+          content:
+            "Now name three other French cities, with a sentence about each one.",
+        },
+      ];
+      const count = (messages: unknown) =>
+        ctx.client.request("POST", "/messages/count_tokens", {
+          headers,
+          body: { model: ctx.config.model, messages },
+        });
+      const tokens = (res: { json?: unknown }): unknown =>
+        (res.json as { input_tokens?: unknown } | undefined)?.input_tokens;
+
+      const first = await count(short);
+      a.must(
+        "count-tokens-status",
+        "a well-formed count returns 200",
+        first.status === 200,
+        `HTTP ${first.status}: ${first.text.slice(0, 160)}`,
+      );
+      if (first.status !== 200) return;
+
+      const n1 = tokens(first);
+      a.must(
+        "count-tokens-shape",
+        "body carries a positive input_tokens number",
+        typeof n1 === "number" && n1 > 0,
+        `input_tokens was ${JSON.stringify(n1)}`,
+      );
+      if (typeof n1 !== "number") return;
+
+      // The check that catches a stub returning a constant.
+      const second = await count(long);
+      const n2 = tokens(second);
+      a.must(
+        "count-tokens-grows",
+        "a longer conversation counts strictly more tokens",
+        typeof n2 === "number" && n2 > n1,
+        `${n1} tokens for a conversation, ${JSON.stringify(n2)} for a strict superset of it`,
+      );
+
+      // The check that catches a real tokenizer applied to the wrong template.
+      // Tolerant, because the generation prompt is counted differently.
+      if (!ctx.present.has("messages")) return;
+      const live = await ctx.send("messages", {
+        turns: [{ type: "user", text: question }],
+        temperature: 0,
+        maxTokens: 8,
+        allowReasoning: false,
+      });
+      const used = live.reply.usage.inputTokens;
+      if (live.status !== 200 || typeof used !== "number" || used === 0) return;
+      a.should(
+        "count-tokens-matches-usage",
+        "the count is within ~10% of what /v1/messages reports as usage",
+        Math.abs(used - n1) / used <= 0.1,
+        `count_tokens said ${n1}, the same messages cost ${used} input tokens on /v1/messages`,
+      );
+    },
+  },
+];
+
+// ── assistant prefill ───────────────────────────────────────────────────────
+
+/**
+ * A prefill cut mid-word, phrased so no fresh generation would reproduce it.
+ *
+ * "Par" completes exactly one way, so a reply opening with "is" continued the
+ * turn and one opening with "Paris" answered from the top. The preamble is
+ * there only so an engine that echoes the prefill back is separable from one
+ * that restarted — under "the city name only" no model writes it unprompted.
+ */
+export const ASSISTANT_PREFILL = "Sure. The city you are asking about is Par";
+
+const PREFILL_TURNS: Turn[] = [
+  {
+    type: "user",
+    text: "What is the capital of France? Reply with the city name only.",
+  },
+  { type: "assistant-text", text: ASSISTANT_PREFILL },
+];
+
+type PrefillBehavior = "continued" | "echoed" | "restarted" | "unclear";
+
+function classifyPrefill(text: string): PrefillBehavior {
+  const reply = text.trimStart();
+  if (reply.startsWith(ASSISTANT_PREFILL)) return "echoed";
+  if (/^is\b/i.test(reply)) return "continued";
+  if (/paris/i.test(reply)) return "restarted";
+  return "unclear";
+}
+
 // ── Messages-specific ───────────────────────────────────────────────────────
 
 export const messagesOnlyTests: ConformanceTest[] = [
@@ -683,6 +797,58 @@ export const messagesOnlyTests: ConformanceTest[] = [
     },
   },
   {
+    id: "messages-assistant-prefill",
+    name: "messages: a trailing assistant message is a prefill",
+    surface: "messages",
+    tier: "core",
+    async run(ctx, a) {
+      // Anthropic's own contract, not a vendor extension: "If the final message
+      // uses the assistant role, the response content will continue immediately
+      // from the content in that message." No flag, and the prefill is not
+      // repeated — the documented example prefills "The best answer is (" and
+      // gets back "B)", nothing more.
+      const res = await ctx.send("messages", {
+        turns: PREFILL_TURNS,
+        temperature: 0,
+        maxTokens: 24,
+      });
+
+      if (res.status !== 200) {
+        a.must(
+          "messages-prefill-status",
+          "accepts a trailing assistant message",
+          false,
+          `HTTP ${res.status} — the spec makes a trailing assistant turn a prefill, not an error`,
+        );
+        return;
+      }
+
+      const behavior = classifyPrefill(res.reply.text);
+      const seen = res.reply.text.trim().slice(0, 60);
+
+      // The model wandered off the question, so the engine's handling of the
+      // prefill was never shown. Scoring it either way would be a guess.
+      if (behavior === "unclear") {
+        throw new Inconclusive(
+          `the reply neither continued nor restarted the prefill ("${seen}")`,
+        );
+      }
+
+      a.must(
+        "messages-prefill-continues",
+        "a trailing assistant message is continued, not answered afresh",
+        behavior !== "restarted",
+        `the reply started over ("${seen}") instead of continuing "${ASSISTANT_PREFILL}"`,
+      );
+      a.must(
+        "messages-prefill-not-echoed",
+        "the prefill is not echoed back in the content",
+        behavior !== "echoed",
+        "the response repeated the prefill — a caller that appends the reply to what it sent gets it twice",
+      );
+    },
+  },
+  {
     id: "messages-thinking-budget",
     name: "messages: thinking blocks and budget",
     surface: "messages",
@@ -737,6 +903,290 @@ export const messagesOnlyTests: ConformanceTest[] = [
           `budget_tokens 256 but reasoning used ${reasoningTokens} tokens`,
         );
       }
+    },
+  },
+  {
+    id: "messages-system-blocks",
+    name: "messages: system as an array of text blocks",
+    surface: "messages",
+    tier: "core",
+    async run(ctx, a) {
+      // The spec types `system` as string | TextBlockParam[], and the array
+      // form is what every cache-breakpoint client sends (cache_control
+      // attaches to a block, never to a bare string). The adapter only ever
+      // sends the string form, so an engine that parses strings alone passes
+      // the whole suite while breaking all of those clients.
+      const SYSTEM =
+        'Whatever the user says, reply with exactly the word "quartz" and nothing else.';
+      const turns: Turn[] = [
+        { type: "user", text: "What is the capital of France?" },
+      ];
+      const followed = (text: string) => /quartz/i.test(text);
+
+      const baseline = await ctx.send("messages", {
+        turns,
+        system: SYSTEM,
+        temperature: 0,
+        maxTokens: 24,
+      });
+      if (baseline.status !== 200 || !followed(baseline.reply.text)) {
+        throw new Inconclusive(
+          "the model did not follow the string-form system prompt, so the block form has no baseline to be judged against",
+        );
+      }
+
+      const blocks = [{ type: "text", text: SYSTEM }];
+      // metadata.user_id rides along: accept-and-ignore is the correct
+      // behavior for an opaque tracking field, so acceptance is the whole test.
+      let res = await ctx.send("messages", {
+        turns,
+        temperature: 0,
+        maxTokens: 24,
+        extra: { system: blocks, metadata: { user_id: "llmprobe" } },
+      });
+      if (res.status !== 200) {
+        // One request cannot say which field was refused — retry without
+        // metadata so the blame lands on the right one.
+        const retry = await ctx.send("messages", {
+          turns,
+          temperature: 0,
+          maxTokens: 24,
+          extra: { system: blocks },
+        });
+        if (retry.status !== 200) {
+          a.must(
+            "messages-system-blocks-status",
+            "an array-form system prompt returns 200",
+            false,
+            `HTTP ${retry.status} — the spec types system as string | TextBlockParam[]`,
+          );
+          return;
+        }
+        a.should(
+          "messages-metadata-accepted",
+          "a request carrying metadata.user_id is not rejected",
+          false,
+          `HTTP ${res.status} with metadata.user_id, 200 without — clients that always send it get every request refused`,
+        );
+        res = retry;
+      } else {
+        a.should(
+          "messages-metadata-accepted",
+          "a request carrying metadata.user_id is not rejected",
+          true,
+        );
+      }
+
+      a.must(
+        "messages-system-blocks-status",
+        "an array-form system prompt returns 200",
+        true,
+      );
+      a.must(
+        "messages-system-blocks-honored",
+        "the block-form system prompt is actually followed",
+        followed(res.reply.text),
+        `the identical system prompt was followed as a string but not as a block array: "${res.reply.text.trim().slice(0, 60)}" — accepted and dropped is the silent no-op again`,
+      );
+    },
+  },
+  {
+    id: "messages-content-blocks",
+    name: "messages: user content as an array of text blocks",
+    surface: "messages",
+    tier: "core",
+    async run(ctx, a) {
+      // Plain multi-block text is what agent clients send once anything is
+      // attached to a turn; the adapter only produces arrays for the image
+      // case, so an engine handling that but not this fails unseen.
+      const res = await ctx.send("messages", {
+        turns: [{ type: "user", text: "unused" }],
+        temperature: 0,
+        maxTokens: 24,
+        // Overrides the built messages array wholesale with the block shape.
+        extra: {
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "Answer the question in the next block with just the number.",
+                },
+                { type: "text", text: "What is 12 + 30?" },
+              ],
+            },
+          ],
+        },
+      });
+
+      a.should(
+        "messages-content-blocks-status",
+        "a text-block array on a user turn is accepted",
+        res.status === 200,
+        `HTTP ${res.status} — the image form is an array too, so any client attaching content sends this shape`,
+      );
+      if (res.status !== 200) return;
+
+      a.should(
+        "messages-content-blocks-honored",
+        "the text inside the block array reaches the model",
+        /42/.test(res.reply.text),
+        `expected 42, got: "${res.reply.text.trim().slice(0, 60)}"`,
+      );
+    },
+  },
+  {
+    id: "messages-top-k",
+    name: "messages: top_k is honored",
+    surface: "messages",
+    tier: "extended",
+    async run(ctx, a) {
+      // Same trick as the shared top_p probe: top_k: 1 collapses sampling to
+      // greedy, so two runs at temperature 1 must agree. It is the sampler
+      // local engines most often accept and ignore, and a spec parameter here.
+      const request = {
+        turns: [
+          { type: "user" as const, text: "Invent a two-word band name." },
+        ],
+        temperature: 1,
+        maxTokens: 24,
+        extra: { top_k: 1 },
+      };
+
+      const first = await ctx.send("messages", request);
+      a.must(
+        "messages-top-k-status",
+        "top_k is accepted",
+        first.status === 200,
+        `HTTP ${first.status} — top_k is a spec request parameter on this surface`,
+      );
+      if (first.status !== 200) return;
+
+      const second = await ctx.send("messages", request);
+      a.must(
+        "messages-top-k-honored",
+        "top_k: 1 at temperature 1 decodes greedily",
+        first.reply.text === second.reply.text,
+        `two runs differ: "${first.reply.text.slice(0, 40)}" vs "${second.reply.text.slice(0, 40)}" — the parameter was silently dropped`,
+      );
+    },
+  },
+  {
+    id: "messages-cache-control",
+    name: "messages: cache_control breakpoints",
+    surface: "messages",
+    tier: "frontier",
+    async run(ctx, a) {
+      // The explicit half of Anthropic caching, which the shared cache tests
+      // never touch: an ephemeral breakpoint on a system block, answered by
+      // the cache_creation/cache_read counter pair. All SHOULD — an engine
+      // with no cache is not broken, just not caching, and the prompt-caching
+      // feature line is owned by the shared test.
+      //
+      // Well past the 1024-token minimum cacheable length, and nonced so an
+      // earlier run can never have warmed it.
+      const system = [
+        {
+          type: "text",
+          text:
+            `Conversation ${surfacesNonce}. ` +
+            "You are a meticulous, patient archivist. ".repeat(220),
+          cache_control: { type: "ephemeral" },
+        },
+      ];
+      const request = {
+        turns: [{ type: "user" as const, text: "Say hi." }],
+        temperature: 0,
+        maxTokens: 8,
+        extra: { system },
+      };
+
+      const first = await ctx.send("messages", request);
+      a.should(
+        "messages-cache-control-status",
+        "a cache_control block is accepted",
+        first.status === 200,
+        `HTTP ${first.status}: ${first.text.slice(0, 160)}`,
+      );
+      if (first.status !== 200) return;
+
+      const second = await ctx.send("messages", request);
+      const written = first.reply.usage.cacheCreationInputTokens ?? null;
+      const read = second.reply.usage.cachedInputTokens;
+
+      if (written === null && read === null) {
+        return {
+          featureSupported: false,
+          unsupportedDetail:
+            "accepted cache_control but reports neither cache_creation_input_tokens nor cache_read_input_tokens",
+        };
+      }
+
+      a.should(
+        "messages-cache-write",
+        "the first call reports cache_creation_input_tokens > 0",
+        typeof written === "number" && written > 0,
+        `cache_creation_input_tokens was ${written} on a cold ${">"}1024-token breakpoint`,
+      );
+      a.should(
+        "messages-cache-read",
+        "the identical second call reports cache_read_input_tokens > 0",
+        typeof read === "number" && read > 0,
+        `cache_read_input_tokens was ${read} on an exact repeat`,
+      );
+    },
+  },
+  {
+    id: "messages-error-envelope",
+    name: "messages: error envelope taxonomy",
+    surface: "messages",
+    tier: "core",
+    async run(ctx, a) {
+      // The shared error test stays deliberately loose (any `error` field
+      // passes); this is the Anthropic-specific envelope clients branch on.
+      const res = await ctx.raw("messages", {
+        model: ctx.config.model,
+        messages: "not-an-array",
+        max_tokens: 16,
+      });
+
+      if (res.status < 400) {
+        // The shared test already charges the 2xx as a MUST failure; there is
+        // no envelope here to grade.
+        throw new Inconclusive(
+          `a malformed request returned HTTP ${res.status}, so no error envelope was produced`,
+        );
+      }
+
+      const body = res.json as
+        | { type?: unknown; error?: { type?: unknown } }
+        | undefined;
+      a.should(
+        "messages-error-shape",
+        'errors arrive as {type: "error", error: {...}}',
+        body?.type === "error" && body?.error !== undefined,
+        `error body was: ${res.text.slice(0, 160)}`,
+      );
+
+      const DOCUMENTED = [
+        "invalid_request_error",
+        "authentication_error",
+        "billing_error",
+        "permission_error",
+        "not_found_error",
+        "rate_limit_error",
+        "timeout_error",
+        "api_error",
+        "overloaded_error",
+      ];
+      a.should(
+        "messages-error-type",
+        "error.type is one of the documented error types",
+        typeof body?.error?.type === "string" &&
+          DOCUMENTED.includes(body.error.type),
+        `error.type was ${JSON.stringify(body?.error?.type)} — clients that branch on it get nothing to branch on`,
+      );
     },
   },
 ];
@@ -846,6 +1296,81 @@ export const chatOnlyTests: ConformanceTest[] = [
     },
   },
   {
+    id: "chat-assistant-prefill",
+    name: "chat/completions: trailing assistant message",
+    surface: "chat",
+    tier: "extended",
+    async run(ctx, a) {
+      // Nothing here is scored, and that is the point. Assistant prefill is not
+      // in the OpenAI spec at all, and the ecosystem split two ways: llama.cpp
+      // and OpenRouter continue a trailing assistant message implicitly, vLLM
+      // and SGLang want `continue_final_message` (a name borrowed from
+      // transformers' apply_chat_template). The same request gets a
+      // continuation from one engine and a fresh answer from the next, which is
+      // worth reporting — but pressuring every engine toward one vendor's
+      // dialect is the thing this suite refuses to do.
+      const observe = async (extra?: Record<string, unknown>) => {
+        const res = await ctx.send("chat", {
+          turns: PREFILL_TURNS,
+          temperature: 0,
+          maxTokens: 24,
+          ...(extra ? { extra } : {}),
+        });
+        return res.status >= 400
+          ? ("rejected" as const)
+          : classifyPrefill(res.reply.text);
+      };
+
+      const credit = (label: string): TestVerdict => ({
+        credit: {
+          id: "chat-assistant-prefill",
+          label: `chat prefill: ${label}`,
+        },
+      });
+
+      const implicit = await observe();
+      if (implicit === "unclear") {
+        throw new Inconclusive(
+          "the reply neither continued nor restarted the prefill, so no dialect was shown",
+        );
+      }
+      if (implicit === "continued") {
+        return credit("a trailing assistant message is continued");
+      }
+      if (implicit === "echoed") {
+        return credit(
+          "a trailing assistant message is continued, and echoed back",
+        );
+      }
+
+      const explicit = await observe({ continue_final_message: true });
+      if (explicit !== "continued" && explicit !== "echoed") {
+        return credit(
+          implicit === "rejected"
+            ? "none — a trailing assistant message is rejected outright"
+            : "none — a trailing assistant message starts a new turn",
+        );
+      }
+
+      // vLLM's own rule for the parameter it named: the two flags are mutually
+      // exclusive. Its validator runs before defaults are filled in, so only a
+      // caller who sends `add_generation_prompt: true` explicitly hits it —
+      // which is exactly what this asks for. A SHOULD, because the whole
+      // parameter is one vendor's, not the spec's.
+      a.should(
+        "chat-prefill-flag-conflict",
+        "continue_final_message and add_generation_prompt are mutually exclusive",
+        (await observe({
+          continue_final_message: true,
+          add_generation_prompt: true,
+        })) === "rejected",
+        "accepted both flags as true — vLLM, whose parameter this is, rejects the pair rather than silently picking one",
+      );
+
+      return credit("continue_final_message, vLLM's spelling");
+    },
+  },
+  {
     id: "chat-stop-string",
     name: "chat/completions: stop as a bare string",
     surface: "chat",
@@ -874,6 +1399,95 @@ export const chatOnlyTests: ConformanceTest[] = [
         !res.reply.text.includes("beta"),
         `stop "beta" (string form) appeared in the output: "${res.reply.text.slice(0, 80)}"`,
       );
+    },
+  },
+  {
+    id: "chat-template-kwargs",
+    name: "chat/completions: chat_template_kwargs dialect",
+    surface: "chat",
+    tier: "extended",
+    async run(ctx, _a): Promise<TestVerdict | void> {
+      // Credit-only, by the same rule that keeps vendor thinking toggles out
+      // of the reasoning probe: chat_template_kwargs is no spec's, but vLLM,
+      // SGLang and llama.cpp all take it, and for Qwen3-class models
+      // `enable_thinking: false` is the only road to the non-thinking path.
+      // Without this line those models under-report on the reasoning probe
+      // with no explanation printed. Detected, printed, worth zero points.
+      const turns: Turn[] = [
+        {
+          type: "user",
+          text: "What is 17 * 3? Think it through, then answer.",
+        },
+      ];
+      const thought = (r: { reply: { reasoningText: string | null } }) =>
+        r.reply.reasoningText !== null;
+
+      const baseline = await ctx.send("chat", {
+        turns,
+        temperature: 0,
+        maxTokens: 256,
+      });
+      // No reasoning channel shown, so the knob has nothing to switch off —
+      // the second request would prove nothing.
+      if (baseline.status !== 200 || !thought(baseline)) return;
+
+      const flagged = await ctx.send("chat", {
+        turns,
+        temperature: 0,
+        maxTokens: 256,
+        extra: { chat_template_kwargs: { enable_thinking: false } },
+      });
+
+      const credit = (label: string): TestVerdict => ({
+        credit: {
+          id: "chat-template-kwargs",
+          label: `chat_template_kwargs: ${label}`,
+        },
+      });
+      if (flagged.status >= 400) return credit("rejected");
+      if (!thought(flagged)) return credit("enable_thinking: false is honored");
+      return credit("accepted and ignored — thinking still ran under the flag");
+    },
+  },
+  {
+    id: "chat-sampling-extensions",
+    name: "chat/completions: sampling extensions",
+    surface: "chat",
+    tier: "extended",
+    async run(ctx, _a): Promise<TestVerdict | void> {
+      // top_k, min_p and repetition_penalty: the three near-universal
+      // non-OpenAI samplers (vLLM, SGLang, llama.cpp, Ollama, LM Studio).
+      // Credit-only — no spec owns them — and the label says which flag was
+      // proven versus merely echoed back, so acceptance never reads as an
+      // endorsement. top_k: 1 gets the behavioral check (greedy twice); a
+      // behavioral check for the other two is not worth the requests.
+      const request = {
+        turns: [
+          { type: "user" as const, text: "Invent a two-word band name." },
+        ],
+        temperature: 1,
+        maxTokens: 24,
+        extra: { top_k: 1, min_p: 0.05, repetition_penalty: 1.05 },
+      };
+      const credit = (label: string): TestVerdict => ({
+        credit: {
+          id: "chat-sampling-extensions",
+          label: `sampling extensions: ${label}`,
+        },
+      });
+
+      const first = await ctx.send("chat", request);
+      if (first.status >= 400) {
+        return credit("rejected (top_k, min_p, repetition_penalty)");
+      }
+      const second = await ctx.send("chat", request);
+      return first.reply.text === second.reply.text
+        ? credit(
+            "top_k honored; min_p, repetition_penalty accepted (acceptance only)",
+          )
+        : credit(
+            "accepted and ignored — top_k: 1 did not force greedy decoding",
+          );
     },
   },
 ];

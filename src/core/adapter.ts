@@ -104,6 +104,8 @@ export interface ReplyUsage {
   outputTokens: number | null;
   cachedInputTokens: number | null;
   reasoningTokens: number | null;
+  /** The cache-write half of Anthropic's pair; only the messages surface has it. */
+  cacheCreationInputTokens?: number | null;
 }
 
 export interface ChatReply {

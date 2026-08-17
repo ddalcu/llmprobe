@@ -220,7 +220,9 @@ export const messagesAdapter: SurfaceAdapter = {
         inputTokens: r?.usage?.input_tokens ?? null,
         outputTokens: r?.usage?.output_tokens ?? null,
         cachedInputTokens: r?.usage?.cache_read_input_tokens ?? null,
-        reasoningTokens: null,
+        reasoningTokens:
+          r?.usage?.output_tokens_details?.thinking_tokens ?? null,
+        cacheCreationInputTokens: r?.usage?.cache_creation_input_tokens ?? null,
       },
       reasoningText: thinking || null,
       logprobs: undefined,
@@ -267,6 +269,8 @@ export const messagesAdapter: SurfaceAdapter = {
           usage.inputTokens = event.message?.usage?.input_tokens ?? null;
           usage.cachedInputTokens =
             event.message?.usage?.cache_read_input_tokens ?? null;
+          usage.cacheCreationInputTokens =
+            event.message?.usage?.cache_creation_input_tokens ?? null;
           break;
 
         case "content_block_start":
@@ -304,6 +308,12 @@ export const messagesAdapter: SurfaceAdapter = {
           if (event.delta?.stop_reason) finishReason = event.delta.stop_reason;
           if (event.usage?.output_tokens !== undefined) {
             usage.outputTokens = event.usage.output_tokens;
+          }
+          if (
+            event.usage?.output_tokens_details?.thinking_tokens !== undefined
+          ) {
+            usage.reasoningTokens =
+              event.usage.output_tokens_details.thinking_tokens;
           }
           break;
       }

@@ -6,7 +6,7 @@ import type {
 } from "./adapter";
 import type { Asserter } from "./assert";
 import type { EngineClient, RunConfig, RunDepth, StreamResult } from "./client";
-import type { EvalCategory, Tier } from "./outcome";
+import type { CreditEntry, EvalCategory, Tier } from "./outcome";
 
 export interface SendResult {
   reply: ChatReply;
@@ -66,6 +66,13 @@ export interface RunContext {
 export interface TestVerdict {
   featureSupported?: boolean;
   unsupportedDetail?: string;
+  /**
+   * A zero-point observation, the same bargain the Ollama-native credit strikes:
+   * detected, printed, never scored. For behavior that is real and worth
+   * reporting but belongs to no spec — an engine's assistant-prefill dialect,
+   * say — where scoring it would pressure every engine toward one vendor.
+   */
+  credit?: CreditEntry;
 }
 
 export interface ConformanceTest {

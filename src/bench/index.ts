@@ -317,6 +317,7 @@ async function timedRun(
   surface: string,
   text: string,
   maxTokens: number,
+  extra?: Record<string, unknown>,
 ): Promise<RunSample> {
   const adapter = ctx.adapters.get(surface)!;
   const body = {
@@ -326,6 +327,7 @@ async function timedRun(
         temperature: 0,
         maxTokens,
         includeUsage: true,
+        ...(extra ? { extra } : {}),
       },
       ctx.config,
     ),
@@ -416,6 +418,7 @@ async function measure(
   metric: "decodeTokPerSec" | "prefillTokPerSec",
   onSample?: (sample: BenchSample) => void,
   label = "",
+  extra?: Record<string, unknown>,
 ): Promise<RunSample[]> {
   // Reported after each run rather than before it, because the number is the
   // point: a bare "decode 2/3" says only that something is happening.
@@ -430,12 +433,12 @@ async function measure(
 
   // Busted per call: these scenarios send the same text K+1 times, and the
   // warmup alone would otherwise serve every measured run from a warm KV.
-  const warm = await timedRun(ctx, surface, cacheBust(text), maxTokens);
+  const warm = await timedRun(ctx, surface, cacheBust(text), maxTokens, extra);
   report(warm, "warmup", true);
 
   const samples: RunSample[] = [];
   for (let i = 0; i < K; i += 1) {
-    const run = await timedRun(ctx, surface, cacheBust(text), maxTokens);
+    const run = await timedRun(ctx, surface, cacheBust(text), maxTokens, extra);
     samples.push(run);
     report(run, `${i + 1}/${K}`, false);
   }
@@ -752,6 +755,38 @@ export async function runBenchmark(
   const surface = ctx.evalSurface;
   if (!surface) return null;
 
+  // Can the engine be made to generate to exactly the cap? A model that stops
+  // at 40 tokens and one that runs to 192 are otherwise compared on different
+  // amounts of work, with the short one paying a larger share of fixed
+  // overhead. `ignore_eos` (vLLM, SGLang, llama.cpp) and `min_tokens` (vLLM,
+  // SGLang) both force the exact length; the probe run checks they actually
+  // took effect, because an engine ignoring them must not silently change the
+  // methodology — whichever mode produced the number is named in the report.
+  const EXACT_LENGTH = { ignore_eos: true, min_tokens: DECODE_TOKENS };
+  onProgress?.("decode length probe");
+  const lengthProbe = await timedRun(
+    ctx,
+    surface,
+    cacheBust(DECODE_PROMPT),
+    DECODE_TOKENS,
+    EXACT_LENGTH,
+  );
+  onSample?.({
+    label: "decode length probe",
+    value: lengthProbe.decodeTokPerSec,
+    unit: "tok/s",
+    warmup: true,
+    ...(lengthProbe.error !== undefined ? { error: lengthProbe.error } : {}),
+  });
+  const exactLength =
+    lengthProbe.error === undefined &&
+    lengthProbe.outputTokens !== null &&
+    lengthProbe.outputTokens >= DECODE_TOKENS;
+  const decodeExtra = exactLength ? EXACT_LENGTH : undefined;
+  const decodeLengthNote = exactLength
+    ? `decode length forced to ${DECODE_TOKENS} tokens (ignore_eos + min_tokens) — decode and drift figures compare equal work`
+    : `engine ignored ignore_eos/min_tokens — decode length follows the model's own stop, so decode figures cover model-dependent amounts of work`;
+
   // Decode + TTFT from a free-form generation.
   const decodeSamples = await measure(
     ctx,
@@ -761,6 +796,7 @@ export async function runBenchmark(
     "decodeTokPerSec",
     onSample,
     "decode",
+    decodeExtra,
   );
   // Where the drift check starts counting from: everything after this point is
   // sustained load on the same box.
@@ -852,11 +888,14 @@ export async function runBenchmark(
   // what says whether the figures above are stable or a moving target. No
   // warmup — the engine could not be warmer by now, which is the point.
   onProgress?.("sustained load");
+  // Same mode as the opening decode scenario, or the drift comparison would
+  // compare different workloads.
   const drifted = await timedRun(
     ctx,
     surface,
     cacheBust(DECODE_PROMPT),
     DECODE_TOKENS,
+    decodeExtra,
   );
   const firstDecode = decodeStat?.median ?? null;
   const lastDecode =
@@ -889,6 +928,7 @@ export async function runBenchmark(
   return {
     decodeTokPerSec: decodeStat,
     streamCaveat,
+    decodeLengthNote,
     ttftMs: pick(decodeSamples, "ttftMs"),
     prefillTokPerSec: pick(prefillSamples, "prefillTokPerSec"),
     prefillPromptTokens,
