@@ -453,6 +453,8 @@ export interface BenchReport {
    * (the engine ignored the flags). Methodology must be visible, never silent.
    */
   decodeLengthNote?: string | null;
+  /** Set when a --sampling preset ran the benchmark non-greedily. */
+  samplingNote?: string | null;
   /** Time to first generated token, ms. */
   ttftMs: BenchStat | null;
   /** Prompt ingestion rate, tokens/sec, from a deliberately long prompt. */

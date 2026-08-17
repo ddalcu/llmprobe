@@ -321,6 +321,24 @@ a:hover { text-decoration: underline; }
 }
 .expand-panel.open { display: block; }
 .expand-panel[hidden] { display: none !important; }
+.ctx-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  margin: 12px 0 4px;
+}
+.ctx-chart {
+  width: 100%; height: auto; display: block;
+  background: var(--surface-2, transparent);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.chart-legend {
+  display: flex; flex-wrap: wrap; gap: 6px 14px;
+  margin: 8px 0 0; font-size: 12px; color: var(--muted);
+  align-items: center;
+}
+.chart-legend .swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-right: 5px; vertical-align: -1px; }
 .drill-table {
   width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 8px;
 }

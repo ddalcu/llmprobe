@@ -86,7 +86,27 @@ describe("renderComparisonHtml", () => {
     expect(html).toContain("Library");
     expect(html).toContain("alpha-model");
     expect(html).toContain("beta-model");
-    expect(html).toContain("Select model A");
+    expect(html).toContain("Select run ");
+  });
+
+  test("keys columns by run (model + host), so the same model on two servers stays two entries", () => {
+    const html = renderComparisonHtml([
+      {
+        label: "a",
+        report: report({
+          target: { baseUrl: "http://boxa:1234/v1", model: "same-model" },
+        }),
+      },
+      {
+        label: "b",
+        report: report({
+          target: { baseUrl: "http://boxb:8080/v1", model: "same-model" },
+        }),
+      },
+    ]);
+
+    expect(html).toContain("same-model--boxa-1234");
+    expect(html).toContain("same-model--boxb-8080");
   });
 });
 

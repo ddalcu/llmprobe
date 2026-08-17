@@ -113,7 +113,7 @@ Engines also differ on whether thinking is on by default (mlx-serve ships it off
 
 ## Performance benchmark (`--bench`)
 
-Opt-in, informational, and **never scored** — a slow engine isn't a non-conformant one, so this is a fourth section that never touches the three cards or the exit code.
+On by default (skip with `--no-bench`), informational, and **never scored** — a slow engine isn't a non-conformant one, so this is a fourth section that never touches the three cards or the exit code.
 
 ```
 PERFORMANCE

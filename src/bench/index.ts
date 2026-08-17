@@ -1,7 +1,11 @@
 import { arch, cpus, platform, totalmem } from "node:os";
 
 import { tryParseJson } from "../core/assert";
-import { BudgetExceededError, TargetUnreachableError } from "../core/client";
+import {
+  type BenchSampling,
+  BudgetExceededError,
+  TargetUnreachableError,
+} from "../core/client";
 import type { RunContext } from "../core/context";
 import type {
   BatchingResult,
@@ -57,6 +61,17 @@ import {
  *
  * Cross-engine comparison is only valid on the same hardware; the report says so.
  */
+
+/**
+ * --sampling presets. The default (no flag) stays greedy so runs are
+ * reproducible; these exist to check an engine still performs when it has to
+ * actually sample, at the settings people run coding models with.
+ */
+export const SAMPLING_PRESETS: Record<string, BenchSampling> = {
+  precise: { name: "precise", temperature: 0.2, topP: 0.9 },
+  balanced: { name: "balanced", temperature: 0.7, topP: 0.95 },
+  creative: { name: "creative", temperature: 1.0, topP: 0.95 },
+};
 
 const K = 3;
 const DECODE_TOKENS = 192;
@@ -320,11 +335,13 @@ async function timedRun(
   extra?: Record<string, unknown>,
 ): Promise<RunSample> {
   const adapter = ctx.adapters.get(surface)!;
+  const sampling = ctx.config.benchSampling;
   const body = {
     ...adapter.buildBody(
       {
         turns: [{ type: "user", text }],
-        temperature: 0,
+        temperature: sampling?.temperature ?? 0,
+        ...(sampling?.topP !== undefined ? { topP: sampling.topP } : {}),
         maxTokens,
         includeUsage: true,
         ...(extra ? { extra } : {}),
@@ -925,10 +942,16 @@ export async function runBenchmark(
       ? `${coalescedCount} of ${streamed.length} timed streams arrived with coalesced deltas — client-observed rates exclude tokens already in flight at the window start`
       : null;
 
+  const sampling = ctx.config.benchSampling;
   return {
     decodeTokPerSec: decodeStat,
     streamCaveat,
     decodeLengthNote,
+    samplingNote: sampling
+      ? `sampled with the "${sampling.name}" preset (temperature ${sampling.temperature}` +
+        (sampling.topP !== undefined ? `, top_p ${sampling.topP})` : ")") +
+        " — not comparable to greedy runs"
+      : null,
     ttftMs: pick(decodeSamples, "ttftMs"),
     prefillTokPerSec: pick(prefillSamples, "prefillTokPerSec"),
     prefillPromptTokens,

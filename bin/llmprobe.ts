@@ -68,7 +68,7 @@ import {
   scoreCoverage,
 } from "../src/core/score";
 import { runAgentic } from "../src/agentic/index";
-import { runBenchmark } from "../src/bench/index";
+import { SAMPLING_PRESETS, runBenchmark } from "../src/bench/index";
 import { runFidelity } from "../src/fidelity/index";
 import { ALL_EVALS } from "../src/evals/index";
 
@@ -79,9 +79,12 @@ interface Args {
   depth: RunDepth;
   json: boolean;
   markdown: boolean;
+  /** Performance benchmark; on by default, --no-bench turns it off. */
   bench: boolean;
   /** Run the benchmark and nothing else — no conformance, evals, agentic or fidelity. */
   benchOnly: boolean;
+  /** Named --sampling preset for --bench; absent means greedy (temperature 0). */
+  sampling?: string;
   timeoutSec: number;
   budget?: number;
   baseline?: string;
@@ -108,7 +111,7 @@ function parseArgs(argv: string[]): Args {
     depth: "default",
     json: false,
     markdown: false,
-    bench: false,
+    bench: true,
     benchOnly: false,
     timeoutSec: 60,
     noSave: false,
@@ -172,10 +175,24 @@ function parseArgs(argv: string[]): Args {
       case "--bench":
         args.bench = true;
         break;
+      case "--no-bench":
+        args.bench = false;
+        break;
       case "--bench-only":
         args.bench = true;
         args.benchOnly = true;
         break;
+      case "--sampling": {
+        const preset = value();
+        if (!(preset in SAMPLING_PRESETS)) {
+          console.error(
+            `--sampling needs one of: ${Object.keys(SAMPLING_PRESETS).join(", ")}`,
+          );
+          process.exit(1);
+        }
+        args.sampling = preset;
+        break;
+      }
       case "--timeout":
         args.timeoutSec = numberValue();
         break;
@@ -276,10 +293,18 @@ Options:
                         each pick in turn, one report card per model
       --quick           Surface probe + core smoke tests only
       --full            Everything, including the slow tests (long context, caching)
-      --bench           Add a performance benchmark: decode tok/s, TTFT, prefill,
-                        and an MTP/speculative-decoding probe (informational)
+      --bench           Performance benchmark: decode tok/s, TTFT, prefill,
+                        and an MTP/speculative-decoding probe (informational).
+                        On by default; --no-bench skips it
       --bench-only      Run only the benchmark — no conformance, evals, agentic
                         or fidelity. Surface discovery still runs; it is free.
+      --sampling <p>    Sampling preset for benchmark requests, to check the
+                        engine off the greedy path. Not comparable to greedy
+                        runs; the report says so. One of:
+                          precise    t=0.2, top_p 0.9
+                          balanced   t=0.7, top_p 0.95
+                          creative   t=1.0, top_p 0.95
+                        Default: greedy (t=0)
       --json            Machine-readable output (also the baseline format)
       --markdown        README-ready report with badges
       --baseline <f>    Diff against a saved run and flag regressions
@@ -428,6 +453,8 @@ interface ProbeShared {
   adapterById: Map<string, SurfaceAdapter>;
   evalSurface: string | null;
   serverHeader: string | null;
+  /** First non-empty `owned_by` from /v1/models — second engine-id signal. */
+  ownedBy: string | null;
   c: ReturnType<typeof paletteFor>;
   log: (line?: string) => void;
   quiet: boolean;
@@ -475,6 +502,7 @@ async function probeModel(
     adapterById,
     evalSurface,
     serverHeader,
+    ownedBy,
     c,
     log,
     quiet,
@@ -489,6 +517,9 @@ async function probeModel(
     depth: args.depth,
     budgetTokens: args.budget,
     reasoningHeadroom: 0,
+    ...(args.sampling
+      ? { benchSampling: SAMPLING_PRESETS[args.sampling] }
+      : {}),
   };
 
   const client = new EngineClient(baseConfig);
@@ -846,7 +877,7 @@ async function probeModel(
   );
 
   const report: RunReport = {
-    target: { baseUrl, model, engine: detectEngine(serverHeader) },
+    target: { baseUrl, model, engine: detectEngine(serverHeader, ownedBy) },
     ...(incomplete ? { incomplete } : {}),
     coverage: scoreCoverage(entries, [...credits, ...testCredits]),
     conformance: scoreConformance(conformanceResults),
@@ -1281,6 +1312,7 @@ async function main(): Promise<void> {
   // which is why this is a list.
   let models: string[] = args.model ? [args.model] : [];
   let serverHeader: string | null = null;
+  let ownedBy: string | null = null;
   let modelIds: string[] = [];
   let modelsListError: string | null = null;
   try {
@@ -1289,11 +1321,16 @@ async function main(): Promise<void> {
       signal: AbortSignal.timeout(8000),
     });
     serverHeader = res.headers.get("server");
-    if (models.length === 0) {
-      if (!res.ok) {
+    if (!res.ok) {
+      if (models.length === 0) {
         modelsListError = `GET ${baseUrl}/models → HTTP ${res.status}`;
-      } else {
-        const data = (await res.json()) as { data?: Array<{ id?: string }> };
+      }
+    } else {
+      const data = (await res.json()) as {
+        data?: Array<{ id?: string; owned_by?: string }>;
+      };
+      ownedBy = data?.data?.find((m) => m.owned_by)?.owned_by ?? null;
+      if (models.length === 0) {
         modelIds = (data?.data ?? [])
           .map((m) => m.id)
           .filter(
@@ -1370,6 +1407,7 @@ async function main(): Promise<void> {
     adapterById,
     evalSurface,
     serverHeader,
+    ownedBy,
     c,
     log,
     quiet,

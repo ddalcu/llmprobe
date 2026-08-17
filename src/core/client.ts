@@ -19,6 +19,18 @@ export interface RunConfig {
    * empty content.
    */
   reasoningHeadroom: number;
+  /**
+   * Sampling for --bench requests. Absent means greedy (temperature 0). Set
+   * from a --sampling preset so the benchmark can exercise the engine's real
+   * sampling path instead of the greedy shortcut.
+   */
+  benchSampling?: BenchSampling;
+}
+
+export interface BenchSampling {
+  name: string;
+  temperature: number;
+  topP?: number;
 }
 
 export type RunDepth = "quick" | "default" | "full";

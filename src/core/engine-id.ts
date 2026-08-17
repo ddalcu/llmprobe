@@ -25,15 +25,37 @@ const KNOWN: Array<[RegExp, string]> = [
 /** Generic web-framework banners that identify the stack, not the engine. */
 const GENERIC = /uvicorn|werkzeug|gunicorn|nginx|caddy|cloudflare|express/;
 
-export function detectEngine(serverHeader: string | null): string | undefined {
-  if (!serverHeader) return undefined;
-  const s = serverHeader.toLowerCase();
+/**
+ * Engines that stamp their own name into `/v1/models` `owned_by`. Second tier:
+ * MTPLX and oMLX both front with uvicorn and default to port 8000, so the
+ * header alone can't tell them apart. Only exact known names count — the field
+ * is usually filler ("library", "organization", "openai") and filler must not
+ * become an engine name.
+ */
+const OWNED_BY: Record<string, string> = {
+  mtplx: "MTPLX",
+  omlx: "oMLX",
+  "mlx-serve": "mlx-serve",
+  vllm: "vLLM",
+};
 
-  for (const [re, name] of KNOWN) if (re.test(s)) return name;
+export function detectEngine(
+  serverHeader: string | null,
+  ownedBy?: string | null,
+): string | undefined {
+  if (serverHeader) {
+    const s = serverHeader.toLowerCase();
 
-  // A named-but-unrecognized server is still worth showing, but a bare web
-  // framework banner is noise.
-  if (GENERIC.test(s)) return undefined;
+    for (const [re, name] of KNOWN) if (re.test(s)) return name;
 
-  return serverHeader.split(/[/\s]/)[0] || undefined;
+    // A named-but-unrecognized server is still worth showing, but a bare web
+    // framework banner is noise — fall through to owned_by instead.
+    if (!GENERIC.test(s)) {
+      const named = serverHeader.split(/[/\s]/)[0];
+      if (named) return named;
+    }
+  }
+
+  if (ownedBy) return OWNED_BY[ownedBy.toLowerCase().trim()];
+  return undefined;
 }

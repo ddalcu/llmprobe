@@ -66,6 +66,105 @@ function ladderRows(
     .join("");
 }
 
+type ChartPoint = { x: number; y: number };
+
+/**
+ * Small inline SVG line chart: log-x (prompt tokens), linear-y. No external
+ * libraries so the file stays self-contained; colors come from CSS vars so the
+ * chart follows the theme.
+ */
+export function lineChartSvg(
+  title: string,
+  unit: string,
+  series: Array<{ label: string; color: string; points: ChartPoint[] }>,
+  opts: { width?: number; height?: number } = {},
+): string {
+  const W = opts.width ?? 420;
+  const H = opts.height ?? 200;
+  const pad = { l: 46, r: 14, t: 26, b: 30 };
+  const all = series.flatMap((s) => s.points);
+  if (all.length === 0) return "";
+  const xs = all.map((p) => Math.log10(Math.max(1, p.x)));
+  const x0 = Math.min(...xs);
+  const x1 = Math.max(...xs);
+  const yMax = Math.max(...all.map((p) => p.y)) * 1.12 || 1;
+  const sx = (x: number) =>
+    x1 === x0
+      ? pad.l + (W - pad.l - pad.r) / 2
+      : pad.l +
+        ((Math.log10(Math.max(1, x)) - x0) / (x1 - x0)) * (W - pad.l - pad.r);
+  const sy = (y: number) => H - pad.b - (y / yMax) * (H - pad.t - pad.b);
+  const r1 = (n: number) => Math.round(n * 10) / 10;
+
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => {
+    const v = yMax * f;
+    const y = r1(sy(v));
+    return (
+      `<line x1="${pad.l}" y1="${y}" x2="${W - pad.r}" y2="${y}" stroke="var(--line)" stroke-width="1"/>` +
+      `<text x="${pad.l - 6}" y="${y + 3}" text-anchor="end" font-size="10" fill="var(--muted)">${v >= 1000 ? `${r1(v / 1000)}k` : Math.round(v)}</text>`
+    );
+  });
+  // One x label per distinct rung — the ladder is short, every rung is news.
+  const xVals = [...new Set(all.map((p) => p.x))].sort((a, b) => a - b);
+  const xTicks = xVals.map(
+    (v) =>
+      `<text x="${r1(sx(v))}" y="${H - pad.b + 16}" text-anchor="middle" font-size="10" fill="var(--muted)">${fmtTokensK(v)}</text>`,
+  );
+
+  const lines = series
+    .filter((s) => s.points.length > 0)
+    .map((s) => {
+      const pts = [...s.points].sort((a, b) => a.x - b.x);
+      const d = pts.map((p) => `${r1(sx(p.x))},${r1(sy(p.y))}`).join(" ");
+      const dots = pts
+        .map(
+          (p) =>
+            `<circle cx="${r1(sx(p.x))}" cy="${r1(sy(p.y))}" r="3" fill="${s.color}"><title>${esc(s.label)} · ${fmtTokensK(p.x)} tok → ${r1(p.y)} ${esc(unit)}</title></circle>`,
+        )
+        .join("");
+      return `<polyline points="${d}" fill="none" stroke="${s.color}" stroke-width="2"/>${dots}`;
+    })
+    .join("");
+
+  return `<svg class="ctx-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(title)}">
+    <text x="${pad.l}" y="15" font-size="11" font-weight="700" fill="var(--ink)">${esc(title)}</text>
+    <text x="${W - pad.r}" y="15" text-anchor="end" font-size="10" fill="var(--muted)">${esc(unit)}</text>
+    ${yTicks.join("")}
+    ${xTicks.join("")}
+    ${lines}
+  </svg>`;
+}
+
+/** Context-scaling curves for one run: decode and first-token latency. */
+function contextChartsHtml(
+  points: NonNullable<BenchReport["contextScaling"]>,
+): string {
+  const measured = points.filter((p) => !p.note);
+  if (measured.length < 2) return "";
+  const x = (p: (typeof measured)[number]) => p.inputTokens ?? p.targetTokens;
+  const decode = measured
+    .filter((p) => p.decodeTokPerSec != null)
+    .map((p) => ({ x: x(p), y: p.decodeTokPerSec! }));
+  const ttft = measured
+    .filter((p) => p.ttftMs != null)
+    .map((p) => ({ x: x(p), y: p.ttftMs! }));
+  const charts = [
+    decode.length >= 2
+      ? lineChartSvg("Decode vs context", "tok/s", [
+          { label: "decode", color: "var(--engine)", points: decode },
+        ])
+      : "",
+    ttft.length >= 2
+      ? lineChartSvg("First token vs context", "ms", [
+          { label: "ttft", color: "var(--caution, #c98a00)", points: ttft },
+        ])
+      : "",
+  ]
+    .filter(Boolean)
+    .join("");
+  return charts ? `<div class="ctx-charts">${charts}</div>` : "";
+}
+
 /**
  * The four probes that answer yes/no questions about the engine rather than
  * producing a rate: does the prefix cache work, does it batch, does speculation
@@ -170,6 +269,7 @@ export function benchSection(bench: BenchReport): string {
   const ladder =
     bench.contextScaling && bench.contextScaling.length > 0
       ? `<p class="fine" style="margin-top:16px">Context scaling — decode, first-token latency and speculation as the prompt grows. A failed rung ends the ladder; larger sizes were not attempted.</p>
+      ${contextChartsHtml(bench.contextScaling)}
       <table class="drill-table">
         <thead><tr><th>Prompt</th><th>Decode</th><th>First token</th><th>Prefill</th><th>Speculation</th></tr></thead>
         <tbody>${ladderRows(bench.contextScaling)}</tbody>

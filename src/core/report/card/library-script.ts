@@ -29,8 +29,16 @@ export const LIBRARY_SCRIPT = `
     return "critical";
   };
 
-  const pairHref = (a, b) => {
-    return "compare.html?a=" + encodeURIComponent(a) + "&b=" + encodeURIComponent(b);
+  const MAX_COMPARE = 4;
+  const PARAMS = ["a", "b", "c", "d"];
+
+  const compareHref = (slugs) => {
+    return (
+      "compare.html?" +
+      slugs
+        .map((s, i) => PARAMS[i] + "=" + encodeURIComponent(s))
+        .join("&")
+    );
   };
 
   function haystack(row) {
@@ -173,9 +181,9 @@ export const LIBRARY_SCRIPT = `
     }
     if (filterMeta) {
       filterMeta.textContent = query.trim()
-        ? "Filtered by “" + query.trim() + "” · click headers to sort · select up to 2 to compare"
+        ? "Filtered by “" + query.trim() + "” · click headers to sort · select up to 4 to compare"
         : (sortKey === "date" && sortDir === "desc" ? "Newest first · " : "") +
-          "click column headers to sort · select up to 2 models to compare";
+          "click column headers to sort · select up to 4 runs to compare";
     }
     if (searchClear) {
       searchClear.classList.toggle("visible", query.trim().length > 0);
@@ -213,12 +221,12 @@ export const LIBRARY_SCRIPT = `
               ? "critical"
               : "caution";
       const compareDisabled =
-        !isSel && selected.length >= 2 ? " disabled" : "";
+        !isSel && selected.length >= MAX_COMPARE ? " disabled" : "";
       return (
         '<tr data-slug="' + row.slug + '"' + (isSel ? ' class="selected"' : "") + ">" +
         '<td class="rank-num">' + (i + 1) + "</td>" +
         '<td><a class="rank-model" href="' + escText(row.href) + '">' + escText(row.short) +
-          '<span class="sub">' + escText(row.endpoint || row.engine || row.source || "") + "</span></a></td>" +
+          '<span class="sub">' + escText([row.engine, row.endpoint || row.source].filter(Boolean).join(" · ") || "") + "</span></a></td>" +
         "<td>" + tierCell(row) + "</td>" +
         '<td class="metric-cell ' + confT + '">' + fmtPct(row.conformance) + "</td>" +
         '<td class="metric-cell ' + capT + '">' + fmtPct(row.capability) +
@@ -279,13 +287,13 @@ export const LIBRARY_SCRIPT = `
       );
     });
     if (selected.length === 1) {
-      slots.push('<div class="empty-slot">Select one more model to compare</div>');
+      slots.push('<div class="empty-slot">Select at least one more run to compare</div>');
     }
     picksEl.innerHTML = slots.join("");
     if (goBtn) {
-      goBtn.disabled = selected.length !== 2;
-      if (selected.length === 2) {
-        goBtn.dataset.href = pairHref(selected[0], selected[1]);
+      goBtn.disabled = selected.length < 2;
+      if (selected.length >= 2) {
+        goBtn.dataset.href = compareHref(selected);
       }
     }
   }
@@ -294,7 +302,7 @@ export const LIBRARY_SCRIPT = `
     const idx = selected.indexOf(slug);
     if (idx >= 0) {
       selected.splice(idx, 1);
-    } else if (selected.length < 2) {
+    } else if (selected.length < MAX_COMPARE) {
       selected.push(slug);
     }
     renderTable();
@@ -317,9 +325,8 @@ export const LIBRARY_SCRIPT = `
 
   if (goBtn) {
     goBtn.addEventListener("click", () => {
-      if (selected.length !== 2) return;
-      const href = pairHref(selected[0], selected[1]);
-      window.location.href = href;
+      if (selected.length < 2) return;
+      window.location.href = compareHref(selected);
     });
   }
   if (clearBtn) {

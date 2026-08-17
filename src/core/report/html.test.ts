@@ -262,6 +262,27 @@ describe("renderHtml — benchmark runs", () => {
     expect(html).toContain("context window exceeded");
   });
 
+  test("draws an svg chart when context scaling has two measured rungs", () => {
+    const report = benchOnlyReport();
+    report.bench!.contextScaling!.splice(1, 0, {
+      targetTokens: 4096,
+      inputTokens: 4100,
+      decodeTokPerSec: 61,
+      ttftMs: 420,
+      prefillTokPerSec: 2400,
+      speculative: null,
+      runs: 1,
+      note: null,
+    });
+    const html = renderHtml(report);
+    expect(html).toContain('class="ctx-chart"');
+  });
+
+  test("one measured rung is not a curve — no svg chart", () => {
+    const html = renderHtml(benchOnlyReport());
+    expect(html).not.toContain('class="ctx-chart"');
+  });
+
   test("a bench-only run does not show unrun phases as failures", () => {
     const html = renderHtml(benchOnlyReport());
 

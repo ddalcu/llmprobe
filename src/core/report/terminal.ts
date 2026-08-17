@@ -359,6 +359,9 @@ function renderBench(bench: BenchReport, c: Palette): string[] {
   if (bench.decodeLengthNote) {
     caveatLines.push(`  ${c.gray(bench.decodeLengthNote)}`);
   }
+  if (bench.samplingNote) {
+    caveatLines.push(`  ${c.yellow(`⚠ ${bench.samplingNote}`)}`);
+  }
 
   const lines = [
     c.bold("PERFORMANCE"),

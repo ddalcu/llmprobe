@@ -423,6 +423,8 @@ export function syncLibrary(dir: string): SyncLibraryResult {
         report: r.report,
         href: r.href,
         file: r.src,
+        slug: r.slug,
+        recordedAt: r.recordedAt,
       })),
       { libraryHref: "index.html" },
     ),

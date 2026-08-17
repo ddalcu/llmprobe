@@ -1,8 +1,8 @@
 export const COMPARE_PICKER_STYLE = `
-/* Align with score tables: metric spacer | col A | col B */
+/* Align with score tables: metric spacer | one column per run (2–4) */
 .compare-pickers {
   display: grid;
-  grid-template-columns: 180px 1fr 1fr;
+  grid-template-columns: 180px repeat(var(--n, 2), minmax(0, 1fr));
   gap: 0;
   margin: 0 0 20px;
   align-items: stretch;
@@ -23,7 +23,7 @@ export const COMPARE_PICKER_STYLE = `
 .picker-card:last-child { margin-right: 0; }
 @media (max-width: 720px) {
   .compare-pickers {
-    grid-template-columns: 72px 1fr 1fr;
+    grid-template-columns: 72px repeat(var(--n, 2), minmax(0, 1fr));
   }
   .picker-card { padding: 10px 10px; margin-left: 4px; }
 }
@@ -73,7 +73,7 @@ export const COMPARE_PICKER_STYLE = `
 .compare-sticky-inner {
   max-width: 1080px; margin: 0 auto;
   display: grid;
-  grid-template-columns: 180px 1fr 1fr;
+  grid-template-columns: 180px repeat(var(--n, 2), minmax(0, 1fr));
   gap: 0;
   align-items: center;
   min-height: 48px;
@@ -89,7 +89,7 @@ export const COMPARE_PICKER_STYLE = `
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 @media (max-width: 720px) {
-  .compare-sticky-inner { grid-template-columns: 72px 1fr 1fr; }
+  .compare-sticky-inner { grid-template-columns: 72px repeat(var(--n, 2), minmax(0, 1fr)); }
   .sticky-col { font-size: 12px; padding: 8px 6px; }
 }
 body.has-sticky-pad { /* reserved if needed */ }

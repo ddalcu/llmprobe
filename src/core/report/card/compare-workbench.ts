@@ -7,11 +7,12 @@ import { COMPARE_PICKER_STYLE } from "./compare-style";
 import {
   CATEGORY_LABELS,
   catLabel,
+  endpointLabel,
   esc,
   embedJson,
   mustFailures,
+  runSlug,
   shortModel,
-  slug,
   tier,
 } from "./shared";
 
@@ -24,6 +25,10 @@ export interface CompareWorkbenchInput {
   href?: string | null;
   /** Source JSON path (for slug fallback). */
   file?: string;
+  /** Run identity — must match the library's slug so ?a=/?b= links resolve. */
+  slug?: string;
+  /** When the run happened (ISO), for disambiguating repeat runs. */
+  recordedAt?: string | null;
 }
 
 function compareEntry(input: CompareWorkbenchInput, index: number) {
@@ -33,7 +38,15 @@ function compareEntry(input: CompareWorkbenchInput, index: number) {
   const front = tier(r, "frontier");
   const confMeasured = (r.conformance?.total ?? 0) > 0;
   const capMeasured = (r.capability?.categories?.length ?? 0) > 0;
-  const baseSlug = slug(r.target?.model || input.label || `run-${index + 1}`);
+  // Identity is the run, not the model: the same model on two servers is
+  // exactly the comparison this page exists for.
+  const baseSlug =
+    input.slug ??
+    runSlug(
+      r.target?.model || input.label || `run-${index + 1}`,
+      r.target?.baseUrl,
+    );
+  const measured = (r.bench?.contextScaling ?? []).filter((p) => !p.note);
   return {
     slug: baseSlug,
     href: input.href ?? null,
@@ -41,6 +54,13 @@ function compareEntry(input: CompareWorkbenchInput, index: number) {
     model: r.target?.model ?? input.label,
     engine: r.target?.engine ?? null,
     baseUrl: r.target?.baseUrl ?? null,
+    host: endpointLabel(r.target?.baseUrl) || null,
+    recordedAt: input.recordedAt ?? r.run?.startedAt ?? null,
+    contextScaling: measured.map((p) => ({
+      tokens: p.inputTokens ?? p.targetTokens,
+      decode: p.decodeTokPerSec,
+      ttft: p.ttftMs,
+    })),
     core: core?.pct ?? null,
     extended: ext?.pct ?? null,
     frontier: front?.pct ?? null,
@@ -114,9 +134,9 @@ export function renderCompareWorkbenchHtml(
   <header class="top">
     <div>
       <div class="brand">llmprobe compare</div>
-      <h1 id="compare-title">Compare models</h1>
+      <h1 id="compare-title">Compare runs</h1>
       <div class="meta" id="compare-meta">
-        <span>Select models in each column</span>
+        <span>Select runs in each column</span>
         <span>${catalog.length} in library</span>
       </div>
     </div>
@@ -128,9 +148,9 @@ export function renderCompareWorkbenchHtml(
 
   <div class="narrative" id="compare-narrative">
     <h2>What changed</h2>
-    <p class="lead">Pick two models to compare.</p>
+    <p class="lead">Pick two to four runs to compare.</p>
     <ul>
-      <li>Choose models once at the top — columns stay aligned as you scroll.</li>
+      <li>Choose runs once at the top — columns stay aligned as you scroll.</li>
       <li>Scores stay independent: Coverage, Conformance, and Capability are never averaged.</li>
     </ul>
   </div>
@@ -144,7 +164,7 @@ export function renderCompareWorkbenchHtml(
   <div id="compare-root"></div>
 
   <footer class="page">
-    <span>Best/worst marked green/red per row only when both columns have a model</span>
+    <span>Best/worst marked green/red per row only when at least two columns have a run</span>
     <span class="sep">·</span>
     <span>Never a blended overall score</span>
   </footer>
