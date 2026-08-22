@@ -141,7 +141,7 @@ What makes it a benchmark rather than the incidental per-request timing: a **dis
 
 The headline decode figure is measured **while generating code**, not prose, because that is the workload these engines are actually asked to serve. Decode rate is not one number: a speculator accepts far more drafts on the repetitive, tightly-constrained token stream of source code than on creative writing, so a prose figure understates what a coding agent would see. The speculative probe keeps its own prose prompt on purpose — that ratio needs a genuinely low-acceptance baseline to divide by.
 
-**Context scaling** (inspired by [llm_context_benchmarks](https://github.com/ivanfioravanti/llm_context_benchmarks)) times generation at ~0.5k / 4k / 8k / 16k prompt tokens, so you can see decode throughput and latency degrade as the KV cache grows — some engines fall off a cliff, others hold up. The default run stays light (one run per rung); `--full` climbs to 32k and 64k and takes the median of 3 runs per rung. A rung the engine rejects (usually a context-window overflow) ends the ladder with the engine's own error printed on it, larger rungs are not attempted. The size column reports the tokens the engine _actually_ ingested, not our byte estimate.
+**Context scaling** (inspired by [llm_context_benchmarks](https://github.com/ivanfioravanti/llm_context_benchmarks)) times generation at ~0.5k / 4k / 8k / 16k prompt tokens, so you can see decode throughput and latency degrade as the KV cache grows — some engines fall off a cliff, others hold up. The default run stays light (one run per rung); `--full` climbs to 32k and 64k and takes the median of 3 runs per rung. `--rungs 32k,64k` (or `8,16`) picks exactly which sizes run, and `--runs 2` sets how many measured runs follow the warmup, for every scenario and rung. Either one is noted on the report, since a 2-run 32k-only benchmark is not comparable to a default one. A rung the engine rejects (usually a context-window overflow) ends the ladder with the engine's own error printed on it, larger rungs are not attempted. The size column reports the tokens the engine _actually_ ingested, not our byte estimate.
 
 **The speculative-decoding / MTP probe** is the interesting part. MTP and speculative decoding only speed things up when the draft is _accepted_, which happens far more on predictable output than novel output. So the probe measures decode throughput on **predictable content** (repeat this passage verbatim) versus **novel content** (invent something original) and reports the ratio. A ratio well above 1 is the black-box signature that the engine's MTP/draft path is actually working; ~1.0 means it's absent or not helping.
 
@@ -174,6 +174,8 @@ Two honesty guardrails: the report states it's **hardware-dependent** (cross-eng
 | `--quick`   | Surface probe + Core smoke tests                            | "Does this engine basically work?" |
 | _(default)_ | Full conformance + capability evals                         | Everyday use                       |
 | `--full`    | Everything, incl. long-context, concurrency, prompt caching | Release gating                     |
+| `--rungs`   | Only these context-ladder sizes (e.g. `32k,64k`)            | Chasing one cliff                  |
+| `--runs`    | Measured runs per scenario after the warmup (default 3)     | Quicker or steadier benchmarks     |
 
 Surface discovery is free: it probes with empty-body POSTs, which every engine rejects at validation long before inference. Mapping the whole surface costs zero tokens even against a paid endpoint. For the rest, `--budget <tokens>` sets a hard ceiling.
 
@@ -243,6 +245,7 @@ llmprobe localhost:8080 --bench --html report.html
 
 ```bash
 llmprobe localhost:8080 --bench-only --full --save mtp.json
+llmprobe localhost:8080 --bench-only --rungs 32k,64k --runs 2
 ```
 
 The report card follows the same rule: it shows the sections this run actually measured — surface coverage and Performance for a `--bench-only` run — and names the ones it skipped instead of drawing them as zeros.

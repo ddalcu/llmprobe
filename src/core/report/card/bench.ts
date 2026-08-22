@@ -264,6 +264,8 @@ export function benchSection(bench: BenchReport): string {
       ? `⚠ the machine ${drift.verdict === "degraded" ? "slowed" : "sped up"} mid-run (${drift.driftPct > 0 ? "+" : ""}${drift.driftPct}%) — treat the figures below as a range`
       : null,
     bench.streamCaveat ? `⚠ ${bench.streamCaveat}` : null,
+    bench.samplingNote ? `⚠ ${bench.samplingNote}` : null,
+    bench.runsNote ? `⚠ ${bench.runsNote}` : null,
   ].filter(Boolean) as string[];
 
   const ladder =

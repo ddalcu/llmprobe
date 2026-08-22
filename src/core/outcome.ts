@@ -413,7 +413,7 @@ export interface ContextPoint {
    * rung failed outright.
    */
   speculative: ContextSpeculative | null;
-  /** Successful runs behind the numbers (1 by default, median of 3 at --full). */
+  /** Successful runs behind the numbers (1 by default, 3 at --full, or --runs). */
   runs: number;
   /**
    * Why the rung produced no numbers — e.g. the engine's own context-overflow
@@ -455,6 +455,8 @@ export interface BenchReport {
   decodeLengthNote?: string | null;
   /** Set when a --sampling preset ran the benchmark non-greedily. */
   samplingNote?: string | null;
+  /** Set when --rungs or --runs changed the ladder or the repetition count. */
+  runsNote?: string | null;
   /** Time to first generated token, ms. */
   ttftMs: BenchStat | null;
   /** Prompt ingestion rate, tokens/sec, from a deliberately long prompt. */

@@ -79,12 +79,36 @@ const PREFILL_TOKENS = 8;
 /** ~8 KB of filler ≈ a couple thousand tokens, enough to time prefill. */
 const PREFILL_PROMPT_BYTES = 8192;
 
+/** Every rung the ladder knows; --rungs picks from these. */
+export const CONTEXT_RUNGS = [512, 4096, 8192, 16384, 32768, 65536];
+const rungName = (n: number): string =>
+  n >= 1024 ? `${n / 1024}k` : String(n);
 /** Context ladder — kept deliberately short so --bench stays quick. */
-const CONTEXT_LADDER = [512, 4096, 8192, 16384];
+const CONTEXT_LADDER = CONTEXT_RUNGS.slice(0, 4);
 /** --full climbs higher — the interesting cliffs often appear past 16k. */
-const CONTEXT_LADDER_FULL = [...CONTEXT_LADDER, 32768, 65536];
+const CONTEXT_LADDER_FULL = CONTEXT_RUNGS;
 /** --full also repeats each rung, so one OS hiccup can't bend the curve. */
 const CONTEXT_RUNS_FULL = 3;
+
+/**
+ * "--rungs 8,16" or "--rungs 32k,64k" → [8192, 16384]. A bare number below 512
+ * is read in k; anything outside the known ladder is rejected rather than
+ * sized, so every saved report's rungs line up for compare.
+ */
+export function parseRungs(spec: string): number[] {
+  const known = CONTEXT_RUNGS.map(rungName).join(", ");
+  const rungs = spec.split(",").map((raw) => {
+    const token = raw.trim().toLowerCase();
+    const n = Number(token.replace(/k$/, ""));
+    const tokens = token.endsWith("k") || n < 512 ? n * 1024 : n;
+    if (!CONTEXT_RUNGS.includes(tokens))
+      throw new Error(
+        `--rungs needs sizes from: ${known}; got "${raw.trim()}"`,
+      );
+    return tokens;
+  });
+  return [...new Set(rungs)].sort((a, b) => a - b);
+}
 /**
  * Long enough for the decode rate and the frame-gap step profile to mean
  * something. A speculator's acceptance pattern is a distribution, and 64 tokens
@@ -453,11 +477,12 @@ async function measure(
   const warm = await timedRun(ctx, surface, cacheBust(text), maxTokens, extra);
   report(warm, "warmup", true);
 
+  const k = ctx.config.benchRuns ?? K;
   const samples: RunSample[] = [];
-  for (let i = 0; i < K; i += 1) {
+  for (let i = 0; i < k; i += 1) {
     const run = await timedRun(ctx, surface, cacheBust(text), maxTokens, extra);
     samples.push(run);
-    report(run, `${i + 1}/${K}`, false);
+    report(run, `${i + 1}/${k}`, false);
   }
   return samples;
 }
@@ -560,8 +585,9 @@ async function contextScaling(
   onRung?: (point: ContextPoint) => void,
 ): Promise<ContextPoint[]> {
   const full = ctx.config.depth === "full";
-  const ladder = full ? CONTEXT_LADDER_FULL : CONTEXT_LADDER;
-  const runsPerRung = full ? CONTEXT_RUNS_FULL : 1;
+  const ladder =
+    ctx.config.benchRungs ?? (full ? CONTEXT_LADDER_FULL : CONTEXT_LADDER);
+  const runsPerRung = ctx.config.benchRuns ?? (full ? CONTEXT_RUNS_FULL : 1);
   const points: ContextPoint[] = [];
   const fits: LadderFit[] = [];
 
@@ -943,6 +969,11 @@ export async function runBenchmark(
       : null;
 
   const sampling = ctx.config.benchSampling;
+  const { benchRungs, benchRuns } = ctx.config;
+  const custom = [
+    benchRuns !== undefined ? `${benchRuns} runs per scenario` : null,
+    benchRungs ? `rungs ${benchRungs.map(rungName).join(", ")}` : null,
+  ].filter(Boolean);
   return {
     decodeTokPerSec: decodeStat,
     streamCaveat,
@@ -952,6 +983,10 @@ export async function runBenchmark(
         (sampling.topP !== undefined ? `, top_p ${sampling.topP})` : ")") +
         " — not comparable to greedy runs"
       : null,
+    runsNote:
+      custom.length > 0
+        ? `custom setup: ${custom.join(", ")} — not comparable to default runs`
+        : null,
     ttftMs: pick(decodeSamples, "ttftMs"),
     prefillTokPerSec: pick(prefillSamples, "prefillTokPerSec"),
     prefillPromptTokens,

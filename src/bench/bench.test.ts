@@ -11,6 +11,7 @@ import {
   CODE_INSTRUCTION,
   COUNT_INSTRUCTION,
   PREFIX_CACHE_SEED,
+  parseRungs,
   runBenchmark,
 } from "./index";
 
@@ -193,6 +194,53 @@ describe("runBenchmark against the mock", () => {
       expect(point.note).toBeNull();
       expect(point.speculative).not.toBeNull();
     }
+  });
+
+  test("--rungs and --runs override the ladder and the repetition count", async () => {
+    engine = await startMockEngine();
+    const root = normalizeRoot(engine.url);
+
+    const config: RunConfig = {
+      baseUrl: `${root}/v1`,
+      apiKey: "",
+      model: "mock-model-12b",
+      timeoutMs: 15_000,
+      depth: "default",
+      reasoningHeadroom: 0,
+      benchRungs: [8192, 16384],
+      benchRuns: 2,
+    };
+    const client = new EngineClient(config);
+    const ctx = createContext({
+      config,
+      client,
+      adapters: new Map<string, SurfaceAdapter>(ADAPTERS.map((a) => [a.id, a])),
+      present: new Set(["models", "chat"]),
+      evalSurface: primarySurface(new Set(["chat"])),
+    });
+
+    const labels: string[] = [];
+    const report = await runBenchmark(ctx, false, undefined, undefined, (s) => {
+      if (!s.warmup) labels.push(s.label);
+    });
+    const points = report!.contextScaling!;
+    expect(points.map((p) => p.targetTokens)).toEqual([8192, 16384]);
+    for (const point of points) expect(point.runs).toBe(2);
+    expect(labels.filter((l) => l.startsWith("decode "))).toEqual([
+      "decode 1/2",
+      "decode 2/2",
+    ]);
+    expect(labels.filter((l) => l.startsWith("prefill "))).toHaveLength(2);
+    expect(report!.runsNote).toMatch(/2 runs/);
+    expect(report!.runsNote).toMatch(/8k, 16k/);
+  });
+
+  test("parseRungs accepts k-suffixed and bare sizes, rejects unknown ones", () => {
+    expect(parseRungs("64k,32k")).toEqual([32768, 65536]);
+    expect(parseRungs("8,16")).toEqual([8192, 16384]);
+    expect(parseRungs("0.5k,4096")).toEqual([512, 4096]);
+    expect(() => parseRungs("24k")).toThrow(/512, 4k, 8k, 16k, 32k, 64k/);
+    expect(() => parseRungs("")).toThrow();
   });
 
   test("every rung runs the realistic task and the ceiling, and nothing else", async () => {

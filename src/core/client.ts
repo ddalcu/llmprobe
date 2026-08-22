@@ -25,6 +25,10 @@ export interface RunConfig {
    * sampling path instead of the greedy shortcut.
    */
   benchSampling?: BenchSampling;
+  /** --rungs: which context-ladder sizes to run, replacing the depth's ladder. */
+  benchRungs?: number[];
+  /** --runs: measured runs per scenario and per rung (after the warmup). */
+  benchRuns?: number;
 }
 
 export interface BenchSampling {

@@ -68,7 +68,7 @@ import {
   scoreCoverage,
 } from "../src/core/score";
 import { runAgentic } from "../src/agentic/index";
-import { SAMPLING_PRESETS, runBenchmark } from "../src/bench/index";
+import { SAMPLING_PRESETS, parseRungs, runBenchmark } from "../src/bench/index";
 import { runFidelity } from "../src/fidelity/index";
 import { ALL_EVALS } from "../src/evals/index";
 
@@ -85,6 +85,10 @@ interface Args {
   benchOnly: boolean;
   /** Named --sampling preset for --bench; absent means greedy (temperature 0). */
   sampling?: string;
+  /** --rungs: context-ladder sizes to run instead of the depth's ladder. */
+  rungs?: number[];
+  /** --runs: measured runs per scenario and rung (after the warmup). */
+  runs?: number;
   timeoutSec: number;
   budget?: number;
   baseline?: string;
@@ -191,6 +195,23 @@ function parseArgs(argv: string[]): Args {
           process.exit(1);
         }
         args.sampling = preset;
+        break;
+      }
+      case "--rungs":
+        try {
+          args.rungs = parseRungs(value());
+        } catch (err) {
+          console.error(err instanceof Error ? err.message : String(err));
+          process.exit(1);
+        }
+        break;
+      case "--runs": {
+        const n = numberValue();
+        if (!Number.isInteger(n)) {
+          console.error(`--runs needs a whole number, got ${n}`);
+          process.exit(1);
+        }
+        args.runs = n;
         break;
       }
       case "--timeout":
@@ -305,6 +326,11 @@ Options:
                           balanced   t=0.7, top_p 0.95
                           creative   t=1.0, top_p 0.95
                         Default: greedy (t=0)
+      --rungs <list>    Context-ladder sizes to run, e.g. 8k,16k or 32,64.
+                        From 512, 4k, 8k, 16k, 32k, 64k. Replaces the
+                        default (512-16k) or --full (512-64k) ladder
+      --runs <n>        Measured runs per scenario and per rung, after the
+                        warmup. Default: 3 (context rungs: 1, or 3 at --full)
       --json            Machine-readable output (also the baseline format)
       --markdown        README-ready report with badges
       --baseline <f>    Diff against a saved run and flag regressions
@@ -520,6 +546,8 @@ async function probeModel(
     ...(args.sampling
       ? { benchSampling: SAMPLING_PRESETS[args.sampling] }
       : {}),
+    ...(args.rungs ? { benchRungs: args.rungs } : {}),
+    ...(args.runs !== undefined ? { benchRuns: args.runs } : {}),
   };
 
   const client = new EngineClient(baseConfig);
@@ -768,7 +796,7 @@ async function probeModel(
   let bench: RunReport["bench"];
   if (args.bench && !budgetHit && !incomplete && ctx.evalSurface) {
     log();
-    log(`${c.gray("benchmarking (warmup + median of 3)...")}`);
+    log(`${c.gray(`benchmarking (warmup + median of ${args.runs ?? 3})...`)}`);
     const benchStart = {
       input: client.usage.inputTokens,
       output: client.usage.outputTokens,
