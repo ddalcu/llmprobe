@@ -389,8 +389,8 @@ Options:
                           creative   t=1.0, top_p 0.95
                         Default: greedy (t=0)
       --rungs <list>    Context-ladder sizes to run, e.g. 8k,16k or 32,64.
-                        From 512, 4k, 8k, 16k, 32k, 64k. Replaces the
-                        default (512-16k) or --full (512-64k) ladder
+                        Any size, on or off the default ladder (128k, 320k).
+                        Replaces the default (512-16k) or --full (512-64k)
       --runs <n>        Measured runs per scenario and per rung, after the
                         warmup. Default: 3 (context rungs: 1, or 3 at --full)
       --json            Machine-readable output (also the baseline format)

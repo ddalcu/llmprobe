@@ -235,12 +235,18 @@ describe("runBenchmark against the mock", () => {
     expect(report!.runsNote).toMatch(/8k, 16k/);
   });
 
-  test("parseRungs accepts k-suffixed and bare sizes, rejects unknown ones", () => {
+  test("parseRungs accepts any positive size, k-suffixed or bare", () => {
     expect(parseRungs("64k,32k")).toEqual([32768, 65536]);
     expect(parseRungs("8,16")).toEqual([8192, 16384]);
     expect(parseRungs("0.5k,4096")).toEqual([512, 4096]);
-    expect(() => parseRungs("24k")).toThrow(/512, 4k, 8k, 16k, 32k, 64k/);
+    // Off-ladder sizes are sized, not rejected: 128k+ is where long-context
+    // engines diverge and the ladder's fixed list stopped at 64k.
+    expect(parseRungs("24k,128k,320k")).toEqual([24576, 131072, 327680]);
+    expect(parseRungs("300000")).toEqual([300000]);
     expect(() => parseRungs("")).toThrow();
+    expect(() => parseRungs("abc")).toThrow(/got "abc"/);
+    expect(() => parseRungs("0k")).toThrow();
+    expect(() => parseRungs("-8k")).toThrow();
   });
 
   test("every rung runs the realistic task and the ceiling, and nothing else", async () => {

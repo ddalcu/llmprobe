@@ -79,10 +79,10 @@ const PREFILL_TOKENS = 8;
 /** ~8 KB of filler ≈ a couple thousand tokens, enough to time prefill. */
 const PREFILL_PROMPT_BYTES = 8192;
 
-/** Every rung the ladder knows; --rungs picks from these. */
+/** The default ladder; --rungs may name any size, on it or off it. */
 export const CONTEXT_RUNGS = [512, 4096, 8192, 16384, 32768, 65536];
 const rungName = (n: number): string =>
-  n >= 1024 ? `${n / 1024}k` : String(n);
+  n >= 1024 && n % 1024 === 0 ? `${n / 1024}k` : String(n);
 /** Context ladder — kept deliberately short so --bench stays quick. */
 const CONTEXT_LADDER = CONTEXT_RUNGS.slice(0, 4);
 /** --full climbs higher — the interesting cliffs often appear past 16k. */
@@ -92,20 +92,21 @@ const CONTEXT_RUNS_FULL = 3;
 
 /**
  * "--rungs 8,16" or "--rungs 32k,64k" → [8192, 16384]. A bare number below 512
- * is read in k; anything outside the known ladder is rejected rather than
- * sized, so every saved report's rungs line up for compare.
+ * is read in k. Any positive size is accepted: the filler is fitted to the
+ * engine's own token count per rung, so off-ladder sizes (128k, 320k) cost
+ * nothing but the prefill. Compare keys on the measured token count, not the
+ * rung name.
  */
 export function parseRungs(spec: string): number[] {
-  const known = CONTEXT_RUNGS.map(rungName).join(", ");
   const rungs = spec.split(",").map((raw) => {
     const token = raw.trim().toLowerCase();
     const n = Number(token.replace(/k$/, ""));
     const tokens = token.endsWith("k") || n < 512 ? n * 1024 : n;
-    if (!CONTEXT_RUNGS.includes(tokens))
+    if (!Number.isFinite(tokens) || tokens <= 0 || token === "")
       throw new Error(
-        `--rungs needs sizes from: ${known}; got "${raw.trim()}"`,
+        `--rungs needs positive sizes like 8k,16k or 32,64; got "${raw.trim()}"`,
       );
-    return tokens;
+    return Math.round(tokens);
   });
   return [...new Set(rungs)].sort((a, b) => a - b);
 }
