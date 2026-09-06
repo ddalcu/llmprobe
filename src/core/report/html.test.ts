@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import type { JsonReport } from "./json";
 import { renderHtml } from "./html";
+import { lineChartSvg } from "./card/bench";
 
 function sampleReport(): JsonReport {
   return {
@@ -297,6 +298,29 @@ describe("renderHtml — benchmark runs", () => {
     });
     const html = renderHtml(report);
     expect(html).toContain('class="ctx-chart"');
+  });
+
+  test("x labels are whole-k and never overlap on a crowded ladder", () => {
+    const xs = [
+      4200, 8200, 16300, 32900, 65500, 131200, 262300, 393500, 524300,
+    ];
+    const svg = lineChartSvg("Decode vs context", "tok/s", [
+      { label: "a", color: "#000", points: xs.map((x) => ({ x, y: 50 })) },
+    ]);
+    const labels = [
+      ...svg.matchAll(
+        /<text x="([\d.]+)" y="\d+" text-anchor="middle"[^>]*>([^<]*)</g,
+      ),
+    ].map((m) => ({ x: Number(m[1]), text: m[2] }));
+    expect(labels[0]!.text).toBe("4k");
+    expect(labels.at(-1)!.text).toBe("524k");
+    expect(labels.map((l) => l.text)).not.toContain("16.3k");
+    for (let i = 1; i < labels.length; i++) {
+      const gap = labels[i]!.x - labels[i - 1]!.x;
+      const need =
+        (labels[i]!.text.length + labels[i - 1]!.text.length) * 3 + 4;
+      expect(gap).toBeGreaterThanOrEqual(need);
+    }
   });
 
   test("one measured rung is not a curve — no svg chart", () => {

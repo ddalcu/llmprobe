@@ -312,6 +312,25 @@ export const COMPARE_SCRIPT = `
   function fmtTokensK(n) {
     return n >= 1000 ? Math.round(n / 100) / 10 + "k" : String(n);
   }
+  function fmtAxisK(n) {
+    return n >= 1000 ? Math.round(n / 1000) + "k" : String(n);
+  }
+
+  // Same rule as card/bench.ts thinLabels: first and last rung always survive.
+  function thinLabels(labels) {
+    const half = (l) => l.text.length * 3 + 2;
+    const last = labels[labels.length - 1];
+    if (!last) return [];
+    const kept = [];
+    for (const l of labels.slice(0, -1)) {
+      const prev = kept[kept.length - 1];
+      const clearsPrev = !prev || l.x - prev.x >= half(prev) + half(l);
+      const clearsLast = last.x - l.x >= half(l) + half(last);
+      if (clearsPrev && clearsLast) kept.push(l);
+    }
+    kept.push(last);
+    return kept;
+  }
 
   /** Inline SVG line chart: log-x prompt tokens, linear-y. Theme via CSS vars. */
   function lineChartSvg(title, unit, series) {
@@ -343,12 +362,12 @@ export const COMPARE_SCRIPT = `
       })
       .join("");
     const xVals = [...new Set(all.map((p) => p.x))].sort((a, b) => a - b);
-    const xTicks = xVals
+    const xTicks = thinLabels(xVals.map((v) => ({ x: sx(v), text: fmtAxisK(v) })))
       .map(
-        (v) =>
-          '<text x="' + r1(sx(v)) + '" y="' + (H - pad.b + 16) +
+        (l) =>
+          '<text x="' + r1(l.x) + '" y="' + (H - pad.b + 16) +
           '" text-anchor="middle" font-size="10" fill="var(--muted)">' +
-          fmtTokensK(v) + "</text>",
+          l.text + "</text>",
       )
       .join("");
     const lines = series

@@ -68,6 +68,31 @@ function ladderRows(
 
 type ChartPoint = { x: number; y: number };
 
+/** Axis label: whole thousands, "16k" not "16.3k". */
+const fmtAxisK = (n: number) =>
+  n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
+
+/**
+ * Drop x labels that would overlap the previous kept one. First and last rung
+ * always survive; a neighbour that collides with the last gives way to it.
+ */
+export function thinLabels<T extends { x: number; text: string }>(
+  labels: T[],
+): T[] {
+  const half = (l: T) => l.text.length * 3 + 2;
+  const last = labels[labels.length - 1];
+  if (!last) return [];
+  const kept: T[] = [];
+  for (const l of labels.slice(0, -1)) {
+    const prev = kept[kept.length - 1];
+    const clearsPrev = !prev || l.x - prev.x >= half(prev) + half(l);
+    const clearsLast = last.x - l.x >= half(l) + half(last);
+    if (clearsPrev && clearsLast) kept.push(l);
+  }
+  kept.push(last);
+  return kept;
+}
+
 /**
  * Small inline SVG line chart: log-x (prompt tokens), linear-y. No external
  * libraries so the file stays self-contained; colors come from CSS vars so the
@@ -104,11 +129,12 @@ export function lineChartSvg(
       `<text x="${pad.l - 6}" y="${y + 3}" text-anchor="end" font-size="10" fill="var(--muted)">${v >= 1000 ? `${r1(v / 1000)}k` : Math.round(v)}</text>`
     );
   });
-  // One x label per distinct rung — the ladder is short, every rung is news.
   const xVals = [...new Set(all.map((p) => p.x))].sort((a, b) => a - b);
-  const xTicks = xVals.map(
-    (v) =>
-      `<text x="${r1(sx(v))}" y="${H - pad.b + 16}" text-anchor="middle" font-size="10" fill="var(--muted)">${fmtTokensK(v)}</text>`,
+  const xTicks = thinLabels(
+    xVals.map((v) => ({ x: sx(v), text: fmtAxisK(v) })),
+  ).map(
+    (l) =>
+      `<text x="${r1(l.x)}" y="${H - pad.b + 16}" text-anchor="middle" font-size="10" fill="var(--muted)">${l.text}</text>`,
   );
 
   const lines = series
