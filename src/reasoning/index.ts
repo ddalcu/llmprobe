@@ -71,22 +71,27 @@ const SOURCE_ALIASES: Record<string, string[]> = {
   juliet: ["NIST Juliet"],
 };
 
-/** "1,5,9" (1-based), case ids, or sources (gpqa, supergpqa, aime, compsec, mmlupro, ...), in the order given. */
+/**
+ * "1,5,9" (1-based positions in `all`), case ids, or sources (gpqa, aime,
+ * mmlupro, ...), in the order given. Ids and sources resolve across both
+ * suites, so `gpqa,mmlupro` works whatever --eval-suite says.
+ */
 export function selectCases(
   all: ReasoningCase[],
   opts: { limit?: number; sequence?: string },
 ): ReasoningCase[] {
   let picked = all;
   if (opts.sequence) {
+    const every = [...REASONING_CASES, ...HARD_CASES];
     picked = opts.sequence.split(",").flatMap((raw) => {
       const s = raw.trim();
       const sources = SOURCE_ALIASES[s.toLowerCase().replace(/[^a-z]/g, "")];
-      if (sources) return all.filter((c) => sources.includes(c.source));
+      if (sources) return every.filter((c) => sources.includes(c.source));
       const n = Number(s);
       const tc =
         Number.isInteger(n) && n >= 1 && n <= all.length
           ? all[n - 1]
-          : all.find((c) => c.id === s);
+          : every.find((c) => c.id === s);
       if (!tc) {
         throw new Error(
           `--eval-cases: unknown case '${s}' (1..${all.length}, a case id, or ${Object.keys(SOURCE_ALIASES).join("/")})`,

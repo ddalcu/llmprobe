@@ -194,6 +194,34 @@ describe("library auto-sync", () => {
     expect(byModel("legacy-model")).toBe(legacyMtime);
   });
 
+  test("a run label reaches the catalog and the index", () => {
+    const dir = mkdtempSync(join(tmpdir(), "llmprobe-label-"));
+    const labelled = sample("labelled-model");
+    labelled.run = {
+      depth: "default",
+      mode: "probe",
+      label: "qwen4 with kv8",
+      startedAt: "2026-01-02T03:04:05.000Z",
+      phases: {
+        coverage: { status: "measured" },
+        conformance: { status: "measured" },
+        capability: { status: "measured" },
+        agentic: { status: "not-run" },
+        fidelity: { status: "not-run" },
+        performance: { status: "not-run" },
+      },
+    };
+    writeFileSync(join(dir, "labelled.json"), `${JSON.stringify(labelled)}\n`);
+    syncLibrary(dir);
+    const catalog = JSON.parse(
+      readFileSync(join(dir, "library.json"), "utf8"),
+    ) as { runs: Array<{ label: string | null }> };
+    expect(catalog.runs[0]!.label).toBe("qwen4 with kv8");
+    expect(readFileSync(join(dir, "index.html"), "utf8")).toContain(
+      "qwen4 with kv8",
+    );
+  });
+
   test("performance columns read null, not zero, when a run had no benchmark", () => {
     const dir = mkdtempSync(join(tmpdir(), "llmprobe-bench-"));
 

@@ -17,6 +17,8 @@ export type ReportPhase =
 export interface ReportRunScope {
   depth: "quick" | "default" | "full";
   mode: "probe" | "bench-only" | "eval-only";
+  /** Free-text note from --label, e.g. "qwen4 with kv8". */
+  label?: string;
   startedAt: string;
   phases: Record<
     | "coverage"

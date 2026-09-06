@@ -589,6 +589,7 @@ export function renderCardHtml(
       <div class="meta">
         ${engine ? `<span>${esc(engine)}</span>` : ""}
         ${baseUrl ? `<span>${esc(baseUrl)}</span>` : ""}
+        ${report.run?.label ? `<span class="badge">${esc(report.run.label)}</span>` : ""}
         ${report.run?.mode === "bench-only" ? `<span class="badge">benchmark only</span>` : ""}
         ${report.run?.mode === "eval-only" ? `<span class="badge">eval only</span>` : ""}
         ${report.run?.depth && report.run.depth !== "default" ? `<span class="badge">--${esc(report.run.depth)}</span>` : ""}

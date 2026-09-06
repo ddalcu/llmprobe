@@ -56,6 +56,7 @@ function compareEntry(input: CompareWorkbenchInput, index: number) {
     baseUrl: r.target?.baseUrl ?? null,
     host: endpointLabel(r.target?.baseUrl) || null,
     recordedAt: input.recordedAt ?? r.run?.startedAt ?? null,
+    label: r.run?.label ?? null,
     contextScaling: measured.map((p) => ({
       tokens: p.inputTokens ?? p.targetTokens,
       decode: p.decodeTokPerSec,

@@ -411,5 +411,13 @@ describe("selectCases", () => {
       selectCases(REASONING_CASES, { sequence: "GPQA Diamond" }),
     ).toHaveLength(25);
     expect(() => selectCases(REASONING_CASES, { sequence: "999" })).toThrow();
+    // Sources and ids reach across suites; numbers stay relative to the deck.
+    const mixed = selectCases(REASONING_CASES, { sequence: "gpqa,mmlupro" });
+    expect(mixed).toHaveLength(25 + 30);
+    expect(mixed.at(-1)!.source).toBe("MMLU-Pro");
+    expect(selectCases(REASONING_CASES, { sequence: "2826" })[0]!.source).toBe(
+      "MMLU-Pro",
+    );
+    expect(selectCases(HARD_CASES, { sequence: "aime" })).toHaveLength(25);
   });
 });

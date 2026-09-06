@@ -184,7 +184,7 @@ llmprobe localhost:8080 --eval-only --eval-cases aime
 
 This is the one intelligence benchmark in llmprobe, and it is small on purpose: it is a regression harness for "did this engine or quant make the model dumber", not a leaderboard. On a thinking model it is also by far the most expensive thing here.
 
-`--eval-suite hard` swaps in the ds4-eval hard suite instead, 50 questions meant for large models: 30 MMLU-Pro (10-choice), 10 OlympiadBench (open answers: integer, reduced fraction, ordered tuples, exact expression), 5 LiveBench zebra puzzles (ordered answers) and 5 NIST Juliet line-localization reductions. Open answers are graded from the `Answer:` line only, normalized the same way ds4-eval does, against the published answer and its listed equivalent forms. Each hard question carries its own token cap (8k for MMLU-Pro and Juliet, 16k for LiveBench, 32k for OlympiadBench, roughly double what ds4-eval uses since this suite is aimed at large thinking models) unless `--eval-max-tokens` is given. Hard runs are reported as such and are not comparable to core runs. `--eval-cases` takes `mmlupro`, `olympiad`, `livebench` and `juliet` as source names there.
+`--eval-suite hard` swaps in the ds4-eval hard suite instead, 50 questions meant for large models: 30 MMLU-Pro (10-choice), 10 OlympiadBench (open answers: integer, reduced fraction, ordered tuples, exact expression), 5 LiveBench zebra puzzles (ordered answers) and 5 NIST Juliet line-localization reductions. Open answers are graded from the `Answer:` line only, normalized the same way ds4-eval does, against the published answer and its listed equivalent forms. Each hard question carries its own token cap (8k for MMLU-Pro and Juliet, 16k for LiveBench, 32k for OlympiadBench, roughly double what ds4-eval uses since this suite is aimed at large thinking models) unless `--eval-max-tokens` is given. Hard runs are reported as such and are not comparable to core runs. `--eval-cases` takes `mmlupro`, `olympiad`, `livebench` and `juliet` as source names, and source names and ids resolve across both suites, so `--eval-cases gpqa,mmlupro` works without `--eval-suite`; only 1-based numbers index the chosen deck.
 
 Ported from ds4-eval. GPQA is CC BY 4.0, SuperGPQA is ODC-BY, the AIME 2025 mirror is MIT, MMLU-Pro, OlympiadBench and LiveBench are Apache-2.0, the Juliet reductions are CC0; see `NOTICE`.
 
@@ -323,6 +323,8 @@ llmprobe localhost:8080 --save baselines/llama-cpp-b4321.json
 llmprobe localhost:8080 --baseline baselines/llama-cpp-b4321.json
 # REGRESSED chat-finish-is-length: pass → expected length/max_tokens, got "stop"
 ```
+
+`--label "qwen4 with kv8"` records a free-text note with the run. It is saved as `run.label` in the JSON and shown in the terminal header, the report card, the library index and the compare view, so two runs of the same model on the same host stay tellable apart.
 
 The saved JSON also carries the fidelity card's raw numbers under `fidelity.measurements`: mean top-1 probability, mean gap to the runner-up, and both per battery item. The graded slices are floor checks and saturate on purpose — a healthy engine reads 100 — so anyone separating two healthy engines, or correlating against an external benchmark, wants the continuous values. They cost nothing extra to produce: the logprobs were already fetched. Nulls stay null, because a zero would read as a maximally unconfident engine.
 

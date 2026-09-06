@@ -204,6 +204,7 @@ function runSummary(run: LibraryRun) {
     slug: run.slug,
     href: run.href,
     recordedAt: run.recordedAt,
+    label: r.run?.label ?? null,
     model: r.target?.model ?? run.label,
     short: shortModel(r.target?.model ?? run.label),
     engine: r.target?.engine ?? null,

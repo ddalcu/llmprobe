@@ -518,7 +518,7 @@ function renderBench(bench: BenchReport, c: Palette): string[] {
 
 export function renderReport(
   report: RunReport,
-  options: { color?: boolean; benchOnly?: boolean } = {},
+  options: { color?: boolean; benchOnly?: boolean; label?: string } = {},
 ): string {
   const c = paletteFor(options.color ?? true);
   const rule = "━".repeat(WIDTH);
@@ -547,6 +547,7 @@ export function renderReport(
   const lines: string[] = [
     rule,
     ` ${c.bold("llmprobe")} ${c.gray("·")} ${target}`,
+    ...(options.label ? [` ${c.gray("label")} ${options.label}`] : []),
     rule,
     "",
   ];

@@ -1,0 +1,77 @@
+name: Publish
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Test
+        run: npm test
+
+      # A package.json version at or below what npm already has means nobody
+      # bumped it by hand, so take the next patch after npm's. Anything above
+      # npm's version is a manual bump and publishes as is.
+      - name: Pick version
+        id: version
+        run: |
+          set -euo pipefail
+          current=$(node -p "require('./package.json').version")
+          latest=$(npm view "$(node -p "require('./package.json').name")" version 2>/dev/null || echo 0.0.0)
+          if [ "$(npx --yes semver -r ">$latest" "$current" || true)" = "$current" ]; then
+            next="$current"
+            echo "manual bump: publishing $current as is (npm has $latest)"
+          else
+            next=$(npx --yes semver -i patch "$latest")
+            npm version "$next" --no-git-tag-version
+            echo "auto bump: $current -> $next (npm has $latest)"
+          fi
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+          echo "bumped=$([ "$next" != "$current" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: npm run build:cli
+
+      - name: Publish
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Commit bump and tag
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ "${{ steps.version.outputs.bumped }}" = "true" ]; then
+            git add package.json package-lock.json
+            git commit -m "chore: v${{ steps.version.outputs.next }}"
+          fi
+          git tag "v${{ steps.version.outputs.next }}"
+          git push origin HEAD:main --tags

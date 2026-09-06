@@ -59,7 +59,7 @@ export const COMPARE_SCRIPT = `
 
   /** A run is a model on an engine on a host at a time — the label says all four. */
   function runLabel(r) {
-    return [r.short || r.model, r.engine, r.host, fmtDate(r.recordedAt)]
+    return [r.short || r.model, r.label, r.engine, r.host, fmtDate(r.recordedAt)]
       .filter(Boolean)
       .join(" · ");
   }

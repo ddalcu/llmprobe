@@ -112,6 +112,8 @@ interface Args {
   timeoutSec: number;
   budget?: number;
   baseline?: string;
+  /** Free-text note recorded with the run. */
+  label?: string;
   save?: string;
   /** Export a standalone report card to this path. No library side effects. */
   html?: string;
@@ -289,6 +291,9 @@ function parseArgs(argv: string[]): Args {
       case "--baseline":
         args.baseline = value();
         break;
+      case "--label":
+        args.label = value();
+        break;
       case "--save":
         args.save = value();
         break;
@@ -395,8 +400,9 @@ Options:
                         large models. Not comparable to core runs
       --eval-questions <n>  First n questions only
       --eval-cases <list>   Only these questions: 1-based numbers, ids, or a source
-                        (gpqa, supergpqa, aime, compsec; mmlupro, olympiad,
-                        livebench, juliet), e.g. 1,5,9 or aime
+                        (gpqa, supergpqa, aime, compsec, mmlupro, olympiad,
+                        livebench, juliet), e.g. 1,5,9 or aime. Sources and ids
+                        work from either suite; numbers index the --eval-suite deck
       --eval-max-tokens <n> Generation cap per question (default: 16000, or the
                         question's own cap in the hard suite)
       --concurrency <n> Questions / eval samples in flight at once (default: 1).
@@ -416,6 +422,8 @@ Options:
                         warmup. Default: 3 (context rungs: 1, or 3 at --full)
       --json            Machine-readable output (also the baseline format)
       --markdown        README-ready report with badges
+      --label <text>    Note recorded with the run and shown in the report and
+                        library, e.g. "qwen4 with kv8"
       --baseline <f>    Diff against a saved run and flag regressions
       --save <f>        Write the JSON report to a file
       --html <f>        Export a standalone report card to this path
@@ -437,6 +445,7 @@ Examples:
   llmprobe localhost:8080                      # llama.cpp
   llmprobe localhost:1234/v1                   # LM Studio
   llmprobe localhost:11434/v1                  # Ollama
+  llmprobe localhost:11234                     # mlx-serve
   llmprobe https://openrouter.ai/api/v1 -k $OPENROUTER_API_KEY
   llmprobe localhost:8080 --save baselines/llama-cpp.json
   llmprobe localhost:8080 --baseline baselines/llama-cpp.json
@@ -446,6 +455,11 @@ Examples:
   llmprobe --library --open                        # open ~/.llmprobe
   llmprobe --library runs/lib                      # rebuild, no probing
   llmprobe --compare a.json b.json c.json --html compare.html
+  llmprobe localhost:8080 --bench-only --rungs 4k,32k,128k --runs 5
+  llmprobe localhost:8080 --eval-only              # 92-question core eval
+  llmprobe localhost:8080 --eval-only --eval-suite hard --concurrency 4
+  llmprobe localhost:8080 --eval-only --eval-cases gpqa,supergpqa,aime,compsec,mmlupro,olympiad,livebench,juliet
+  llmprobe localhost:8080 --label "qwen4 with kv8" # note it in the library
 `;
 
 /** Open a local HTML file in the default browser (best-effort). */
@@ -1092,6 +1106,7 @@ async function probeModel(
   const runScope: ReportRunScope = {
     depth: args.depth,
     mode: args.evalOnly ? "eval-only" : args.benchOnly ? "bench-only" : "probe",
+    ...(args.label ? { label: args.label } : {}),
     startedAt: new Date(startedAt).toISOString(),
     phases: {
       coverage: phase(
@@ -1319,7 +1334,11 @@ async function probeModel(
   } else {
     console.log();
     console.log(
-      renderReport(report, { color: !args.noColor, benchOnly: onlyMode }),
+      renderReport(report, {
+        color: !args.noColor,
+        benchOnly: onlyMode,
+        ...(args.label ? { label: args.label } : {}),
+      }),
     );
   }
 
