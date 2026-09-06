@@ -28,6 +28,21 @@ const cs = (answer: string): ReasoningCase => ({
   answer,
 });
 
+const open = (
+  kind: "rational" | "sequence" | "text",
+  answer: string,
+  aliases?: string[],
+): ReasoningCase => ({
+  source: "OlympiadBench",
+  id: "t",
+  domain: "",
+  title: "",
+  question: "",
+  answer,
+  kind,
+  ...(aliases ? { aliases } : {}),
+});
+
 // Ported from ds4-eval's extractor self-tests.
 const cases: Array<[string, ReasoningCase, string, string]> = [
   [
@@ -137,6 +152,40 @@ describe("reasoning grader", () => {
     expect(extractAnswer(mc("A"), "")).toBe("?");
     expect(extractAnswer(int("5"), "no digits here")).toBe("?");
     expect(answerMatches(int("5"), "?")).toBe(false);
+  });
+
+  test("open answers: rational, ordered sequence, exact text, aliases", () => {
+    const rat = open("rational", "25/2", ["12.5"]);
+    expect(extractAnswer(rat, "Answer: $\\frac{25}{2}$")).toBe("25/2");
+    expect(answerMatches(rat, "25/2")).toBe(true);
+    expect(answerMatches(rat, extractAnswer(rat, "Answer: 12.5"))).toBe(true);
+    expect(answerMatches(rat, "25/3")).toBe(false);
+
+    const seq = open("sequence", "satire, martial-arts, horror, 2");
+    expect(
+      extractAnswer(seq, "Answer: **Satire, Martial-Arts, Horror, 2.**"),
+    ).toBe("satire,martial-arts,horror,2");
+    expect(answerMatches(seq, "satire,martial-arts,horror,2")).toBe(true);
+    expect(answerMatches(seq, "horror,satire,martial-arts,2")).toBe(false);
+
+    const tup = open("sequence", "(1,8,19),(2,7,13),(4,5,7)", [
+      "(4,5,7),(2,7,13),(1,8,19)",
+    ]);
+    expect(
+      answerMatches(
+        tup,
+        extractAnswer(tup, "Answer: (4, 5, 7), (2, 7, 13), (1, 8, 19)"),
+      ),
+    ).toBe(true);
+
+    const txt = open("text", "2n-2", ["2(n-1)"]);
+    expect(extractAnswer(txt, "Answer: $\\boxed{2n - 2}$")).toBe("2n-2");
+    expect(answerMatches(txt, extractAnswer(txt, "Answer: 2(n-1)"))).toBe(true);
+    expect(answerMatches(txt, "2n")).toBe(false);
+
+    // No Answer: line means no payload; unlike integers there is no trailing fallback.
+    expect(extractAnswer(seq, "probably satire, horror")).toBe("?");
+    expect(extractAnswerDetailed(rat, "Answer: 25/2").anchored).toBe(true);
   });
 
   test("plural 'answers' is not an answer marker", () => {

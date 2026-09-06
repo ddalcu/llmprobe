@@ -44,6 +44,15 @@ export function buildPrompt(tc: ReasoningCase): string {
   if (isCompsec(tc)) {
     return `${tc.question}\n\n${TAIL}Answer: <line number or comma-separated line numbers>`;
   }
+  if (tc.kind === "rational") {
+    return `${tc.question}\n\nSolve the problem. Reduce the result. ${TAIL}Answer: <integer or reduced fraction>`;
+  }
+  if (tc.kind === "sequence") {
+    return `${tc.question}\n\nSolve the problem. At the end, write exactly one final line containing the answers in the requested order, separated by commas, and do not write anything after it:\nAnswer: <ordered answers>`;
+  }
+  if (tc.kind === "text") {
+    return `${tc.question}\n\nSolve the problem. ${TAIL}Answer: <exact answer>`;
+  }
   return `${tc.question}\n\nSolve the problem. ${TAIL}Answer: <integer>`;
 }
 

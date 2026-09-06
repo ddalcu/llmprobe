@@ -196,6 +196,61 @@ function compsecMatches(expected: string, got: string): boolean {
   return true;
 }
 
+/** Text after the last "Answer:" marker, or null when there is no such line. */
+function answerPayload(visible: string): string | null {
+  const marker = findLastAnswerMarker(visible);
+  if (marker < 0) return null;
+  let p = marker + 6;
+  while (p < visible.length && /\s/.test(visible[p]!)) p++;
+  if (visible[p] !== ":") return null;
+  p++;
+  while (p < visible.length && /[\s*]/.test(visible[p]!)) p++;
+  const nl = visible.indexOf("\n", p);
+  return visible.slice(p, nl >= 0 ? nl : undefined);
+}
+
+// Normalizers mirror ds4-eval so both graders agree on the same reply.
+function normalizeExact(src: string): string {
+  return src
+    .replace(/\\(boxed|left|right)/g, "")
+    .replace(/[\s$*{}\\]/g, "")
+    .toLowerCase()
+    .replace(/[.;]+$/, "");
+}
+
+function normalizeSequence(src: string): string {
+  return src
+    .replace(/<[^>]*>/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9,\-+/.]/g, "")
+    .replace(/[.,]+$/, "");
+}
+
+function normalizeRational(src: string): string {
+  const frac = /\\frac\s*\{([^}]*)\}\s*\{([^}]*)\}/.exec(src);
+  if (frac) return `${frac[1]}/${frac[2]}`.replace(/\s/g, "");
+  return src.replace(/[^\d\-+/.]/g, "").replace(/\.+$/, "");
+}
+
+const NORMALIZE: Record<
+  NonNullable<ReasoningCase["kind"]>,
+  (s: string) => string
+> = {
+  rational: normalizeRational,
+  sequence: normalizeSequence,
+  text: normalizeExact,
+};
+
+function findPayloadAnswer(
+  generated: string,
+  normalize: (s: string) => string,
+): ExtractedAnswer {
+  const payload = answerPayload(visibleText(generated));
+  if (payload === null) return found("?", false);
+  const got = normalize(payload);
+  return got ? found(got, true) : found("?", false);
+}
+
 export function extractAnswerDetailed(
   tc: ReasoningCase,
   generated: string,
@@ -203,6 +258,7 @@ export function extractAnswerDetailed(
   if (isMultipleChoice(tc))
     return findAnswerLetter(generated, tc.choices!.length);
   if (isCompsec(tc)) return findCompsecAnswer(generated);
+  if (tc.kind) return findPayloadAnswer(generated, NORMALIZE[tc.kind]);
   return findIntegerAnswer(generated);
 }
 
@@ -213,5 +269,7 @@ export function extractAnswer(tc: ReasoningCase, generated: string): string {
 export function answerMatches(tc: ReasoningCase, got: string): boolean {
   if (isMultipleChoice(tc)) return got[0] === tc.answer[0];
   if (isCompsec(tc)) return compsecMatches(tc.answer, got);
-  return got === normalizeInteger(tc.answer);
+  if (got === "?") return false;
+  const normalize = tc.kind ? NORMALIZE[tc.kind] : normalizeInteger;
+  return [tc.answer, ...(tc.aliases ?? [])].some((a) => got === normalize(a));
 }

@@ -21,6 +21,8 @@ export interface ReasoningCase {
   /** Multiple choice when present; otherwise an integer (AIME) or line spec (COMPSEC). */
   choices?: string[];
   answer: string;
+  /** Open-answer form. Unset: choices → letter, COMPSEC/Juliet → line set, else integer. */
+  kind?: "rational" | "sequence" | "text";
   /** Equivalent surface forms of the answer. */
   aliases?: string[];
   /** Generation cap for this case; an explicit --eval-max-tokens overrides it. */

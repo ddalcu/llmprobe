@@ -29,6 +29,11 @@ third-party datasets, ported from ds4-eval:
 The hard suite under src/reasoning/hard-cases.ts (--eval-suite hard) likewise:
 
 - MMLU-Pro (https://github.com/TIGER-AI-Lab/MMLU-Pro), Apache-2.0.
+- OlympiadBench (https://huggingface.co/datasets/Hothan/OlympiadBench),
+  Apache-2.0; English text-only rows, only the published final answers embedded.
+- LiveBench reasoning (https://huggingface.co/datasets/livebench/reasoning),
+  Apache-2.0; the benchmark's own output wrapper is replaced by this eval's
+  answer-line instruction.
 - NIST Juliet 1.3 (https://samate.nist.gov/SARD/test-suites/112), CC0-1.0;
   the cases are short locally written reductions of Juliet weakness patterns,
   not copies of Juliet test cases.
