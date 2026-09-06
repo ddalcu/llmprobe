@@ -11,7 +11,11 @@ import {
   buildConformanceTests,
   primarySurface,
 } from "../src/conformance/index";
-import { bearerAuth, type SurfaceAdapter } from "../src/core/adapter";
+import {
+  bearerAuth,
+  type ReasoningEffort,
+  type SurfaceAdapter,
+} from "../src/core/adapter";
 import {
   BudgetExceededError,
   TargetUnreachableError,
@@ -103,6 +107,8 @@ interface Args {
   /** Generation cap per question (default 16000). */
   /** Unset: each question's own cap (hard suite), else 16000. */
   evalMaxTokens?: number;
+  /** --reasoning: effort asked for on every eval question; "off" sends nothing. */
+  reasoning: ReasoningEffort | "off";
   /** Questions / eval samples in flight at once (default 1 = sequential). */
   concurrency?: number;
   /** --rungs: context-ladder sizes to run instead of the depth's ladder. */
@@ -142,6 +148,7 @@ function parseArgs(argv: string[]): Args {
     eval: false,
     evalOnly: false,
     evalSuite: "core",
+    reasoning: "medium",
     timeoutSec: 60,
     noSave: false,
     libraryDefault: false,
@@ -245,6 +252,15 @@ function parseArgs(argv: string[]): Args {
           process.exit(1);
         }
         break;
+      case "--reasoning": {
+        const effort = value();
+        if (!["off", "low", "medium", "high"].includes(effort)) {
+          console.error("--reasoning must be off, low, medium or high");
+          process.exit(2);
+        }
+        args.reasoning = effort as Args["reasoning"];
+        break;
+      }
       case "--concurrency": {
         const n = numberValue();
         if (!Number.isInteger(n) || n < 1) {
@@ -405,6 +421,10 @@ Options:
                         work from either suite; numbers index the --eval-suite deck
       --eval-max-tokens <n> Generation cap per question (default: 16000, or the
                         question's own cap in the hard suite)
+      --reasoning <e>   Thinking effort sent with every eval question, in the
+                        surface's own vocabulary: off, low, medium (default) or
+                        high. Engines that reject the param fall back to their
+                        default and the report says so
       --concurrency <n> Questions / eval samples in flight at once (default: 1).
                         Speeds up --eval on engines that serve in parallel;
                         benchmark timing always stays serial
@@ -1005,7 +1025,7 @@ async function probeModel(
   if (args.eval && !budgetHit && !incomplete && ctx.evalSurface) {
     log();
     log(
-      `${c.gray(`reasoning eval, ${args.evalSuite} suite (up to ${fmtCount(args.evalMaxTokens ?? DEFAULT_MAX_TOKENS)} tokens per question)...`)}`,
+      `${c.gray(`reasoning eval, ${args.evalSuite} suite (up to ${fmtCount(args.evalMaxTokens ?? DEFAULT_MAX_TOKENS)} tokens per question, reasoning ${args.reasoning})...`)}`,
     );
     const evalStart = {
       input: client.usage.inputTokens,
@@ -1022,6 +1042,9 @@ async function probeModel(
           : {}),
         temperature: sampling?.temperature ?? 0,
         ...(sampling?.topP !== undefined ? { topP: sampling.topP } : {}),
+        ...(args.reasoning !== "off"
+          ? { reasoningEffort: args.reasoning }
+          : {}),
         ...(args.evalQuestions !== undefined
           ? { limit: args.evalQuestions }
           : {}),
@@ -1047,6 +1070,11 @@ async function probeModel(
           );
         },
       });
+      if (reasoning.reasoningEffortRejected) {
+        log(
+          `  ${c.yellow("⚠")} engine rejected the reasoning effort param; ran at its default`,
+        );
+      }
       if (reasoning.aborted) {
         if (reasoning.aborted.reason === "budget") {
           budgetHit = true;

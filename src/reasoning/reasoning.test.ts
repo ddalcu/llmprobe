@@ -421,3 +421,58 @@ describe("selectCases", () => {
     expect(selectCases(HARD_CASES, { sequence: "aime" })).toHaveLength(25);
   });
 });
+
+describe("reasoning effort", () => {
+  function contextFor(url: string) {
+    const config: RunConfig = {
+      baseUrl: `${normalizeRoot(url)}/v1`,
+      apiKey: "",
+      model: "mock-model-12b",
+      timeoutMs: 15_000,
+      depth: "default",
+      reasoningHeadroom: 0,
+    };
+    return createContext({
+      config,
+      client: new EngineClient(config),
+      adapters: new Map<string, SurfaceAdapter>(ADAPTERS.map((a) => [a.id, a])),
+      present: new Set(["chat"]),
+      evalSurface: "chat",
+    });
+  }
+
+  test("sends reasoning_effort on every question and reports it", async () => {
+    engine = await startMockEngine();
+    const report = await runReasoning(contextFor(engine.url), {
+      maxTokens: 64,
+      temperature: 0,
+      sequence: "1,2",
+      reasoningEffort: "medium",
+    });
+    expect(engine.chatBodies.map((b) => b.reasoning_effort)).toEqual([
+      "medium",
+      "medium",
+    ]);
+    expect(report.reasoningEffort).toBe("medium");
+    expect(report.reasoningEffortRejected).toBe(false);
+  });
+
+  test("drops the param after a 400 and flags the report", async () => {
+    engine = await startMockEngine({ rejectsReasoningEffort: true });
+    const report = await runReasoning(contextFor(engine.url), {
+      maxTokens: 64,
+      temperature: 0,
+      sequence: "1,2",
+      reasoningEffort: "medium",
+    });
+    // Rejected once, retried bare, then bare for the rest of the run.
+    expect(engine.chatBodies.map((b) => b.reasoning_effort)).toEqual([
+      "medium",
+      undefined,
+      undefined,
+    ]);
+    expect(report.cases[0]!.status).toBe("passed");
+    expect(report.reasoningEffort).toBe("medium");
+    expect(report.reasoningEffortRejected).toBe(true);
+  });
+});

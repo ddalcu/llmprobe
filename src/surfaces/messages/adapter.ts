@@ -15,6 +15,7 @@ import {
   emptyUsage,
   type StreamReply,
   type SurfaceAdapter,
+  thinkingBudgetFor,
   type ToolCall,
   type ToolChoice,
   type Turn,
@@ -164,6 +165,14 @@ export const messagesAdapter: SurfaceAdapter = {
       body.temperature = request.temperature;
     if (request.topP !== undefined) body.top_p = request.topP;
     if (request.stop) body.stop_sequences = request.stop;
+    if (request.reasoningEffort) {
+      const budget = thinkingBudgetFor(
+        request.reasoningEffort,
+        body.max_tokens as number,
+      );
+      if (budget !== null)
+        body.thinking = { type: "enabled", budget_tokens: budget };
+    }
 
     if (request.tools?.length) {
       body.tools = request.tools.map((tool) => ({

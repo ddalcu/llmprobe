@@ -1,4 +1,4 @@
-import type { ReasoningReport } from "../../../reasoning/types";
+import { effortNote, type ReasoningReport } from "../../../reasoning/types";
 import { esc } from "./shared";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -53,7 +53,7 @@ export function reasoningSection(r: ReasoningReport): string {
         <h2>Reasoning <span class="tag model">model</span></h2>
         <div class="score">${r.passed}/${r.total}</div>
       </div>
-      <p class="lede">Hard-question accuracy, informational and never scored. The ${r.suite} suite, up to ${r.maxTokens} tokens per question at temperature ${r.temperature}. "Out of tokens" means the answer line never came, which is a budget fact, not a wrong answer.</p>
+      <p class="lede">Hard-question accuracy, informational and never scored. The ${r.suite} suite, up to ${r.maxTokens} tokens per question at temperature ${r.temperature}${effortNote(r)}. "Out of tokens" means the answer line never came, which is a budget fact, not a wrong answer.</p>
       ${r.scopeNote ? `<p class="fine">⚠ ${esc(r.scopeNote)}</p>` : ""}
       <div class="conf-table-wrap">
         <table class="drill-table">

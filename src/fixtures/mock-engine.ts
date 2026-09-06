@@ -17,6 +17,8 @@ import type { AddressInfo } from "node:net";
  */
 
 export interface MockDefects {
+  /** 400 any chat completion carrying `reasoning_effort`, like a strict older build. */
+  rejectsReasoningEffort?: boolean;
   /** Omit the terminal `data: [DONE]` sentinel from streams. */
   noDoneSentinel?: boolean;
   /**
@@ -618,6 +620,23 @@ export async function startMockEngine(
         !body?.model ||
         !Array.isArray(body?.messages) ||
         body.messages.length === 0;
+
+      if (
+        defects.rejectsReasoningEffort &&
+        body?.reasoning_effort !== undefined
+      ) {
+        return json(
+          res,
+          {
+            error: {
+              message:
+                "Unrecognized request argument supplied: reasoning_effort",
+              type: "invalid_request_error",
+            },
+          },
+          400,
+        );
+      }
 
       if (malformed && !defects.acceptsMalformedBodies) {
         return json(

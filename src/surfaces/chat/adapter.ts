@@ -154,6 +154,8 @@ export const chatAdapter: SurfaceAdapter = {
     if (request.stop) body.stop = request.stop;
     if (request.seed !== undefined) body.seed = request.seed;
     if (request.logprobs) body.logprobs = true;
+    if (request.reasoningEffort)
+      body.reasoning_effort = request.reasoningEffort;
 
     if (request.tools?.length) {
       body.tools = request.tools.map((tool) => ({

@@ -593,6 +593,7 @@ export function renderCardHtml(
         ${report.run?.mode === "bench-only" ? `<span class="badge">benchmark only</span>` : ""}
         ${report.run?.mode === "eval-only" ? `<span class="badge">eval only</span>` : ""}
         ${report.run?.depth && report.run.depth !== "default" ? `<span class="badge">--${esc(report.run.depth)}</span>` : ""}
+        ${fmtDuration(report.durationMs) ? `<span>ran in ${fmtDuration(report.durationMs)}</span>` : ""}
       </div>
       ${scopeNote}
     </div>

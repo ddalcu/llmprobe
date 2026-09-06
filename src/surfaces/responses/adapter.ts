@@ -199,6 +199,8 @@ export const responsesAdapter: SurfaceAdapter = {
     if (request.topP !== undefined) body.top_p = request.topP;
     if (request.maxTokens !== undefined)
       body.max_output_tokens = request.maxTokens;
+    if (request.reasoningEffort)
+      body.reasoning = { effort: request.reasoningEffort };
 
     if (request.tools?.length) {
       body.tools = request.tools.map((tool) => ({

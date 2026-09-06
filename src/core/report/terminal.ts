@@ -1,5 +1,5 @@
 import { STEP_SPECULATION_FLOOR } from "../../bench/stats";
-import type { ReasoningReport } from "../../reasoning/types";
+import { effortNote, type ReasoningReport } from "../../reasoning/types";
 import type {
   AgenticScore,
   BenchReport,
@@ -327,7 +327,7 @@ function renderReasoning(r: ReasoningReport, c: Palette): string[] {
   const pct = r.total > 0 ? Math.round((100 * r.passed) / r.total) : 0;
   const lines = [
     c.bold("REASONING"),
-    `  ${c.gray(`informational — not scored; ${r.suite} suite, up to ${r.maxTokens} tokens per question, temperature ${r.temperature}`)}`,
+    `  ${c.gray(`informational — not scored; ${r.suite} suite, up to ${r.maxTokens} tokens per question, temperature ${r.temperature}${effortNote(r)}`)}`,
   ];
   if (r.scopeNote) lines.push(`  ${c.yellow(`⚠ ${r.scopeNote}`)}`);
   lines.push(

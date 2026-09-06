@@ -61,7 +61,23 @@ function compareEntry(input: CompareWorkbenchInput, index: number) {
       tokens: p.inputTokens ?? p.targetTokens,
       decode: p.decodeTokPerSec,
       ttft: p.ttftMs,
+      prefill: p.prefillTokPerSec ?? null,
     })),
+    durationMs: r.durationMs ?? null,
+    reasoning: r.reasoning
+      ? {
+          suite: r.reasoning.suite,
+          passed: r.reasoning.passed,
+          total: r.reasoning.total,
+          stopped: r.reasoning.stopped,
+          effort: r.reasoning.reasoningEffort ?? null,
+          bySource: r.reasoning.bySource.map((s) => ({
+            source: s.source,
+            passed: s.passed,
+            total: s.total,
+          })),
+        }
+      : null,
     core: core?.pct ?? null,
     extended: ext?.pct ?? null,
     frontier: front?.pct ?? null,

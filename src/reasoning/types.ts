@@ -1,3 +1,5 @@
+import type { ReasoningEffort } from "../core/adapter";
+
 export type ReasoningSource =
   | "GPQA Diamond"
   | "GPQA Diamond (modified)"
@@ -66,10 +68,20 @@ export interface ReasoningReport {
   error: number;
   maxTokens: number;
   temperature: number;
+  /** Effort asked for on every question; null when --reasoning off. */
+  reasoningEffort: ReasoningEffort | null;
+  /** The engine 400'd the effort param, so the run fell back to the engine's default. */
+  reasoningEffortRejected: boolean;
   bySource: ReasoningSourceSummary[];
   cases: ReasoningCaseResult[];
   /** Set when --eval-questions or --eval-cases narrowed the set, or the run aborted early. */
   scopeNote: string | null;
   /** Set when the run stopped early; the completed cases are still reported. */
   aborted: { reason: "budget" | "unreachable"; message: string } | null;
+}
+
+/** ", reasoning medium" / ", reasoning medium (rejected by the engine)" / "". */
+export function effortNote(r: ReasoningReport): string {
+  if (!r.reasoningEffort) return "";
+  return `, reasoning ${r.reasoningEffort}${r.reasoningEffortRejected ? " (rejected by the engine, ran at its default)" : ""}`;
 }

@@ -45,6 +45,11 @@ export const COMPARE_SCRIPT = `
     return runs;
   }
 
+  function fmtDuration(ms) {
+    const s = Math.round(ms / 1000);
+    return s >= 60 ? Math.floor(s / 60) + "m " + (s % 60) + "s" : s + "s";
+  }
+
   function fmtDate(iso) {
     if (!iso) return "";
     const t = Date.parse(iso);
@@ -84,6 +89,7 @@ export const COMPARE_SCRIPT = `
   }
 
   function rankClass(vals, i, higher) {
+    if (higher == null) return "";
     const present = vals.filter((v) => v != null && !Number.isNaN(v));
     if (present.length < 2 || vals[i] == null) return "";
     const best = higher ? Math.max.apply(null, present) : Math.min.apply(null, present);
@@ -134,7 +140,7 @@ export const COMPARE_SCRIPT = `
         ? '<a class="open-report" href="' + esc(row.href) + '">open report →</a>'
         : '<span class="open-report muted-slot">open report →</span>';
     const sub = row
-      ? esc([row.engine, row.host].filter(Boolean).join(" · ") || row.baseUrl || "")
+      ? esc([row.label, row.engine, row.host].filter(Boolean).join(" · ") || row.baseUrl || "")
       : "Choose a run to load scores";
     return (
       '<div class="picker-card" data-col="' + col + '">' +
@@ -399,7 +405,8 @@ export const COMPARE_SCRIPT = `
   }
 
   /** Grouped bar chart of the primary scores, one bar color per run. */
-  function scoreBarsSvg(metrics, runs) {
+  function scoreBarsSvg(metrics, runs, title) {
+    title = title || "Primary scores";
     const W = 460, H = 220;
     const pad = { l: 40, r: 14, t: 26, b: 34 };
     const plotW = W - pad.l - pad.r;
@@ -443,8 +450,8 @@ export const COMPARE_SCRIPT = `
         '" text-anchor="middle" font-size="10" fill="var(--muted)">' + esc(m.label) + "</text>";
     });
     return (
-      '<svg class="ctx-chart" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Primary scores">' +
-      '<text x="' + pad.l + '" y="15" font-size="11" font-weight="700" fill="var(--ink)">Primary scores</text>' +
+      '<svg class="ctx-chart" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="' + esc(title) + '">' +
+      '<text x="' + pad.l + '" y="15" font-size="11" font-weight="700" fill="var(--ink)">' + esc(title) + "</text>" +
       '<text x="' + (W - pad.r) + '" y="15" text-anchor="end" font-size="10" fill="var(--muted)">%</text>' +
       yTicks + bars +
       "</svg>"
@@ -471,8 +478,10 @@ export const COMPARE_SCRIPT = `
       if (r) picked.push({ r, color: SERIES[i % SERIES.length] });
     });
     if (picked.length < 2) return "";
-    const charts = [];
-    charts.push(
+    // Two columns: timing curves on the left, score bars on the right.
+    const timing = [];
+    const scores = [];
+    scores.push(
       scoreBarsSvg(
         [
           { label: "Core", value: (r) => r.core },
@@ -493,7 +502,7 @@ export const COMPARE_SCRIPT = `
       }))
       .filter((s) => s.points.length > 0);
     if (decodeSeries.some((s) => s.points.length >= 2) || decodeSeries.length >= 2) {
-      charts.push(lineChartSvg("Decode vs context", "tok/s", decodeSeries));
+      timing.push(lineChartSvg("Decode vs context", "tok/s", decodeSeries));
     }
     const ttftSeries = picked
       .map((run) => ({
@@ -505,13 +514,43 @@ export const COMPARE_SCRIPT = `
       }))
       .filter((s) => s.points.length > 0);
     if (ttftSeries.some((s) => s.points.length >= 2) || ttftSeries.length >= 2) {
-      charts.push(lineChartSvg("First token vs context", "ms", ttftSeries));
+      timing.push(lineChartSvg("First token vs context", "ms", ttftSeries));
     }
-    const drawn = charts.filter(Boolean);
-    if (!drawn.length) return "";
+    const prefillSeries = picked
+      .map((run) => ({
+        label: runLabel(run.r),
+        color: run.color,
+        points: (run.r.contextScaling || [])
+          .filter((p) => p.prefill != null)
+          .map((p) => ({ x: p.tokens, y: p.prefill })),
+      }))
+      .filter((s) => s.points.length > 0);
+    if (prefillSeries.some((s) => s.points.length >= 2) || prefillSeries.length >= 2) {
+      timing.push(lineChartSvg("Prefill vs context", "tok/s", prefillSeries));
+    }
+    // Reasoning accuracy per source. Sources are the natural axis: core and
+    // hard suites share none, so a mixed pick just shows more groups.
+    const sources = [];
+    picked.forEach((run) => {
+      ((run.r.reasoning && run.r.reasoning.bySource) || []).forEach((s) => {
+        if (s.total > 0 && !sources.includes(s.source)) sources.push(s.source);
+      });
+    });
+    if (sources.length) {
+      const metrics = sources.map((source) => ({
+        label: source,
+        value: (r) => {
+          const hit = ((r.reasoning && r.reasoning.bySource) || []).find((s) => s.source === source);
+          return hit && hit.total > 0 ? Math.round((100 * hit.passed) / hit.total) : null;
+        },
+      }));
+      scores.push(scoreBarsSvg(metrics, picked, "Reasoning eval accuracy"));
+    }
+    if (!timing.length && !scores.length) return "";
+    const col = (items) => '<div class="chart-col">' + items.join("") + "</div>";
     return (
       '<div class="overview-label"><h2>Charts</h2><p>Scores and context scaling — hardware-dependent timings only compare across runs on the same machine</p></div>' +
-      '<div class="ctx-charts">' + drawn.join("") + "</div>" +
+      '<div class="ctx-charts">' + col(timing) + col(scores) + "</div>" +
       legendHtml(picked)
     );
   }
@@ -569,6 +608,11 @@ export const COMPARE_SCRIPT = `
     );
     const fidVals = rows.map((r) => (r ? r.fidelity : null));
     const mustVals = rows.map((r) => (r ? r.mustViolations : null));
+    const reasonVals = rows.map((r) =>
+      r && r.reasoning && r.reasoning.total > 0
+        ? r.reasoning.passed / r.reasoning.total
+        : null,
+    );
 
     let html = "";
 
@@ -589,6 +633,26 @@ export const COMPARE_SCRIPT = `
       row(rows, "Fidelity", fidVals, true, pctText) +
       row(rows, "MUST violations", mustVals, false, (v) =>
         v == null ? "—" : String(v),
+      ) +
+      row(rows, "Reasoning eval", reasonVals, true, (v, r) =>
+        r && r.reasoning
+          ? r.reasoning.passed + "/" + r.reasoning.total +
+            ' <span class="hint">' + esc(r.reasoning.suite +
+              (r.reasoning.effort ? " · " + r.reasoning.effort : "") +
+              (r.reasoning.stopped ? " · " + r.reasoning.stopped + " out of tokens" : "")) + "</span>"
+          : "—",
+      ) +
+      "</div>";
+
+    html +=
+      '<div class="overview-label"><h2>Run</h2><p>What was run, and how long it took</p></div>';
+    html +=
+      grid +
+      row(rows, "Label", rows.map((r) => (r && r.label ? 1 : null)), null, (v, r) =>
+        r && r.label ? esc(r.label) : "—",
+      ) +
+      row(rows, "Total time", rows.map((r) => (r ? r.durationMs : null)), null, (v) =>
+        v == null ? "—" : fmtDuration(v),
       ) +
       "</div>";
 

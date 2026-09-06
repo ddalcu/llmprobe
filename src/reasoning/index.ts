@@ -1,4 +1,5 @@
 import { runConcurrent } from "../core/assert";
+import type { ReasoningEffort } from "../core/adapter";
 import { BudgetExceededError, TargetUnreachableError } from "../core/client";
 import type { RunContext } from "../core/context";
 import {
@@ -111,6 +112,8 @@ export interface ReasoningOptions {
   maxTokens?: number;
   temperature: number;
   topP?: number;
+  /** Unset: no reasoning param, the engine's own default. */
+  reasoningEffort?: ReasoningEffort;
   limit?: number;
   sequence?: string;
   /** Questions in flight at once. 1 (default) is fully sequential. */
@@ -139,6 +142,10 @@ export async function runReasoning(
     opts.maxTokens ?? tc.maxTokens ?? DEFAULT_MAX_TOKENS;
   const concurrency = Math.max(1, opts.concurrency ?? 1);
   let aborted: ReasoningReport["aborted"] = null;
+  // Shared across questions: the first engine that 400s the effort param
+  // gets the rest of the run bare, and the report says so.
+  let effort = opts.reasoningEffort;
+  let effortRejected = false;
 
   // One question, socket-drop retries included. Returns null only when the
   // run must stop: the budget is gone, or the target is a corpse.
@@ -158,20 +165,30 @@ export async function runReasoning(
 
     for (let attempt = 1; attempt <= UNREACHABLE_ATTEMPTS; attempt += 1) {
       try {
-        const res = await ctx.send(
+        const request = {
+          system: SYSTEM_PROMPT,
+          turns: [{ type: "user" as const, text: buildPrompt(tc) }],
+          maxTokens: capFor(tc),
+          temperature: opts.temperature,
+          ...(opts.topP !== undefined ? { topP: opts.topP } : {}),
+          allowReasoning: false,
+        };
+        // A 16k-token think runs for minutes; the token cap is the bound
+        // here, and a clock would grade our patience rather than the model.
+        const sendOpts = { timeoutMs: null };
+        let res = await ctx.send(
           surface,
-          {
-            system: SYSTEM_PROMPT,
-            turns: [{ type: "user", text: buildPrompt(tc) }],
-            maxTokens: capFor(tc),
-            temperature: opts.temperature,
-            ...(opts.topP !== undefined ? { topP: opts.topP } : {}),
-            allowReasoning: false,
-          },
-          // A 16k-token think runs for minutes; the token cap is the bound
-          // here, and a clock would grade our patience rather than the model.
-          { timeoutMs: null },
+          { ...request, ...(effort ? { reasoningEffort: effort } : {}) },
+          sendOpts,
         );
+        if (res.status === 400 && effort) {
+          const bare = await ctx.send(surface, request, sendOpts);
+          if (bare.status === 200) {
+            effort = undefined;
+            effortRejected = true;
+            res = bare;
+          }
+        }
         const text = res.reply.text ?? "";
         const { got, anchored } = extractAnswerDetailed(tc, text);
         const truncated = res.reply.finishReason === "length";
@@ -296,6 +313,8 @@ export async function runReasoning(
     error: count("error"),
     maxTokens: Math.max(0, ...cases.map(capFor)),
     temperature: opts.temperature,
+    reasoningEffort: opts.reasoningEffort ?? null,
+    reasoningEffortRejected: effortRejected,
     bySource,
     cases: results,
     scopeNote,

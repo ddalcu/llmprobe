@@ -174,6 +174,9 @@ function contextChartsHtml(
   const ttft = measured
     .filter((p) => p.ttftMs != null)
     .map((p) => ({ x: x(p), y: p.ttftMs! }));
+  const prefill = measured
+    .filter((p) => p.prefillTokPerSec != null)
+    .map((p) => ({ x: x(p), y: p.prefillTokPerSec! }));
   const charts = [
     decode.length >= 2
       ? lineChartSvg("Decode vs context", "tok/s", [
@@ -183,6 +186,11 @@ function contextChartsHtml(
     ttft.length >= 2
       ? lineChartSvg("First token vs context", "ms", [
           { label: "ttft", color: "var(--caution, #c98a00)", points: ttft },
+        ])
+      : "",
+    prefill.length >= 2
+      ? lineChartSvg("Prefill vs context", "tok/s", [
+          { label: "prefill", color: "var(--model, #0d7a45)", points: prefill },
         ])
       : "",
   ]

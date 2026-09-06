@@ -71,7 +71,8 @@ export const COMPARE_PICKER_STYLE = `
 }
 .compare-sticky.visible { display: block; }
 .compare-sticky-inner {
-  max-width: 1080px; margin: 0 auto;
+  /* same width as .wrap, or the frozen row drifts off its columns on wide screens */
+  max-width: 1360px; margin: 0 auto;
   display: grid;
   grid-template-columns: 180px repeat(var(--n, 2), minmax(0, 1fr));
   gap: 0;
@@ -92,5 +93,8 @@ export const COMPARE_PICKER_STYLE = `
   .compare-sticky-inner { grid-template-columns: 72px repeat(var(--n, 2), minmax(0, 1fr)); }
   .sticky-col { font-size: 12px; padding: 8px 6px; }
 }
-body.has-sticky-pad { /* reserved if needed */ }
+/* Compare page: timing curves left, score bars right. The single card keeps auto-fit. */
+.ctx-charts { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+.chart-col { display: grid; gap: 12px; min-width: 0; }
+@media (max-width: 720px) { .ctx-charts { grid-template-columns: 1fr; } }
 `;
