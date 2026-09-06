@@ -184,7 +184,9 @@ llmprobe localhost:8080 --eval-only --eval-cases aime
 
 This is the one intelligence benchmark in llmprobe, and it is small on purpose: it is a regression harness for "did this engine or quant make the model dumber", not a leaderboard. On a thinking model it is also by far the most expensive thing here.
 
-Ported from ds4-eval. GPQA is CC BY 4.0, SuperGPQA is ODC-BY, the AIME 2025 mirror is MIT; see `NOTICE`.
+`--eval-suite hard` swaps in the ds4-eval hard suite instead: 30 MMLU-Pro (10-choice) and 5 NIST Juliet line-localization questions, meant for large models. Each hard question carries its own token cap (4096 here) unless `--eval-max-tokens` is given. Hard runs are reported as such and are not comparable to core runs. `--eval-cases` takes `mmlupro` and `juliet` as source names there.
+
+Ported from ds4-eval. GPQA is CC BY 4.0, SuperGPQA is ODC-BY, the AIME 2025 mirror is MIT, MMLU-Pro is Apache-2.0, the Juliet reductions are CC0; see `NOTICE`.
 
 ## Run depths
 

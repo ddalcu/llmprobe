@@ -10,7 +10,7 @@ const boundary = (before: string | undefined, after: string | undefined) =>
 export const isMultipleChoice = (tc: ReasoningCase): boolean =>
   (tc.choices?.length ?? 0) > 0;
 export const isCompsec = (tc: ReasoningCase): boolean =>
-  tc.source === "COMPSEC";
+  tc.source === "COMPSEC" || tc.source === "NIST Juliet";
 
 export function visibleText(generated: string): string {
   const i = generated.lastIndexOf("</think>");

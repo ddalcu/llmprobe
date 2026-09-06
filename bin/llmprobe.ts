@@ -70,7 +70,11 @@ import {
 import { runAgentic } from "../src/agentic/index";
 import { SAMPLING_PRESETS, parseRungs, runBenchmark } from "../src/bench/index";
 import { runFidelity } from "../src/fidelity/index";
-import { runReasoning } from "../src/reasoning/index";
+import {
+  DEFAULT_MAX_TOKENS,
+  type ReasoningSuite,
+  runReasoning,
+} from "../src/reasoning/index";
 import { ALL_EVALS } from "../src/evals/index";
 
 interface Args {
@@ -88,6 +92,8 @@ interface Args {
   sampling?: string;
   /** Reasoning accuracy eval (GPQA / SuperGPQA / AIME / COMPSEC subsets); opt-in. */
   eval: boolean;
+  /** core (default, 12B floor) or hard (MMLU-Pro / OlympiadBench / LiveBench / Juliet, for big models). */
+  evalSuite: ReasoningSuite;
   /** Run the reasoning eval and nothing else. */
   evalOnly: boolean;
   /** First N questions only. */
@@ -95,7 +101,8 @@ interface Args {
   /** Comma list of 1-based question numbers or ids. */
   evalCases?: string;
   /** Generation cap per question (default 16000). */
-  evalMaxTokens: number;
+  /** Unset: each question's own cap (hard suite), else 16000. */
+  evalMaxTokens?: number;
   /** Questions / eval samples in flight at once (default 1 = sequential). */
   concurrency?: number;
   /** --rungs: context-ladder sizes to run instead of the depth's ladder. */
@@ -132,7 +139,7 @@ function parseArgs(argv: string[]): Args {
     benchOnly: false,
     eval: false,
     evalOnly: false,
-    evalMaxTokens: 16000,
+    evalSuite: "core",
     timeoutSec: 60,
     noSave: false,
     libraryDefault: false,
@@ -210,6 +217,15 @@ function parseArgs(argv: string[]): Args {
         args.evalOnly = true;
         args.bench = false;
         break;
+      case "--eval-suite": {
+        const suite = value();
+        if (suite !== "core" && suite !== "hard") {
+          console.error("--eval-suite must be core or hard");
+          process.exit(2);
+        }
+        args.evalSuite = suite;
+        break;
+      }
       case "--eval-questions":
         args.evalQuestions = Number(value());
         if (!Number.isInteger(args.evalQuestions) || args.evalQuestions < 1) {
@@ -374,10 +390,15 @@ Options:
                         scored). Expensive on a thinking model: up to
                         --eval-max-tokens per question
       --eval-only       Run only the reasoning eval (surface discovery still runs)
+      --eval-suite <s>  core (default) or hard: 50 questions from MMLU-Pro,
+                        OlympiadBench, LiveBench and NIST Juliet, meant for
+                        large models. Not comparable to core runs
       --eval-questions <n>  First n questions only
       --eval-cases <list>   Only these questions: 1-based numbers, ids, or a source
-                        (gpqa, supergpqa, aime, compsec), e.g. 1,5,9 or aime
-      --eval-max-tokens <n> Generation cap per question (default: 16000)
+                        (gpqa, supergpqa, aime, compsec; mmlupro, olympiad,
+                        livebench, juliet), e.g. 1,5,9 or aime
+      --eval-max-tokens <n> Generation cap per question (default: 16000, or the
+                        question's own cap in the hard suite)
       --concurrency <n> Questions / eval samples in flight at once (default: 1).
                         Speeds up --eval on engines that serve in parallel;
                         benchmark timing always stays serial
@@ -970,7 +991,7 @@ async function probeModel(
   if (args.eval && !budgetHit && !incomplete && ctx.evalSurface) {
     log();
     log(
-      `${c.gray(`reasoning eval (up to ${fmtCount(args.evalMaxTokens)} tokens per question)...`)}`,
+      `${c.gray(`reasoning eval, ${args.evalSuite} suite (up to ${fmtCount(args.evalMaxTokens ?? DEFAULT_MAX_TOKENS)} tokens per question)...`)}`,
     );
     const evalStart = {
       input: client.usage.inputTokens,
@@ -981,7 +1002,10 @@ async function probeModel(
       : undefined;
     try {
       reasoning = await runReasoning(ctx, {
-        maxTokens: args.evalMaxTokens,
+        suite: args.evalSuite,
+        ...(args.evalMaxTokens !== undefined
+          ? { maxTokens: args.evalMaxTokens }
+          : {}),
         temperature: sampling?.temperature ?? 0,
         ...(sampling?.topP !== undefined ? { topP: sampling.topP } : {}),
         ...(args.evalQuestions !== undefined

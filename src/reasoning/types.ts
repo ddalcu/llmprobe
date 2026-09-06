@@ -3,7 +3,14 @@ export type ReasoningSource =
   | "GPQA Diamond (modified)"
   | "SuperGPQA"
   | "AIME2025"
-  | "COMPSEC";
+  | "COMPSEC"
+  | "MMLU-Pro"
+  | "OlympiadBench"
+  | "LiveBench"
+  | "NIST Juliet";
+
+/** core: the 12B floor check. hard: the ds4 hard suite, for large models. */
+export type ReasoningSuite = "core" | "hard";
 
 export interface ReasoningCase {
   source: ReasoningSource;
@@ -14,6 +21,10 @@ export interface ReasoningCase {
   /** Multiple choice when present; otherwise an integer (AIME) or line spec (COMPSEC). */
   choices?: string[];
   answer: string;
+  /** Equivalent surface forms of the answer. */
+  aliases?: string[];
+  /** Generation cap for this case; an explicit --eval-max-tokens overrides it. */
+  maxTokens?: number;
 }
 
 export type ReasoningStatus = "passed" | "failed" | "stopped" | "error";
@@ -45,6 +56,7 @@ export interface ReasoningSourceSummary {
 }
 
 export interface ReasoningReport {
+  suite: ReasoningSuite;
   passed: number;
   total: number;
   /** Ran out of tokens before an answer line; reported apart from wrong. */

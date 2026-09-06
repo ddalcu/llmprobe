@@ -26,5 +26,12 @@ third-party datasets, ported from ds4-eval:
 - COMPSEC: reduced single-function vulnerability localization questions derived
   from public CVE writeups.
 
+The hard suite under src/reasoning/hard-cases.ts (--eval-suite hard) likewise:
+
+- MMLU-Pro (https://github.com/TIGER-AI-Lab/MMLU-Pro), Apache-2.0.
+- NIST Juliet 1.3 (https://samate.nist.gov/SARD/test-suites/112), CC0-1.0;
+  the cases are short locally written reductions of Juliet weakness patterns,
+  not copies of Juliet test cases.
+
 All other source code — the probe, scoring, conformance tests, capability evals,
 benchmark, and CLI — is original to llmprobe.

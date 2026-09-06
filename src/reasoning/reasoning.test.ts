@@ -11,7 +11,12 @@ import {
 import { createContext } from "../core/context";
 import { normalizeRoot } from "../core/probe";
 import { type MockEngine, startMockEngine } from "../fixtures/mock-engine";
-import { REASONING_CASES, runReasoning, selectCases } from "./index";
+import {
+  HARD_CASES,
+  REASONING_CASES,
+  runReasoning,
+  selectCases,
+} from "./index";
 
 let engine: MockEngine | null = null;
 afterEach(() => {
@@ -329,6 +334,52 @@ describe("runReasoning over real HTTP", () => {
     expect(engine!.chatPeakInFlight).toBe(1);
     expect(report.aborted).toBeNull();
     expect(report.total).toBe(2);
+  });
+});
+
+describe("hard suite", () => {
+  test("per-case token cap applies unless --eval-max-tokens overrides it", async () => {
+    engine = await startMockEngine();
+    const config: RunConfig = {
+      baseUrl: `${normalizeRoot(engine.url)}/v1`,
+      apiKey: "",
+      model: "mock-model-12b",
+      timeoutMs: 15_000,
+      depth: "default",
+      reasoningHeadroom: 0,
+    };
+    const ctx = createContext({
+      config,
+      client: new EngineClient(config),
+      adapters: new Map<string, SurfaceAdapter>(ADAPTERS.map((a) => [a.id, a])),
+      present: new Set(["chat"]),
+      evalSurface: "chat",
+    });
+    const real = ctx.send.bind(ctx);
+    const caps: (number | undefined)[] = [];
+    ctx.send = async (surface, request, options) => {
+      caps.push(request.maxTokens);
+      return real(surface, request, options);
+    };
+
+    const first = HARD_CASES[0]!;
+    expect(first.maxTokens).toBe(4096);
+    const report = await runReasoning(ctx, {
+      suite: "hard",
+      temperature: 0,
+      sequence: first.id,
+    });
+    expect(report.suite).toBe("hard");
+    expect(report.cases[0]!.source).toBe("MMLU-Pro");
+    expect(report.scopeNote).toMatch(new RegExp(`1 of ${HARD_CASES.length}`));
+
+    await runReasoning(ctx, {
+      suite: "hard",
+      maxTokens: 64,
+      temperature: 0,
+      sequence: first.id,
+    });
+    expect(caps).toEqual([4096, 64]);
   });
 });
 

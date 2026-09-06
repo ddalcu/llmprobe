@@ -9,15 +9,23 @@ import {
   visibleText,
 } from "./grade";
 import { REASONING_CASES } from "./cases";
+import { HARD_CASES } from "./hard-cases";
 import type {
   ReasoningCase,
   ReasoningCaseResult,
   ReasoningReport,
   ReasoningSourceSummary,
+  ReasoningSuite,
 } from "./types";
 
 export { REASONING_CASES } from "./cases";
+export { HARD_CASES } from "./hard-cases";
 export * from "./types";
+
+export const DEFAULT_MAX_TOKENS = 16000;
+
+export const casesForSuite = (suite: ReasoningSuite): ReasoningCase[] =>
+  suite === "hard" ? HARD_CASES : REASONING_CASES;
 
 export const SYSTEM_PROMPT =
   "You are solving a hard benchmark question. Reason carefully. " +
@@ -46,9 +54,15 @@ const SOURCE_ALIASES: Record<string, string[]> = {
   supergpqa: ["SuperGPQA"],
   aime: ["AIME2025"],
   compsec: ["COMPSEC"],
+  mmlupro: ["MMLU-Pro"],
+  mmlu: ["MMLU-Pro"],
+  olympiadbench: ["OlympiadBench"],
+  olympiad: ["OlympiadBench"],
+  livebench: ["LiveBench"],
+  juliet: ["NIST Juliet"],
 };
 
-/** "1,5,9" (1-based), case ids, or sources (gpqa, supergpqa, aime, compsec), in the order given. */
+/** "1,5,9" (1-based), case ids, or sources (gpqa, supergpqa, aime, compsec, mmlupro, ...), in the order given. */
 export function selectCases(
   all: ReasoningCase[],
   opts: { limit?: number; sequence?: string },
@@ -78,7 +92,9 @@ export function selectCases(
 }
 
 export interface ReasoningOptions {
-  maxTokens: number;
+  suite?: ReasoningSuite;
+  /** Cap for every question. Unset: the case's own cap, else DEFAULT_MAX_TOKENS. */
+  maxTokens?: number;
   temperature: number;
   topP?: number;
   limit?: number;
@@ -102,7 +118,11 @@ export async function runReasoning(
   const surface = ctx.evalSurface;
   if (!surface) throw new Error("no chat-shaped surface available for --eval");
 
-  const cases = selectCases(REASONING_CASES, opts);
+  const suite = opts.suite ?? "core";
+  const deck = casesForSuite(suite);
+  const cases = selectCases(deck, opts);
+  const capFor = (tc: ReasoningCase) =>
+    opts.maxTokens ?? tc.maxTokens ?? DEFAULT_MAX_TOKENS;
   const concurrency = Math.max(1, opts.concurrency ?? 1);
   let aborted: ReasoningReport["aborted"] = null;
 
@@ -129,7 +149,7 @@ export async function runReasoning(
           {
             system: SYSTEM_PROMPT,
             turns: [{ type: "user", text: buildPrompt(tc) }],
-            maxTokens: opts.maxTokens,
+            maxTokens: capFor(tc),
             temperature: opts.temperature,
             ...(opts.topP !== undefined ? { topP: opts.topP } : {}),
             allowReasoning: false,
@@ -206,13 +226,14 @@ export async function runReasoning(
     cases.length,
     concurrency,
     async (index) => {
-      if (holdBudget) ctx.client.reserveOutput(opts.maxTokens);
+      const cap = capFor(cases[index]!);
+      if (holdBudget) ctx.client.reserveOutput(cap);
       try {
         const result = await attemptCase(index);
         if (result) opts.onCase?.(result, index, cases.length);
         return result;
       } finally {
-        if (holdBudget) ctx.client.releaseOutput(opts.maxTokens);
+        if (holdBudget) ctx.client.releaseOutput(cap);
       }
     },
     { shouldStop: () => aborted !== null },
@@ -249,16 +270,17 @@ export async function runReasoning(
           ? "token budget exhausted"
           : "target unreachable"
       }) — not comparable to a full run`
-    : cases.length !== REASONING_CASES.length
-      ? `${cases.length} of ${REASONING_CASES.length} questions — not comparable to a full run`
+    : cases.length !== deck.length
+      ? `${cases.length} of ${deck.length} questions — not comparable to a full run`
       : null;
 
   return {
+    suite,
     passed: count("passed"),
     total: results.length,
     stopped: count("stopped"),
     error: count("error"),
-    maxTokens: opts.maxTokens,
+    maxTokens: Math.max(0, ...cases.map(capFor)),
     temperature: opts.temperature,
     bySource,
     cases: results,
