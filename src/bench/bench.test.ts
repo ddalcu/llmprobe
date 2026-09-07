@@ -55,6 +55,7 @@ describe("runBenchmark against the mock", () => {
       timeoutMs: 15_000,
       depth: "default",
       reasoningHeadroom: 0,
+      benchSettleMs: 0,
     };
     const client = new EngineClient(config);
     const ctx = createContext({
@@ -146,6 +147,7 @@ describe("runBenchmark against the mock", () => {
       timeoutMs: 15_000,
       depth: "default",
       reasoningHeadroom: 0,
+      benchSettleMs: 0,
     };
     const client = new EngineClient(config);
     const ctx = createContext({
@@ -174,6 +176,7 @@ describe("runBenchmark against the mock", () => {
       timeoutMs: 15_000,
       depth: "full",
       reasoningHeadroom: 0,
+      benchSettleMs: 0,
     };
     const client = new EngineClient(config);
     const ctx = createContext({
@@ -207,6 +210,7 @@ describe("runBenchmark against the mock", () => {
       timeoutMs: 15_000,
       depth: "default",
       reasoningHeadroom: 0,
+      benchSettleMs: 0,
       benchRungs: [8192, 16384],
       benchRuns: 2,
     };
@@ -271,6 +275,7 @@ describe("runBenchmark against the mock", () => {
       model: "mock-model-12b",
       timeoutMs: 15_000,
       reasoningHeadroom: 0,
+      benchSettleMs: 0,
     };
     const makeCtx = (config: RunConfig) =>
       createContext({
@@ -318,6 +323,7 @@ describe("runBenchmark against the mock", () => {
       timeoutMs: 15_000,
       depth: "full",
       reasoningHeadroom: 0,
+      benchSettleMs: 0,
     };
     const client = new EngineClient(config);
     const ctx = createContext({
@@ -330,9 +336,11 @@ describe("runBenchmark against the mock", () => {
 
     await runBenchmark(ctx, false);
 
+    // The whole prompt, system message included — that is what a cache keys on,
+    // and the predictable probe carries its bust tag in the system message.
     const texts = engine.chatBodies.map((body) => {
       const messages = body.messages as Array<{ content: string }>;
-      return messages.at(-1)!.content;
+      return messages.map((m) => m.content).join("\n");
     });
     expect(texts.length).toBeGreaterThan(0);
 
@@ -378,6 +386,7 @@ describe("runBenchmark against the mock", () => {
       timeoutMs: 50, // far under the mock's 1s stall, and irrelevant here
       depth: "default",
       reasoningHeadroom: 0,
+      benchSettleMs: 0,
     };
     const client = new EngineClient(config);
     const ctx = createContext({
@@ -414,6 +423,7 @@ describe("runBenchmark against the mock", () => {
       timeoutMs: 15_000,
       depth: "default",
       reasoningHeadroom: 0,
+      benchSettleMs: 0,
     };
     const client = new EngineClient(config);
     const ctx = createContext({
@@ -450,6 +460,7 @@ describe("runBenchmark against the mock", () => {
       timeoutMs: 15_000,
       depth: "default",
       reasoningHeadroom: 0,
+      benchSettleMs: 0,
     };
     const client = new EngineClient(config);
     const ctx = createContext({
@@ -477,6 +488,7 @@ describe("runBenchmark against the mock", () => {
       timeoutMs: 15_000,
       depth: "full",
       reasoningHeadroom: 0,
+      benchSettleMs: 0,
     };
     const client = new EngineClient(config);
     const ctx = createContext({

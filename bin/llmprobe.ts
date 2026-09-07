@@ -76,6 +76,7 @@ import { SAMPLING_PRESETS, parseRungs, runBenchmark } from "../src/bench/index";
 import { runFidelity } from "../src/fidelity/index";
 import {
   DEFAULT_MAX_TOKENS,
+  casesForSuite,
   type ReasoningSuite,
   runReasoning,
 } from "../src/reasoning/index";
@@ -1023,9 +1024,16 @@ async function probeModel(
 
   let reasoning: RunReport["reasoning"];
   if (args.eval && !budgetHit && !incomplete && ctx.evalSurface) {
+    const evalCap =
+      args.evalMaxTokens ??
+      Math.max(
+        ...casesForSuite(args.evalSuite).map(
+          (tc) => tc.maxTokens ?? DEFAULT_MAX_TOKENS,
+        ),
+      );
     log();
     log(
-      `${c.gray(`reasoning eval, ${args.evalSuite} suite (up to ${fmtCount(args.evalMaxTokens ?? DEFAULT_MAX_TOKENS)} tokens per question, reasoning ${args.reasoning})...`)}`,
+      `${c.gray(`reasoning eval, ${args.evalSuite} suite (up to ${fmtCount(evalCap)} tokens per question, reasoning ${args.reasoning})...`)}`,
     );
     const evalStart = {
       input: client.usage.inputTokens,
@@ -1064,7 +1072,11 @@ async function probeModel(
               ? ""
               : r.status === "error"
                 ? c.gray(` ${r.error ?? ""}`)
-                : c.gray(` got ${r.got}, expected ${r.expected}`);
+                : r.status === "stopped"
+                  ? c.gray(
+                      ` hit ${fmtCount(r.outputTokens ?? 0)}-token cap, no answer${r.got === "?" ? "" : ` (partial: ${r.got})`}, expected ${r.expected}`,
+                    )
+                  : c.gray(` got ${r.got}, expected ${r.expected}`);
           log(
             `  ${icon} ${c.gray(`${String(i + 1).padStart(3)}/${total}`)} ${r.source} · ${r.title}${tail}`,
           );

@@ -30,6 +30,8 @@ export interface RunConfig {
   benchRungs?: number[];
   /** --runs: measured runs per scenario and per rung (after the warmup). */
   benchRuns?: number;
+  /** Idle time before the closing drift runs; tests set 0. Default 5s. */
+  benchSettleMs?: number;
 }
 
 export interface BenchSampling {

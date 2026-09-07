@@ -3,8 +3,10 @@ import { describe, expect, test } from "vitest";
 import {
   PLANTED_CONSTANT,
   PLANTED_VALUE,
+  PREDICTABLE_PASSAGE,
   buildCodeContext,
   buildCodeContextWithConstant,
+  echoedPassage,
   usedPlantedConstant,
 } from "./corpus";
 
@@ -77,5 +79,21 @@ describe("usedPlantedConstant", () => {
   test("rejects an answer that never went and looked", () => {
     expect(usedPlantedConstant("const budget = 30_000;")).toBe(false);
     expect(usedPlantedConstant("")).toBe(false);
+  });
+});
+
+describe("echoedPassage", () => {
+  test("a refusal is not an echo, whatever its length", () => {
+    expect(
+      echoedPassage(
+        "I cannot repeat the passage exactly as requested. I am designed to avoid verbatim reproduction of text. The old lighthouse stood",
+      ),
+    ).toBe(false);
+    expect(echoedPassage("")).toBe(false);
+  });
+
+  test("accepts the passage, also quoted or with a leading newline", () => {
+    expect(echoedPassage(PREDICTABLE_PASSAGE)).toBe(true);
+    expect(echoedPassage(`\n"${PREDICTABLE_PASSAGE}"`)).toBe(true);
   });
 });

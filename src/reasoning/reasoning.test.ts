@@ -363,7 +363,7 @@ describe("hard suite", () => {
     };
 
     const first = HARD_CASES[0]!;
-    expect(first.maxTokens).toBe(8192);
+    expect(first.maxTokens).toBe(16384);
     const report = await runReasoning(ctx, {
       suite: "hard",
       temperature: 0,
@@ -379,7 +379,7 @@ describe("hard suite", () => {
       temperature: 0,
       sequence: first.id,
     });
-    expect(caps).toEqual([8192, 64]);
+    expect(caps).toEqual([16384, 64]);
   });
 });
 

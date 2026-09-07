@@ -20,7 +20,9 @@ import type {
 import { buildLongPrefix, runConcurrent } from "../core/assert";
 import {
   PLANTED_CONSTANT,
+  PREDICTABLE_PASSAGE,
   buildCodeContextWithConstant,
+  echoedPassage,
   usedPlantedConstant,
 } from "./corpus";
 import {
@@ -231,18 +233,6 @@ const DECODE_PROMPT =
   "an async operation with exponential backoff and jitter. Include the type " +
   "signature, JSDoc, and inline comments explaining the backoff maths.";
 
-/** A coherent passage the model can echo verbatim — high draft acceptance. */
-const PREDICTABLE_PASSAGE =
-  "The old lighthouse stood at the edge of the rocky cliff, its white paint " +
-  "weathered by decades of salt and wind. Every evening the keeper climbed the " +
-  "spiral stairs, lit the great lamp, and watched its beam sweep slowly across " +
-  "the dark water, guiding the fishing boats safely home through the fog.";
-
-/**
- * Planted mid-filler at every context rung and asked back verbatim. Reproducing
- * it is maximally predictable output, so a working draft path shows up as a
- * decode rate well above the same rung's novel generation.
- */
 /**
  * What a rung asks for, over a context of synthetic source code.
  *
@@ -358,12 +348,14 @@ async function timedRun(
   text: string,
   maxTokens: number,
   extra?: Record<string, unknown>,
+  system?: string,
 ): Promise<RunSample> {
   const adapter = ctx.adapters.get(surface)!;
   const sampling = ctx.config.benchSampling;
   const body = {
     ...adapter.buildBody(
       {
+        ...(system !== undefined ? { system } : {}),
         turns: [{ type: "user", text }],
         temperature: sampling?.temperature ?? 0,
         ...(sampling?.topP !== undefined ? { topP: sampling.topP } : {}),
@@ -461,6 +453,7 @@ async function measure(
   onSample?: (sample: BenchSample) => void,
   label = "",
   extra?: Record<string, unknown>,
+  system?: string,
 ): Promise<RunSample[]> {
   // Reported after each run rather than before it, because the number is the
   // point: a bare "decode 2/3" says only that something is happening.
@@ -474,16 +467,22 @@ async function measure(
     });
 
   // Busted per call: these scenarios send the same text K+1 times, and the
-  // warmup alone would otherwise serve every measured run from a warm KV.
-  const warm = await timedRun(ctx, surface, cacheBust(text), maxTokens, extra);
+  // warmup alone would otherwise serve every measured run from a warm KV. The
+  // tag goes at the front of the first message, which is the system message
+  // when there is one — the cache matches from token 0.
+  const run = (): Promise<RunSample> =>
+    system === undefined
+      ? timedRun(ctx, surface, cacheBust(text), maxTokens, extra)
+      : timedRun(ctx, surface, text, maxTokens, extra, cacheBust(system));
+  const warm = await run();
   report(warm, "warmup", true);
 
   const k = ctx.config.benchRuns ?? K;
   const samples: RunSample[] = [];
   for (let i = 0; i < k; i += 1) {
-    const run = await timedRun(ctx, surface, cacheBust(text), maxTokens, extra);
-    samples.push(run);
-    report(run, `${i + 1}/${k}`, false);
+    const sample = await run();
+    samples.push(sample);
+    report(sample, `${i + 1}/${k}`, false);
   }
   return samples;
 }
@@ -863,16 +862,26 @@ export async function runBenchmark(
     "prefill",
   );
 
-  // Speculative / MTP probe: predictable echo versus novel generation.
-  const predictable = await measure(
+  // Speculative / MTP probe: predictable echo versus novel generation. Framed
+  // as normalisation rather than "repeat this word for word": the latter reads
+  // as a verbatim-reproduction request and got refused on about half the
+  // cache-bust tags on Qwen3.8. A run that still does not echo is timing novel
+  // text and is dropped, with the count on the report.
+  const echoRuns = await measure(
     ctx,
     surface,
-    `Repeat the following passage exactly, word for word:\n\n${PREDICTABLE_PASSAGE}`,
+    PREDICTABLE_PASSAGE,
     DECODE_TOKENS,
     "decodeTokPerSec",
     onSample,
     "spec:predictable",
+    undefined,
+    "You are a text normaliser. Output the user's text unchanged.",
   );
+  const predictable = echoRuns.filter(
+    (s) => s.error !== undefined || echoedPassage(s.text),
+  );
+  const offScript = echoRuns.length - predictable.length;
   const novel = await measure(
     ctx,
     surface,
@@ -913,6 +922,7 @@ export async function runBenchmark(
           ? null
           : (predictable.map((s) => s.stepProfile.note).find(Boolean) ?? null),
       reasoningCaveat: reasoningModel,
+      offScript,
     };
   }
 
@@ -928,22 +938,29 @@ export async function runBenchmark(
   const contextPoints = await contextScaling(ctx, surface, onProgress, onRung);
 
   // Last thing the benchmark does: the opening decode scenario again, after
-  // every other probe has loaded the box for minutes. One request, and it is
-  // what says whether the figures above are stable or a moving target. No
-  // warmup — the engine could not be warmer by now, which is the point.
+  // every other probe has loaded the box for minutes. Same runs as the opener
+  // so it is a median against a median, and after a short idle so the
+  // engine's lazy cleanup from the last rung (freeing KV, returning memory)
+  // is not what gets timed. No warmup — the engine could not be warmer by now.
   onProgress?.("sustained load");
-  // Same mode as the opening decode scenario, or the drift comparison would
-  // compare different workloads.
-  const drifted = await timedRun(
-    ctx,
-    surface,
-    cacheBust(DECODE_PROMPT),
-    DECODE_TOKENS,
-    decodeExtra,
-  );
+  await new Promise((r) => setTimeout(r, ctx.config.benchSettleMs ?? 5000));
+  const k = ctx.config.benchRuns ?? K;
+  const drifted: RunSample[] = [];
+  for (let i = 0; i < k; i += 1) {
+    // Same mode as the opening decode scenario, or the drift comparison would
+    // compare different workloads.
+    drifted.push(
+      await timedRun(
+        ctx,
+        surface,
+        cacheBust(DECODE_PROMPT),
+        DECODE_TOKENS,
+        decodeExtra,
+      ),
+    );
+  }
   const firstDecode = decodeStat?.median ?? null;
-  const lastDecode =
-    drifted.error === undefined ? drifted.decodeTokPerSec : null;
+  const lastDecode = pick(drifted, "decodeTokPerSec")?.median ?? null;
   const { driftPct, verdict: driftVerdict } = classifyLoadDrift(
     firstDecode,
     lastDecode,
@@ -962,7 +979,7 @@ export async function runBenchmark(
   // (pre-window tokens excluded); the caveat says the correction engaged,
   // because a coalescing server's numbers are not comparable to a per-token
   // stream's under the classic math other tools report.
-  const streamed = [...decodeSamples, ...predictable, ...novel, drifted];
+  const streamed = [...decodeSamples, ...predictable, ...novel, ...drifted];
   const coalescedCount = streamed.filter((s) => s.streamCoalesced).length;
   const streamCaveat =
     coalescedCount > 0

@@ -170,3 +170,34 @@ export function usedPlantedConstant(text: string): boolean {
     text.includes(PLANTED_CONSTANT) || text.includes(String(PLANTED_VALUE))
   );
 }
+
+/** A coherent passage the model can echo verbatim — high draft acceptance. */
+export const PREDICTABLE_PASSAGE =
+  "The old lighthouse stood at the edge of the rocky cliff, its white paint " +
+  "weathered by decades of salt and wind. Every evening the keeper climbed the " +
+  "spiral stairs, lit the great lamp, and watched its beam sweep slowly across " +
+  "the dark water, guiding the fishing boats safely home through the fog. " +
+  "In winter the storms came in from the north, and the waves broke against " +
+  "the rocks below with a sound like distant thunder. The keeper kept a log " +
+  "of every ship that passed, noting the date, the hour, and the weather, and " +
+  "on quiet nights he read the old entries by the light of a single candle. " +
+  "His father had kept the lighthouse before him, and his grandfather before " +
+  "that, and the same brass key had opened the same iron door for nearly a " +
+  "hundred years. When the supply boat came each month it brought oil for the " +
+  "lamp, flour and salt for the kitchen, and letters from the mainland that " +
+  "he answered slowly over the following weeks. He knew the tides the way " +
+  "other men knew the streets of their town, and he could tell from the " +
+  "colour of the morning sky whether the boats would go out that day. The " +
+  "village below trusted the light, and the light had never once failed.";
+
+/**
+ * Did the model echo, or refuse? A refusal is novel text, so timing it reads
+ * as "no speculation" — it has to be dropped, and visibly.
+ */
+export function echoedPassage(text: string): boolean {
+  const opening = PREDICTABLE_PASSAGE.split(" ").slice(0, 6).join(" ");
+  return text
+    .trimStart()
+    .replace(/^["'“”*_]+/, "")
+    .startsWith(opening);
+}

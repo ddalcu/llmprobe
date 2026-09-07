@@ -504,6 +504,11 @@ function renderBench(bench: BenchReport, c: Palette): string[] {
         ? `${spec.tokensPerStep} tokens per decode step`
         : `tokens per decode step: ${spec.tokensPerStepNote ?? "unavailable"}`;
     lines.push(`  ${c.gray(`  ${steps}`)}`);
+    if (spec.offScript) {
+      lines.push(
+        `  ${c.yellow(`  ${spec.offScript} predictable run(s) did not echo the passage and were dropped`)}`,
+      );
+    }
     if (spec.reasoningCaveat) {
       lines.push(
         `  ${c.gray("  (reasoning model — the thinking phase is novel, so this understates real gains)")}`,

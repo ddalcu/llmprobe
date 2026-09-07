@@ -27,7 +27,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "5,128 generations",
     ],
     answer: "J",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -49,7 +49,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "45.0",
     ],
     answer: "F",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -71,7 +71,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "0.040",
     ],
     answer: "A",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -93,7 +93,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "(I, III) only",
     ],
     answer: "C",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -115,7 +115,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "Increase the complexity of the Dickey-Fuller test",
     ],
     answer: "H",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -131,7 +131,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "1.27eu/mole for (a) and 5.27eu for (b)",
     ],
     answer: "A",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -153,7 +153,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "Acute graft-versus-host disease",
     ],
     answer: "F",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -175,7 +175,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "Refinement of gunpowder technologies",
     ],
     answer: "G",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -197,7 +197,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "inadmissible, because it is hearsay not within any recognized exception, though it is not privileged.",
     ],
     answer: "G",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -208,7 +208,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "Suppose that $f(x)$ is a polynomial that has degree $6$ and $g(x)$ is a polynomial that has degree $3$. If $h(x)$ is also a polynomial such that $f(g(x)) + g(h(x)) + h(f(x))$ is a polynomial of degree $36$, then what is the degree of the polynomial $h$?",
     choices: ["3", "21", "6", "9", "30", "72", "12", "15", "24", "18"],
     answer: "C",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -230,7 +230,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "No, both strategies are obsolete in the face of cyber warfare's unique challenges such as attribution and boundary issues.",
     ],
     answer: "D",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -252,7 +252,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "Neither logically equivalent nor inconsistent, but contradictory",
     ],
     answer: "D",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -274,7 +274,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "0.7c",
     ],
     answer: "F",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -296,7 +296,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "a high degree of introversion or social withdrawal",
     ],
     answer: "G",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -307,7 +307,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "How many triangles are there whose sides are all integers and whose maximum side length equals 11?",
     choices: ["45", "36", "48", "33", "50", "55", "24", "42", "30", "60"],
     answer: "B",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -329,7 +329,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "AABB×AABB",
     ],
     answer: "E",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -351,7 +351,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "$332.75",
     ],
     answer: "D",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -373,7 +373,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "q=18.68kJ, ΔE=0, ΔH=11.21kJ",
     ],
     answer: "E",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -395,7 +395,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "Yes, whenever F is a secure PRF",
     ],
     answer: "B",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -417,7 +417,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "II III and IV only",
     ],
     answer: "G",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -439,7 +439,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "2.0 in",
     ],
     answer: "A",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -455,7 +455,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "Tributary of the internal jugular vein",
     ],
     answer: "C",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -477,7 +477,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "the researchers who discovered the fossils have been accused of falsifying their findings.",
     ],
     answer: "G",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -499,7 +499,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "Yes, because the collector should have clarified which model he was referring to in the letter.",
     ],
     answer: "E",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -510,7 +510,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "7.4-11. Some dentists were interested in studying the fusion of embryonic rat palates by a standard transplantation technique. When no treatment is used, the probability of fusion equals approximately 0.89 . The dentists would like to estimate $p$, the probability of fusion, when vitamin A is lacking.\n(a) How large a sample $n$ of rat embryos is needed for $y / n \\pm 0.10$ to be a $95 \\%$ confidence interval for $p$ ?",
     choices: ["70", "50", "45", "40", "30", "55", "$38$", "65", "60", "25"],
     answer: "G",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -532,7 +532,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "3250",
     ],
     answer: "J",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -554,7 +554,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "Consistent. Consistent valuation when D, E and F are false",
     ],
     answer: "B",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -576,7 +576,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "38 %",
     ],
     answer: "H",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -598,7 +598,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "Duration",
     ],
     answer: "H",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "MMLU-Pro",
@@ -620,7 +620,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "$1800.75",
     ],
     answer: "G",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "OlympiadBench",
@@ -630,7 +630,7 @@ export const HARD_CASES: ReasoningCase[] = [
     question:
       "Xenia and Sergey play the following game. Xenia thinks of a positive integer $N$ not exceeding 5000. Then she fixes 20 distinct positive integers $a_{1}, a_{2}, \\ldots, a_{20}$ such that, for each $k=1,2, \\ldots, 20$, the numbers $N$ and $a_{k}$ are congruent modulo $k$. By a move, Sergey tells Xenia a set $S$ of positive integers not exceeding 20 , and she tells him back the set $\\left\\{a_{k}: k \\in S\\right\\}$ without spelling out which number corresponds to which index. How many moves does Sergey need to determine for sure the number Xenia thought of?",
     answer: "2",
-    maxTokens: 32000,
+    maxTokens: 100000,
   },
   {
     source: "OlympiadBench",
@@ -640,7 +640,7 @@ export const HARD_CASES: ReasoningCase[] = [
     question:
       "Determine all positive integers $n$ satisfying the following condition: for every monic polynomial $P$ of degree at most $n$ with integer coefficients, there exists a positive integer $k \\leq n$, and $k+1$ distinct integers $x_{1}, x_{2}, \\ldots, x_{k+1}$ such that\n\n\n\n$$\n\nP\\left(x_{1}\\right)+P\\left(x_{2}\\right)+\\cdots+P\\left(x_{k}\\right)=P\\left(x_{k+1}\\right) .\n\n$$\n\n\nNote. A polynomial is monic if the coefficient of the highest power is one.",
     answer: "2",
-    maxTokens: 32000,
+    maxTokens: 100000,
   },
   {
     source: "OlympiadBench",
@@ -652,7 +652,7 @@ export const HARD_CASES: ReasoningCase[] = [
     answer: "2n-2",
     aliases: ["2(n-1)"],
     kind: "text",
-    maxTokens: 32000,
+    maxTokens: 100000,
   },
   {
     source: "OlympiadBench",
@@ -664,7 +664,7 @@ export const HARD_CASES: ReasoningCase[] = [
     answer: "(1,8,19),(2,7,13),(4,5,7)",
     aliases: ["(4,5,7),(2,7,13),(1,8,19)"],
     kind: "sequence",
-    maxTokens: 32000,
+    maxTokens: 100000,
   },
   {
     source: "OlympiadBench",
@@ -674,7 +674,7 @@ export const HARD_CASES: ReasoningCase[] = [
     question:
       "On a square table of 2011 by 2011 cells we place a finite number of napkins that each cover a square of 52 by 52 cells. In each cell we write the number of napkins covering it, and we record the maximal number $k$ of cells that all contain the same nonzero number. Considering all possible napkin configurations, what is the largest value of $k$ ?",
     answer: "3986729",
-    maxTokens: 32000,
+    maxTokens: 100000,
   },
   {
     source: "OlympiadBench",
@@ -685,7 +685,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "For each positive integer $k$, let $t(k)$ be the largest odd divisor of $k$. Determine all positive integers $a$ for which there exists a positive integer $n$ such that all the differences\n\n$$\nt(n+a)-t(n), \\quad t(n+a+1)-t(n+1), \\quad \\ldots, \\quad t(n+2 a-1)-t(n+a-1)\n$$\n\nare divisible by 4 .",
     answer: "1,3,5",
     kind: "sequence",
-    maxTokens: 32000,
+    maxTokens: 100000,
   },
   {
     source: "OlympiadBench",
@@ -697,7 +697,7 @@ export const HARD_CASES: ReasoningCase[] = [
     answer: "25/2",
     aliases: ["12.5"],
     kind: "rational",
-    maxTokens: 32000,
+    maxTokens: 100000,
   },
   {
     source: "OlympiadBench",
@@ -707,7 +707,7 @@ export const HARD_CASES: ReasoningCase[] = [
     question:
       "Find the least positive integer $n$ for which there exists a set $\\left\\{s_{1}, s_{2}, \\ldots, s_{n}\\right\\}$ consisting of $n$ distinct positive integers such that\n\n$$\n\\left(1-\\frac{1}{s_{1}}\\right)\\left(1-\\frac{1}{s_{2}}\\right) \\ldots\\left(1-\\frac{1}{s_{n}}\\right)=\\frac{51}{2010}\n$$",
     answer: "39",
-    maxTokens: 32000,
+    maxTokens: 100000,
   },
   {
     source: "OlympiadBench",
@@ -717,7 +717,7 @@ export const HARD_CASES: ReasoningCase[] = [
     question:
       "A diagonal of a regular 2006-gon is called odd if its endpoints divide the boundary into two parts, each composed of an odd number of sides. Sides are also regarded as odd diagonals.\n\nSuppose the 2006-gon has been dissected into triangles by 2003 nonintersecting diagonals. Find the maximum possible number of isosceles triangles with two odd sides.",
     answer: "1003",
-    maxTokens: 32000,
+    maxTokens: 100000,
   },
   {
     source: "OlympiadBench",
@@ -728,7 +728,7 @@ export const HARD_CASES: ReasoningCase[] = [
       "Determine all pairs $(x, y)$ of integers satisfying the equation\n\n$$\n1+2^{x}+2^{2 x+1}=y^{2}\n$$",
     answer: "(0,2),(0,-2),(4,23),(4,-23)",
     kind: "sequence",
-    maxTokens: 32000,
+    maxTokens: 100000,
   },
   {
     source: "LiveBench",
@@ -793,7 +793,7 @@ export const HARD_CASES: ReasoningCase[] = [
     question:
       "The following C function is intended to allocate space for count integers. Identify the line containing the primary weakness.\n\n 1  int *make_array(size_t count) {\n 2      int *result = NULL;\n 3      if (count == 0)\n 4          return NULL;\n 5      size_t bytes;\n 6      if (count > SIZE_MAX / sizeof(int))\n 7          return NULL;\n 8      bytes = count * sizeof(int);\n 9      result = malloc(bytes);\n10      if (result == NULL)\n11          return NULL;\n12      memset(result, 0, count * count * sizeof(int));\n13      return result;\n14  }",
     answer: "12",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "NIST Juliet",
@@ -803,7 +803,7 @@ export const HARD_CASES: ReasoningCase[] = [
     question:
       "The following C function should update one element of a fixed-size stack array. Identify the smallest exact set of line numbers containing the primary weakness.\n\n 1  int update_value(int index, int value) {\n 2      int data[10] = {0};\n 3      if (index < 10)\n 4          data[index] = value;\n 5      return data[0];\n 6  }",
     answer: "3-4",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "NIST Juliet",
@@ -813,7 +813,7 @@ export const HARD_CASES: ReasoningCase[] = [
     question:
       "The following C function grows an allocated buffer. Identify the line containing the primary weakness.\n\n 1  char *grow(char *buf, size_t size) {\n 2      if (size > SIZE_MAX / 2)\n 3          return NULL;\n 4      size *= 2;\n 5      buf = realloc(buf, size);\n 6      if (buf == NULL)\n 7          return NULL;\n 8      return buf;\n 9  }",
     answer: "5",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "NIST Juliet",
@@ -823,7 +823,7 @@ export const HARD_CASES: ReasoningCase[] = [
     question:
       "The following C function reads the first byte of a caller-supplied buffer. Identify the line containing the primary weakness.\n\n 1  int first_byte(const unsigned char *p) {\n 2      int value = p[0];\n 3      if (p == NULL)\n 4          return -1;\n 5      return value;\n 6  }",
     answer: "2",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
   {
     source: "NIST Juliet",
@@ -833,6 +833,6 @@ export const HARD_CASES: ReasoningCase[] = [
     question:
       "The following C function computes a ratio from caller-supplied integers. Identify the line containing the primary weakness.\n\n 1  int ratio(int total, int parts) {\n 2      if (total < 0)\n 3          return -1;\n 4      return total / parts;\n 5  }",
     answer: "4",
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
 ];

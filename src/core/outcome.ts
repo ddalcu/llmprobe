@@ -314,6 +314,11 @@ export interface SpeculativeResult {
    * signal — so the ratio understates real gains and gets flagged, not hidden.
    */
   reasoningCaveat: boolean;
+  /**
+   * Predictable runs that did not echo (a refusal, usually) and were dropped.
+   * Absent on reports saved before the check existed.
+   */
+  offScript?: number;
 }
 
 /**
