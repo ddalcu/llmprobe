@@ -38,5 +38,12 @@ The hard suite under src/reasoning/hard-cases.ts (--eval-suite hard) likewise:
   the cases are short locally written reductions of Juliet weakness patterns,
   not copies of Juliet test cases.
 
+The code suite under src/reasoning/code-cases.ts (--eval-suite code):
+
+- MultiPL-E (https://huggingface.co/datasets/nuprl/MultiPL-E), MIT; the
+  humaneval-js and mbpp-js configs, which are JavaScript ports of HumanEval
+  (OpenAI, MIT) and MBPP (Google, CC BY 4.0). 50 prompts and their tests from
+  each, unmodified apart from spelling out "JavaScript".
+
 All other source code — the probe, scoring, conformance tests, capability evals,
 benchmark, and CLI — is original to llmprobe.

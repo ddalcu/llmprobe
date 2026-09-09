@@ -229,8 +229,8 @@ function parseArgs(argv: string[]): Args {
         break;
       case "--eval-suite": {
         const suite = value();
-        if (suite !== "core" && suite !== "hard") {
-          console.error("--eval-suite must be core or hard");
+        if (suite !== "core" && suite !== "hard" && suite !== "code") {
+          console.error("--eval-suite must be core, hard or code");
           process.exit(2);
         }
         args.evalSuite = suite;
@@ -412,14 +412,17 @@ Options:
                         scored). Expensive on a thinking model: up to
                         --eval-max-tokens per question
       --eval-only       Run only the reasoning eval (surface discovery still runs)
-      --eval-suite <s>  core (default) or hard: 50 questions from MMLU-Pro,
-                        OlympiadBench, LiveBench and NIST Juliet, meant for
-                        large models. Not comparable to core runs
+      --eval-suite <s>  core (default), hard or code. hard: 50 questions from
+                        MMLU-Pro, OlympiadBench, LiveBench and NIST Juliet,
+                        meant for large models. code: 100 JavaScript functions
+                        from HumanEval and MBPP, graded by running the tests.
+                        Suites are not comparable to each other
       --eval-questions <n>  First n questions only
       --eval-cases <list>   Only these questions: 1-based numbers, ids, or a source
                         (gpqa, supergpqa, aime, compsec, mmlupro, olympiad,
-                        livebench, juliet), e.g. 1,5,9 or aime. Sources and ids
-                        work from either suite; numbers index the --eval-suite deck
+                        livebench, juliet, humaneval, mbpp), e.g. 1,5,9 or aime.
+                        Sources and ids work from any suite; numbers index the
+                        --eval-suite deck
       --eval-max-tokens <n> Generation cap per question (default: 16000, or the
                         question's own cap in the hard suite)
       --reasoning <e>   Thinking effort sent with every eval question, in the

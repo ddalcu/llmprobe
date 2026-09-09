@@ -341,7 +341,12 @@ function respondTo(body: any, defects: MockDefects) {
   const stop: string[] =
     typeof body.stop === "string" ? [body.stop] : (body.stop ?? []);
   let content = "Paris";
-  if (/^Answer: <(letter|integer|line)/m.test(text)) {
+  if (/^Complete the following JavaScript function/m.test(text)) {
+    // Code eval: close the signature with a stub, so the asserts have a
+    // function to fail against.
+    const sig = /^function .*\{$/m.exec(text)?.[0] ?? "function f(){";
+    content = `\`\`\`javascript\n${sig}\n  return undefined;\n}\n\`\`\``;
+  } else if (/^Answer: <(letter|integer|line)/m.test(text)) {
     // Reasoning eval: a fixed pick, so the grader has something to grade.
     content = /Choices:/.test(text) ? "Answer: B" : "Answer: 0";
   } else if (/repeat this text exactly/i.test(text)) {

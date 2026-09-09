@@ -476,3 +476,44 @@ describe("reasoning effort", () => {
     expect(report.reasoningEffortRejected).toBe(true);
   });
 });
+
+describe("runReasoning code suite", () => {
+  test("runs the model's function against the ported tests", async () => {
+    engine = await startMockEngine();
+    const config: RunConfig = {
+      baseUrl: `${normalizeRoot(engine.url)}/v1`,
+      apiKey: "",
+      model: "mock-model-12b",
+      timeoutMs: 15_000,
+      depth: "default",
+      reasoningHeadroom: 0,
+    };
+    const ctx = createContext({
+      config,
+      client: new EngineClient(config),
+      adapters: new Map<string, SurfaceAdapter>(ADAPTERS.map((a) => [a.id, a])),
+      present: new Set(["chat"]),
+      evalSurface: "chat",
+    });
+
+    // The mock closes the function with `return undefined`, so the asserts fail.
+    const report = await runReasoning(ctx, {
+      suite: "code",
+      maxTokens: 256,
+      temperature: 0,
+      sequence: "mbpp_3_is_not_prime",
+    });
+
+    expect(report.suite).toBe("code");
+    expect(report.cases[0]!.status).toBe("failed");
+    expect(report.cases[0]!.got).toMatch(/AssertionError/);
+    expect(report.bySource[0]!.source).toBe("MBPP");
+  });
+
+  test("source names pick the code deck from any suite", () => {
+    const picked = selectCases(REASONING_CASES, { sequence: "mbpp,humaneval" });
+    expect(picked).toHaveLength(100);
+    expect(picked[0]!.source).toBe("MBPP");
+    expect(picked[50]!.source).toBe("HumanEval");
+  });
+});

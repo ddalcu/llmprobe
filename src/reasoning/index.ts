@@ -10,6 +10,8 @@ import {
   visibleText,
 } from "./grade";
 import { REASONING_CASES } from "./cases";
+import { CODE_CASES } from "./code-cases";
+import { gradeCode } from "./code";
 import { HARD_CASES } from "./hard-cases";
 import type {
   ReasoningCase,
@@ -21,12 +23,19 @@ import type {
 
 export { REASONING_CASES } from "./cases";
 export { HARD_CASES } from "./hard-cases";
+export { CODE_CASES } from "./code-cases";
 export * from "./types";
 
 export const DEFAULT_MAX_TOKENS = 16000;
 
+const DECKS: Record<ReasoningSuite, ReasoningCase[]> = {
+  core: REASONING_CASES,
+  hard: HARD_CASES,
+  code: CODE_CASES,
+};
+
 export const casesForSuite = (suite: ReasoningSuite): ReasoningCase[] =>
-  suite === "hard" ? HARD_CASES : REASONING_CASES;
+  DECKS[suite];
 
 export const SYSTEM_PROMPT =
   "You are solving a hard benchmark question. Reason carefully. " +
@@ -36,6 +45,9 @@ const TAIL =
   "At the end, write exactly one final line in this format and do not write anything after it:\n";
 
 export function buildPrompt(tc: ReasoningCase): string {
+  if (tc.kind === "code") {
+    return `Complete the following JavaScript function so that it does what the comment says.\n\n${tc.question}\nReply with the complete function in a single \`\`\`javascript code block, and do not write anything after it.`;
+  }
   if (isMultipleChoice(tc)) {
     const choices = tc
       .choices!.map((c, i) => `${String.fromCharCode(65 + i)}. ${c}`)
@@ -70,12 +82,15 @@ const SOURCE_ALIASES: Record<string, string[]> = {
   olympiad: ["OlympiadBench"],
   livebench: ["LiveBench"],
   juliet: ["NIST Juliet"],
+  humaneval: ["HumanEval"],
+  mbpp: ["MBPP"],
+  code: ["HumanEval", "MBPP"],
 };
 
 /**
  * "1,5,9" (1-based positions in `all`), case ids, or sources (gpqa, aime,
- * mmlupro, ...), in the order given. Ids and sources resolve across both
- * suites, so `gpqa,mmlupro` works whatever --eval-suite says.
+ * mmlupro, humaneval, ...), in the order given. Ids and sources resolve across
+ * every suite, so `gpqa,mmlupro` works whatever --eval-suite says.
  */
 export function selectCases(
   all: ReasoningCase[],
@@ -83,7 +98,7 @@ export function selectCases(
 ): ReasoningCase[] {
   let picked = all;
   if (opts.sequence) {
-    const every = [...REASONING_CASES, ...HARD_CASES];
+    const every = Object.values(DECKS).flat();
     picked = opts.sequence.split(",").flatMap((raw) => {
       const s = raw.trim();
       const sources = SOURCE_ALIASES[s.toLowerCase().replace(/[^a-z]/g, "")];
@@ -104,6 +119,12 @@ export function selectCases(
   if (opts.limit !== undefined && opts.limit > 0)
     picked = picked.slice(0, opts.limit);
   return picked;
+}
+
+function grade(tc: ReasoningCase, text: string) {
+  if (tc.kind === "code") return gradeCode(tc, text);
+  const { got, anchored } = extractAnswerDetailed(tc, text);
+  return { passed: answerMatches(tc, got), got, anchored };
 }
 
 export interface ReasoningOptions {
@@ -190,11 +211,12 @@ export async function runReasoning(
           }
         }
         const text = res.reply.text ?? "";
-        const { got, anchored } = extractAnswerDetailed(tc, text);
+        const graded = grade(tc, text);
         const truncated = res.reply.finishReason === "length";
         // A truncated reply never finished; a match there only counts when it
         // came from an explicit answer line, not a lucky trailing token.
-        const passed = answerMatches(tc, got) && (!truncated || anchored);
+        const passed = graded.passed && (!truncated || graded.anchored);
+        const got = graded.got;
         return {
           ...base,
           status: passed ? "passed" : truncated ? "stopped" : "failed",

@@ -232,10 +232,9 @@ function normalizeRational(src: string): string {
   return src.replace(/[^\d\-+/.]/g, "").replace(/\.+$/, "");
 }
 
-const NORMALIZE: Record<
-  NonNullable<ReasoningCase["kind"]>,
-  (s: string) => string
-> = {
+type TextKind = Exclude<NonNullable<ReasoningCase["kind"]>, "code">;
+
+const NORMALIZE: Record<TextKind, (s: string) => string> = {
   rational: normalizeRational,
   sequence: normalizeSequence,
   text: normalizeExact,
@@ -258,6 +257,7 @@ export function extractAnswerDetailed(
   if (isMultipleChoice(tc))
     return findAnswerLetter(generated, tc.choices!.length);
   if (isCompsec(tc)) return findCompsecAnswer(generated);
+  if (tc.kind === "code") throw new Error("code cases are graded by gradeCode");
   if (tc.kind) return findPayloadAnswer(generated, NORMALIZE[tc.kind]);
   return findIntegerAnswer(generated);
 }
@@ -270,6 +270,7 @@ export function answerMatches(tc: ReasoningCase, got: string): boolean {
   if (isMultipleChoice(tc)) return got[0] === tc.answer[0];
   if (isCompsec(tc)) return compsecMatches(tc.answer, got);
   if (got === "?") return false;
-  const normalize = tc.kind ? NORMALIZE[tc.kind] : normalizeInteger;
+  const normalize =
+    tc.kind && tc.kind !== "code" ? NORMALIZE[tc.kind] : normalizeInteger;
   return [tc.answer, ...(tc.aliases ?? [])].some((a) => got === normalize(a));
 }

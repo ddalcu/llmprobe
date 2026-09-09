@@ -9,10 +9,12 @@ export type ReasoningSource =
   | "MMLU-Pro"
   | "OlympiadBench"
   | "LiveBench"
-  | "NIST Juliet";
+  | "NIST Juliet"
+  | "HumanEval"
+  | "MBPP";
 
-/** core: the 12B floor check. hard: the ds4 hard suite, for large models. */
-export type ReasoningSuite = "core" | "hard";
+/** core: the 12B floor check. hard: the ds4 hard suite, for large models. code: MultiPL-E JS. */
+export type ReasoningSuite = "core" | "hard" | "code";
 
 export interface ReasoningCase {
   source: ReasoningSource;
@@ -24,7 +26,11 @@ export interface ReasoningCase {
   choices?: string[];
   answer: string;
   /** Open-answer form. Unset: choices → letter, COMPSEC/Juliet → line set, else integer. */
-  kind?: "rational" | "sequence" | "text";
+  kind?: "rational" | "sequence" | "text" | "code";
+  /** code: the function the tests call; `question` is its signature and doc comment. */
+  entryPoint?: string;
+  /** code: JS that asserts against `entryPoint`, run after the model's code. */
+  tests?: string;
   /** Equivalent surface forms of the answer. */
   aliases?: string[];
   /** Generation cap for this case; an explicit --eval-max-tokens overrides it. */
