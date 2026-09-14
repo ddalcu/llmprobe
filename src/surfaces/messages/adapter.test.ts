@@ -82,3 +82,36 @@ describe("reasoning effort none", () => {
     });
   });
 });
+
+// Vendors keep adding effort levels (xhigh on Qwen Flash), so the value is a
+// pass-through on chat/responses; messages only has a budget, so an unknown
+// level gets the high share rather than being refused.
+describe("non-standard reasoning effort", () => {
+  const config = {
+    baseUrl: "http://x/v1",
+    apiKey: "",
+    model: "m",
+    timeoutMs: 1,
+    depth: "quick" as const,
+    reasoningHeadroom: 0,
+  };
+  const request = {
+    turns: [{ type: "user" as const, text: "hi" }],
+    maxTokens: 4096,
+    reasoningEffort: "xhigh",
+  };
+
+  test("chat and responses pass the value through", () => {
+    expect(chatAdapter.buildBody(request, config).reasoning_effort).toBe("xhigh");
+    expect(responsesAdapter.buildBody(request, config).reasoning).toEqual({
+      effort: "xhigh",
+    });
+  });
+
+  test("messages spends the high share on an unknown level", () => {
+    expect(messagesAdapter.buildBody(request, config).thinking).toEqual({
+      type: "enabled",
+      budget_tokens: 3072,
+    });
+  });
+});

@@ -268,14 +268,13 @@ function parseArgs(argv: string[]): Args {
         break;
       case "--reasoning": {
         const effort = value();
-        if (!["off", "low", "medium", "high", "default"].includes(effort)) {
+        if (effort === "" || effort === "none") {
           console.error(
-            "--reasoning must be off, low, medium, high or default",
+            "--reasoning needs off, low, medium, high, default, or a vendor level like xhigh",
           );
           process.exit(2);
         }
-        args.reasoning =
-          effort === "off" ? "none" : (effort as Args["reasoning"]);
+        args.reasoning = effort === "off" ? "none" : effort;
         break;
       }
       case "--concurrency": {
@@ -449,7 +448,8 @@ Options:
                         question's own cap in the hard suite)
       --reasoning <e>   Thinking effort sent with every request of the run, in
                         the surface's own vocabulary: off, low, medium
-                        (default) or high. "off" sends the spec's explicit
+                        (default), high, or a vendor level such as xhigh,
+                        passed through as-is. "off" sends the spec's explicit
                         disable (reasoning_effort none / thinking disabled),
                         falling back to enable_thinking: false when the engine
                         ignores it; "default" sends nothing, so the engine runs

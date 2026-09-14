@@ -67,8 +67,18 @@ export type ResponseFormat =
   | { type: "json_object" }
   | { type: "json_schema"; name: string; schema: Record<string, unknown> };
 
-/** `none` is the spec's explicit off (`reasoning_effort: "none"`, `thinking: disabled`). */
-export type ReasoningEffort = "none" | "low" | "medium" | "high";
+/**
+ * `none` is the spec's explicit off (`reasoning_effort: "none"`, `thinking:
+ * disabled`); low / medium / high are the spec's levels. Anything else is a
+ * vendor level (Qwen Flash's `xhigh`) passed through as-is on chat and
+ * Responses, and budgeted like high on Messages.
+ */
+export type ReasoningEffort =
+  | "none"
+  | "low"
+  | "medium"
+  | "high"
+  | (string & {});
 
 /**
  * Which road turned thinking off: the spec disable alone, the vendor toggle
@@ -82,10 +92,13 @@ export type ThinkingOff = "spec" | "vendor" | "stuck";
  * than max_tokens, so a tiny cap sends no thinking block at all.
  */
 export function thinkingBudgetFor(
-  effort: Exclude<ReasoningEffort, "none">,
+  effort: ReasoningEffort,
   maxTokens: number,
 ): number | null {
-  const share = { low: 0.25, medium: 0.5, high: 0.75 }[effort];
+  const share =
+    { low: 0.25, medium: 0.5, high: 0.75 }[
+      effort as "low" | "medium" | "high"
+    ] ?? 0.75;
   const budget = Math.min(Math.round(maxTokens * share), maxTokens - 1);
   return budget >= 1024 ? budget : null;
 }
