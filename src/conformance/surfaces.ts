@@ -1456,10 +1456,13 @@ export const chatOnlyTests: ConformanceTest[] = [
       const thought = (r: { reply: { reasoningText: string | null } }) =>
         r.reply.reasoningText !== null;
 
+      // Own thinking settings: under --reasoning off the run-wide `none` (and
+      // a resolved vendor toggle) would blank the baseline this probe needs.
       const baseline = await ctx.send("chat", {
         turns,
         temperature: 0,
         maxTokens: 256,
+        reasoningEffort: null,
       });
       // No reasoning channel shown, so the knob has nothing to switch off —
       // the second request would prove nothing.
@@ -1469,6 +1472,7 @@ export const chatOnlyTests: ConformanceTest[] = [
         turns,
         temperature: 0,
         maxTokens: 256,
+        reasoningEffort: null,
         extra: { chat_template_kwargs: { enable_thinking: false } },
       });
 

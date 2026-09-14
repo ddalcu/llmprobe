@@ -423,7 +423,7 @@ describe("selectCases", () => {
 });
 
 describe("reasoning effort", () => {
-  function contextFor(url: string) {
+  function contextFor(url: string, extra: Partial<RunConfig> = {}) {
     const config: RunConfig = {
       baseUrl: `${normalizeRoot(url)}/v1`,
       apiKey: "",
@@ -431,6 +431,7 @@ describe("reasoning effort", () => {
       timeoutMs: 15_000,
       depth: "default",
       reasoningHeadroom: 0,
+      ...extra,
     };
     return createContext({
       config,
@@ -441,14 +442,12 @@ describe("reasoning effort", () => {
     });
   }
 
-  test("sends reasoning_effort on every question and reports it", async () => {
+  test("sends the run-wide reasoning_effort on every question and reports it", async () => {
     engine = await startMockEngine();
-    const report = await runReasoning(contextFor(engine.url), {
-      maxTokens: 64,
-      temperature: 0,
-      sequence: "1,2",
-      reasoningEffort: "medium",
-    });
+    const report = await runReasoning(
+      contextFor(engine.url, { reasoningEffort: "medium" }),
+      { maxTokens: 64, temperature: 0, sequence: "1,2" },
+    );
     expect(engine.chatBodies.map((b) => b.reasoning_effort)).toEqual([
       "medium",
       "medium",
@@ -457,17 +456,18 @@ describe("reasoning effort", () => {
     expect(report.reasoningEffortRejected).toBe(false);
   });
 
-  test("drops the param after a 400 and flags the report", async () => {
+  test("an effort the engine rejected at startup runs bare and is flagged", async () => {
     engine = await startMockEngine({ rejectsReasoningEffort: true });
-    const report = await runReasoning(contextFor(engine.url), {
-      maxTokens: 64,
-      temperature: 0,
-      sequence: "1,2",
-      reasoningEffort: "medium",
-    });
-    // Rejected once, retried bare, then bare for the rest of the run.
+    const report = await runReasoning(
+      contextFor(engine.url, { reasoningEffortRejected: true }),
+      {
+        maxTokens: 64,
+        temperature: 0,
+        sequence: "1,2",
+        reasoningAsked: "medium",
+      },
+    );
     expect(engine.chatBodies.map((b) => b.reasoning_effort)).toEqual([
-      "medium",
       undefined,
       undefined,
     ]);

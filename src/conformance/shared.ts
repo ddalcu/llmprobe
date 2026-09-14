@@ -1496,7 +1496,13 @@ export function sharedTests(
       // (reasoning_effort / reasoning.effort / thinking). Vendor toggles like
       // `enable_thinking` are never sent — a feature reachable only through a
       // non-standard knob does not earn the standard's coverage line.
-      let res = await ctx.send(s, { turns, temperature: 0, maxTokens: 256 });
+      // Plain means plain: no run-wide effort, or rung 1 measures --reasoning.
+      let res = await ctx.send(s, {
+        turns,
+        temperature: 0,
+        maxTokens: 256,
+        reasoningEffort: null,
+      });
 
       const channelIn = (r: typeof res) =>
         r.reply.reasoningText !== null ||

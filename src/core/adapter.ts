@@ -71,6 +71,12 @@ export type ResponseFormat =
 export type ReasoningEffort = "none" | "low" | "medium" | "high";
 
 /**
+ * Which road turned thinking off: the spec disable alone, the vendor toggle
+ * after the engine ignored the spec, or neither worked.
+ */
+export type ThinkingOff = "spec" | "vendor" | "stuck";
+
+/**
  * Messages has no effort enum, only a token budget. Spend a share of the
  * answer cap on thinking; Anthropic needs at least 1024 and strictly less
  * than max_tokens, so a tiny cap sends no thinking block at all.
@@ -115,9 +121,10 @@ export interface ChatRequest {
   /**
    * How hard to think, in the surface's own spec vocabulary: `reasoning_effort`
    * on chat, `reasoning.effort` on Responses, a `thinking` budget derived from
-   * `maxTokens` on Messages. Vendor toggles (`enable_thinking`) are never sent.
+   * `maxTokens` on Messages. Unset takes the run-wide effort from ctx.send;
+   * null sends nothing at all, for probes that measure the engine's default.
    */
-  reasoningEffort?: ReasoningEffort;
+  reasoningEffort?: ReasoningEffort | null;
   /** Escape hatch for surface-specific probes; merged over the built body. */
   extra?: Record<string, unknown>;
 }
@@ -209,6 +216,12 @@ export interface SurfaceAdapter {
    * never sent, by the same rule that scores Ollama's native API at zero.
    */
   reasoningOptIn?: Record<string, unknown>;
+  /**
+   * The vendor off-toggle, sent on `none` requests only after the run proved
+   * the engine ignores the spec disable (`RunConfig.thinkingOff === "vendor"`).
+   * A bench or eval that silently thinks is worse than an off-spec kwarg.
+   */
+  reasoningOff?: Record<string, unknown>;
   /**
    * The surface has a wire shape for reasoning on assistant HISTORY turns
    * (chat: `reasoning_content`; messages: `thinking` blocks). Responses

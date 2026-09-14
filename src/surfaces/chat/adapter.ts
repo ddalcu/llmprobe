@@ -131,6 +131,7 @@ export const chatAdapter: SurfaceAdapter = {
   chunkSchema: chatCompletionChunkSchema,
 
   reasoningOptIn: { reasoning_effort: "low" },
+  reasoningOff: { chat_template_kwargs: { enable_thinking: false } },
   reasoningHistory: true,
 
   buildBody(request: ChatRequest, config: RunConfig): Record<string, unknown> {
@@ -156,6 +157,8 @@ export const chatAdapter: SurfaceAdapter = {
     if (request.logprobs) body.logprobs = true;
     if (request.reasoningEffort)
       body.reasoning_effort = request.reasoningEffort;
+    if (request.reasoningEffort === "none" && config.thinkingOff === "vendor")
+      Object.assign(body, chatAdapter.reasoningOff);
 
     if (request.tools?.length) {
       body.tools = request.tools.map((tool) => ({

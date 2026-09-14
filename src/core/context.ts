@@ -145,6 +145,18 @@ export function createContext(options: {
     };
   };
 
+  /**
+   * The run-wide thinking effort, on every request that does not set its own
+   * (a probe measuring the engine's default passes null).
+   */
+  const withReasoning = (request: ChatRequest): ChatRequest => {
+    if (request.reasoningEffort !== undefined) return request;
+    if (config.reasoningEffort === undefined) return request;
+    return { ...request, reasoningEffort: config.reasoningEffort };
+  };
+  const prepare = (request: ChatRequest): ChatRequest =>
+    withReasoning(withHeadroom(request));
+
   return {
     config,
     client,
@@ -155,7 +167,7 @@ export function createContext(options: {
 
     async send(surface, request, options = {}) {
       const adapter = adapterFor(surface);
-      const body = adapter.buildBody(withHeadroom(request), config);
+      const body = adapter.buildBody(prepare(request), config);
 
       const result = await client.request("POST", adapter.path, {
         body,
@@ -181,7 +193,7 @@ export function createContext(options: {
     async sendStream(surface, request) {
       const adapter = adapterFor(surface);
       const body = {
-        ...adapter.buildBody(withHeadroom(request), config),
+        ...adapter.buildBody(prepare(request), config),
         stream: true,
       };
 

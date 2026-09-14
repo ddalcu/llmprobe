@@ -1,4 +1,11 @@
-import type { ChatRequest, SurfaceAdapter, ToolDef } from "./adapter";
+import type {
+  ChatReply,
+  ChatRequest,
+  ReasoningEffort,
+  SurfaceAdapter,
+  ThinkingOff,
+  ToolDef,
+} from "./adapter";
 import type { EngineClient, RunConfig } from "./client";
 
 /**
@@ -36,27 +43,37 @@ const PROBE_REQUEST: ChatRequest = {
   maxTokens: 512,
 };
 
-/** Any of these means the model thought before it spoke. */
-async function thinksOn(
+/** Any of these means the model thought before it spoke; null on a non-200. */
+async function probeThinking(
   client: EngineClient,
   adapter: SurfaceAdapter,
   config: RunConfig,
   request: ChatRequest,
-): Promise<boolean> {
+): Promise<boolean | null> {
   const result = await client.request("POST", adapter.path, {
     body: adapter.buildBody(request, config),
     headers: adapter.headers(config),
   });
 
-  if (result.status !== 200) return false;
+  if (result.status !== 200) return null;
 
   const reply = adapter.parse(result.json);
   client.recordUsage(reply.usage.inputTokens, reply.usage.outputTokens);
-
-  if ((reply.usage.reasoningTokens ?? 0) > 0) return true;
-  if (reply.reasoningText && reply.reasoningText.length > 0) return true;
-  return /<think>|<\|thinking\|>/i.test(reply.text);
+  return thought(reply);
 }
+
+const thought = (reply: ChatReply): boolean =>
+  (reply.usage.reasoningTokens ?? 0) > 0 ||
+  (reply.reasoningText?.length ?? 0) > 0 ||
+  /<think>|<\|thinking\|>/i.test(reply.text);
+
+const thinksOn = async (
+  client: EngineClient,
+  adapter: SurfaceAdapter,
+  config: RunConfig,
+  request: ChatRequest,
+): Promise<boolean> =>
+  (await probeThinking(client, adapter, config, request)) === true;
 
 /**
  * Does this model spend tokens thinking before it produces visible output?
@@ -100,5 +117,53 @@ export async function detectReasoning(
     // If we cannot tell, assume not — and let the conformance tests report
     // whatever actually goes wrong, rather than inventing a budget.
     return false;
+  }
+}
+
+/** What `--reasoning` resolved to for this run; spread over RunConfig. */
+export interface ReasoningSetup {
+  reasoningEffort?: ReasoningEffort;
+  reasoningEffortRejected: boolean;
+  thinkingOff?: ThinkingOff;
+}
+
+/**
+ * Settle `--reasoning` once for the whole run.
+ *
+ * A strict engine 400s the effort param: every stage then runs bare rather
+ * than failing outright, and the report says so. `off` gets one more check:
+ * some engines (mlx-serve, MTPLX) accept `reasoning_effort: "none"` with a
+ * 200 and keep thinking, only honouring their own `enable_thinking` — so a
+ * run "off" would silently compare a thinking run against a non-thinking one.
+ * One retry with the vendor toggle, and the report names which road worked.
+ */
+export async function resolveReasoning(
+  client: EngineClient,
+  adapter: SurfaceAdapter,
+  config: RunConfig,
+): Promise<ReasoningSetup> {
+  const effort = config.reasoningEffort;
+  if (effort === undefined) return { reasoningEffortRejected: false };
+  const request: ChatRequest = { ...PROBE_REQUEST, reasoningEffort: effort };
+  try {
+    const result = await client.request("POST", adapter.path, {
+      body: adapter.buildBody(request, config),
+      headers: adapter.headers(config),
+    });
+    if (result.status === 400) return { reasoningEffortRejected: true };
+    const kept = { reasoningEffort: effort, reasoningEffortRejected: false };
+    if (effort !== "none" || result.status !== 200) return kept;
+
+    const reply = adapter.parse(result.json);
+    client.recordUsage(reply.usage.inputTokens, reply.usage.outputTokens);
+    if (!thought(reply)) return { ...kept, thinkingOff: "spec" };
+    if (!adapter.reasoningOff) return { ...kept, thinkingOff: "stuck" };
+    const vendor = await probeThinking(client, adapter, config, {
+      ...request,
+      extra: adapter.reasoningOff,
+    });
+    return { ...kept, thinkingOff: vendor === false ? "vendor" : "stuck" };
+  } catch {
+    return { reasoningEffort: effort, reasoningEffortRejected: false };
   }
 }

@@ -102,6 +102,10 @@ export interface MockDefects {
    * reads such a model as not thinking at all.
    */
   reasoningWithTools?: boolean;
+  /** Like mlx-serve: accept `reasoning_effort: "none"` with 200 and keep thinking. */
+  ignoresReasoningNone?: boolean;
+  /** Keep thinking even under `chat_template_kwargs.enable_thinking: false`. */
+  ignoresEnableThinking?: boolean;
   /**
    * Report a length-style finish on a COMPLETE tool call, the way any engine
    * does when the turn happens to end on the token cap — a reasoning model
@@ -284,7 +288,11 @@ function respondTo(body: any, defects: MockDefects) {
   // A reasoning model thinks first. Starve it of budget and the caller gets
   // `content: ""` with `finish_reason: "length"` — the exact trap that made a
   // real 27B look like it scored 0% on basic knowledge.
-  if (defects.reasoningModel && maxTokens <= THINKING_COST) {
+  const thinkingOff =
+    (body.reasoning_effort === "none" && !defects.ignoresReasoningNone) ||
+    (body.chat_template_kwargs?.enable_thinking === false &&
+      !defects.ignoresEnableThinking);
+  if (defects.reasoningModel && !thinkingOff && maxTokens <= THINKING_COST) {
     return {
       content: "",
       reasoning: "Let me think about this step by step...",
@@ -412,9 +420,10 @@ function respondTo(body: any, defects: MockDefects) {
   }
 
   const showsReasoning =
-    defects.reasoningModel ||
-    (defects.reasoningRequiresOptIn && body.reasoning_effort !== undefined) ||
-    (defects.reasoningWithTools && body.tools?.length > 0);
+    !thinkingOff &&
+    (defects.reasoningModel ||
+      (defects.reasoningRequiresOptIn && body.reasoning_effort !== undefined) ||
+      (defects.reasoningWithTools && body.tools?.length > 0));
 
   return {
     content,

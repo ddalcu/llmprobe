@@ -133,8 +133,8 @@ export interface ReasoningOptions {
   maxTokens?: number;
   temperature: number;
   topP?: number;
-  /** Unset: no reasoning param, the engine's own default. */
-  reasoningEffort?: ReasoningEffort;
+  /** The --reasoning effort asked for, kept for the report when the engine rejected it. */
+  reasoningAsked?: ReasoningEffort;
   limit?: number;
   sequence?: string;
   /** Questions in flight at once. 1 (default) is fully sequential. */
@@ -163,10 +163,6 @@ export async function runReasoning(
     opts.maxTokens ?? tc.maxTokens ?? DEFAULT_MAX_TOKENS;
   const concurrency = Math.max(1, opts.concurrency ?? 1);
   let aborted: ReasoningReport["aborted"] = null;
-  // Shared across questions: the first engine that 400s the effort param
-  // gets the rest of the run bare, and the report says so.
-  let effort = opts.reasoningEffort;
-  let effortRejected = false;
 
   // One question, socket-drop retries included. Returns null only when the
   // run must stop: the budget is gone, or the target is a corpse.
@@ -197,19 +193,7 @@ export async function runReasoning(
         // A 16k-token think runs for minutes; the token cap is the bound
         // here, and a clock would grade our patience rather than the model.
         const sendOpts = { timeoutMs: null };
-        let res = await ctx.send(
-          surface,
-          { ...request, ...(effort ? { reasoningEffort: effort } : {}) },
-          sendOpts,
-        );
-        if (res.status === 400 && effort) {
-          const bare = await ctx.send(surface, request, sendOpts);
-          if (bare.status === 200) {
-            effort = undefined;
-            effortRejected = true;
-            res = bare;
-          }
-        }
+        const res = await ctx.send(surface, request, sendOpts);
         const text = res.reply.text ?? "";
         const graded = grade(tc, text);
         const truncated = res.reply.finishReason === "length";
@@ -335,8 +319,9 @@ export async function runReasoning(
     error: count("error"),
     maxTokens: Math.max(0, ...cases.map(capFor)),
     temperature: opts.temperature,
-    reasoningEffort: opts.reasoningEffort ?? null,
-    reasoningEffortRejected: effortRejected,
+    reasoningEffort: ctx.config.reasoningEffort ?? opts.reasoningAsked ?? null,
+    reasoningEffortRejected: ctx.config.reasoningEffortRejected ?? false,
+    thinkingOff: ctx.config.thinkingOff ?? null,
     bySource,
     cases: results,
     scopeNote,

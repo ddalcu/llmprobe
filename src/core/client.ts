@@ -1,6 +1,6 @@
 import { Agent, type BodyInit, fetch as undiciFetch } from "undici";
 
-import type { ReasoningEffort } from "./adapter";
+import type { ReasoningEffort, ThinkingOff } from "./adapter";
 import { parseSSEFrames, type SSEFrame } from "./sse";
 export interface RunConfig {
   /** Effective root, already resolved by the probe (e.g. http://host:8080/v1). */
@@ -27,8 +27,21 @@ export interface RunConfig {
    * sampling path instead of the greedy shortcut.
    */
   benchSampling?: BenchSampling;
-  /** --reasoning for --bench requests (default medium). Absent sends no effort param. */
-  benchReasoning?: ReasoningEffort;
+  /**
+   * --reasoning: the effort sent on every request of the run (default medium),
+   * so each stage measures the model at one thinking setting instead of the
+   * engine's default. Absent (`--reasoning default`, or rejected) sends nothing.
+   * A request that controls its own thinking sets `reasoningEffort` itself
+   * (null for none).
+   */
+  reasoningEffort?: ReasoningEffort;
+  /** The engine 400'd the effort at startup, so the whole run went bare. */
+  reasoningEffortRejected?: boolean;
+  /**
+   * How `--reasoning off` actually stops the model thinking, resolved once per
+   * run. `vendor` makes the adapter add its off toggle to every `none` request.
+   */
+  thinkingOff?: ThinkingOff;
   /** --rungs: which context-ladder sizes to run, replacing the depth's ladder. */
   benchRungs?: number[];
   /** --runs: measured runs per scenario and per rung (after the warmup). */

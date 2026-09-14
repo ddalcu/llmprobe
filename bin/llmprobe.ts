@@ -38,7 +38,11 @@ import {
   probeCredits,
   probeEndpoint,
 } from "../src/core/probe";
-import { detectReasoning, REASONING_HEADROOM } from "../src/core/reasoning";
+import {
+  detectReasoning,
+  REASONING_HEADROOM,
+  resolveReasoning,
+} from "../src/core/reasoning";
 import { CREDITS, FEATURES, SURFACES } from "../src/core/registry";
 import { paletteFor } from "../src/core/report/colors";
 import { resolveUploadUrl, uploadReport } from "../src/core/upload";
@@ -443,13 +447,14 @@ Options:
                         --eval-suite deck
       --eval-max-tokens <n> Generation cap per question (default: 16000, or the
                         question's own cap in the hard suite)
-      --reasoning <e>   Thinking effort sent with every bench and eval request,
-                        in the surface's own vocabulary: off, low, medium
+      --reasoning <e>   Thinking effort sent with every request of the run, in
+                        the surface's own vocabulary: off, low, medium
                         (default) or high. "off" sends the spec's explicit
-                        disable (reasoning_effort none / thinking disabled);
-                        "default" sends nothing, so the engine runs at its own
-                        setting. Engines that reject the param fall back to
-                        their default and the report says so
+                        disable (reasoning_effort none / thinking disabled),
+                        falling back to enable_thinking: false when the engine
+                        ignores it; "default" sends nothing, so the engine runs
+                        at its own setting. Engines that reject the param fall
+                        back to their default and the report says so
       --concurrency <n> Questions / eval samples in flight at once (default: 1).
                         Speeds up --eval on engines that serve in parallel;
                         benchmark timing always stays serial
@@ -692,7 +697,7 @@ async function probeModel(
       ? { benchSampling: SAMPLING_PRESETS[args.sampling] }
       : {}),
     ...(args.reasoning !== "default"
-      ? { benchReasoning: args.reasoning }
+      ? { reasoningEffort: args.reasoning }
       : {}),
     ...(args.rungs ? { benchRungs: args.rungs } : {}),
     ...(args.runs !== undefined ? { benchRuns: args.runs } : {}),
@@ -707,9 +712,18 @@ async function probeModel(
     ? await detectReasoning(client, adapterById.get(evalSurface)!, baseConfig)
     : false;
 
+  // Settle --reasoning once for every stage: a strict engine 400s the param
+  // and the run goes bare; `off` on an engine that ignores the spec disable
+  // falls back to the vendor toggle. Either way the banner and report say so.
+  const setup = evalSurface
+    ? await resolveReasoning(client, adapterById.get(evalSurface)!, baseConfig)
+    : { reasoningEffortRejected: false };
+
   const config: RunConfig = {
     ...baseConfig,
     reasoningHeadroom: thinks ? REASONING_HEADROOM : 0,
+    reasoningEffort: undefined,
+    ...setup,
   };
 
   const ctx = createContext({
@@ -728,6 +742,47 @@ async function probeModel(
         : ""
     }`,
   );
+  {
+    const { thinkingOff } = setup;
+    const thinkingLine = !thinks
+      ? "model does not think"
+      : setup.reasoningEffortRejected
+        ? c.yellow("engine default (effort param rejected with HTTP 400)")
+        : thinkingOff === "spec"
+          ? "off (reasoning_effort none honoured)"
+          : thinkingOff === "vendor"
+            ? c.yellow(
+                "off via enable_thinking: false (engine ignored the spec disable)",
+              )
+            : thinkingOff === "stuck"
+              ? c.yellow(
+                  "ON — engine ignored both disables; not a non-thinking run",
+                )
+              : args.reasoning === "default"
+                ? "engine default"
+                : "on";
+    const sampling = args.sampling
+      ? `${args.sampling} (temperature ${SAMPLING_PRESETS[args.sampling]!.temperature}, top_p ${SAMPLING_PRESETS[args.sampling]!.topP})`
+      : "greedy (temperature 0)";
+    const rows = [
+      ["thinking", thinkingLine],
+      ["reasoning", args.reasoning === "none" ? "off" : args.reasoning],
+      ["sampling", sampling],
+      ["concurrency", String(args.concurrency ?? 1)],
+      ...(args.bench
+        ? [
+            [
+              "rungs",
+              args.rungs
+                ? args.rungs.map(fmtTokens).join(", ")
+                : `${args.depth} ladder`,
+            ],
+            ["runs", `warmup + ${args.runs ?? 3} per scenario`],
+          ]
+        : []),
+    ];
+    for (const [k, v] of rows) log(`  ${c.gray(`${k}:`.padEnd(13))}${v}`);
+  }
   log();
 
   // ── 3. Conformance, then 4. capability ──────────────────────────────────
@@ -1063,7 +1118,7 @@ async function probeModel(
       );
     log();
     log(
-      `${c.gray(`reasoning eval, ${args.evalSuite} suite (up to ${fmtCount(evalCap)} tokens per question, reasoning ${args.reasoning})...`)}`,
+      `${c.gray(`reasoning eval, ${args.evalSuite} suite (up to ${fmtCount(evalCap)} tokens per question, reasoning ${args.reasoning === "none" ? "off" : args.reasoning})...`)}`,
     );
     const evalStart = {
       input: client.usage.inputTokens,
@@ -1081,7 +1136,7 @@ async function probeModel(
         temperature: sampling?.temperature ?? 0,
         ...(sampling?.topP !== undefined ? { topP: sampling.topP } : {}),
         ...(args.reasoning !== "default"
-          ? { reasoningEffort: args.reasoning }
+          ? { reasoningAsked: args.reasoning }
           : {}),
         ...(args.evalQuestions !== undefined
           ? { limit: args.evalQuestions }

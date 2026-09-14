@@ -1,4 +1,4 @@
-import type { ReasoningEffort } from "../core/adapter";
+import type { ReasoningEffort, ThinkingOff } from "../core/adapter";
 
 export type ReasoningSource =
   | "GPQA Diamond"
@@ -78,6 +78,8 @@ export interface ReasoningReport {
   reasoningEffort: ReasoningEffort | null;
   /** The engine 400'd the effort param, so the run fell back to the engine's default. */
   reasoningEffortRejected: boolean;
+  /** How `off` was enforced; null unless the vendor toggle was needed or nothing worked. */
+  thinkingOff?: ThinkingOff | null;
   bySource: ReasoningSourceSummary[];
   cases: ReasoningCaseResult[];
   /** Set when --eval-questions or --eval-cases narrowed the set, or the run aborted early. */
@@ -89,5 +91,12 @@ export interface ReasoningReport {
 /** ", reasoning medium" / ", reasoning medium (rejected by the engine)" / "". */
 export function effortNote(r: ReasoningReport): string {
   if (!r.reasoningEffort) return "";
-  return `, reasoning ${r.reasoningEffort}${r.reasoningEffortRejected ? " (rejected by the engine, ran at its default)" : ""}`;
+  const how = r.reasoningEffortRejected
+    ? " (rejected by the engine, ran at its default)"
+    : r.thinkingOff === "vendor"
+      ? " (spec disable ignored, used enable_thinking: false)"
+      : r.thinkingOff === "stuck"
+        ? " (engine kept thinking — not a non-thinking run)"
+        : "";
+  return `, reasoning ${r.reasoningEffort === "none" ? "off" : r.reasoningEffort}${how}`;
 }

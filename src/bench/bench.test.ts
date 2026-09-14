@@ -41,7 +41,7 @@ function coherent(stat: BenchStat | null): void {
 }
 
 describe("runBenchmark against the mock", () => {
-  test("benchReasoning rides on every bench request", async () => {
+  test("the run-wide reasoning effort rides on every bench request", async () => {
     engine = await startMockEngine();
     const root = normalizeRoot(engine.url);
 
@@ -53,7 +53,7 @@ describe("runBenchmark against the mock", () => {
       depth: "quick",
       reasoningHeadroom: 0,
       benchSettleMs: 0,
-      benchReasoning: "low",
+      reasoningEffort: "low",
     };
     const client = new EngineClient(config);
     const ctx = createContext({
@@ -72,8 +72,8 @@ describe("runBenchmark against the mock", () => {
     }
   }, 60_000);
 
-  test("an engine that 400s the effort param gets the rest of the bench bare", async () => {
-    engine = await startMockEngine({ rejectsReasoningEffort: true });
+  test("a rejected effort resolved at startup is named in the report", async () => {
+    engine = await startMockEngine();
     const root = normalizeRoot(engine.url);
 
     const config: RunConfig = {
@@ -84,7 +84,7 @@ describe("runBenchmark against the mock", () => {
       depth: "quick",
       reasoningHeadroom: 0,
       benchSettleMs: 0,
-      benchReasoning: "medium",
+      reasoningEffortRejected: true,
     };
     const client = new EngineClient(config);
     const ctx = createContext({
@@ -96,10 +96,7 @@ describe("runBenchmark against the mock", () => {
     });
 
     const report = await runBenchmark(ctx, false);
-    expect(report).not.toBeNull();
-
-    expect(engine.chatBodies[0]!.reasoning_effort).toBe("medium");
-    for (const body of engine.chatBodies.slice(1)) {
+    for (const body of engine.chatBodies) {
       expect(body.reasoning_effort).toBeUndefined();
     }
     expect(report!.reasoningNote).toMatch(/rejected/);

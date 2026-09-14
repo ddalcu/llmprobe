@@ -1,9 +1,9 @@
-
 import { tryParseJson } from "../core/assert";
 import { machineInfo } from "../core/machine";
 import {
   type BenchSampling,
   BudgetExceededError,
+  type RunConfig,
   TargetUnreachableError,
 } from "../core/client";
 import type { RunContext } from "../core/context";
@@ -360,8 +360,8 @@ async function timedRun(
         ...(sampling?.topP !== undefined ? { topP: sampling.topP } : {}),
         maxTokens,
         includeUsage: true,
-        ...(ctx.config.benchReasoning
-          ? { reasoningEffort: ctx.config.benchReasoning }
+        ...(ctx.config.reasoningEffort
+          ? { reasoningEffort: ctx.config.reasoningEffort }
           : {}),
         ...(extra ? { extra } : {}),
       },
@@ -443,6 +443,18 @@ async function timedRun(
     streamCoalesced: delivery.coalesced,
     streamNote: delivery.note,
   };
+}
+
+/** How `--reasoning` was enforced, when it took more than sending the param. */
+export function reasoningNoteFor(config: RunConfig): string | null {
+  if (config.reasoningEffortRejected)
+    return "engine rejected the reasoning effort param; ran at its default — not comparable to runs that set the effort";
+  if (config.reasoningEffort !== "none") return null;
+  if (config.thinkingOff === "vendor")
+    return "engine ignored the spec disable (reasoning_effort none); thinking turned off with the vendor toggle enable_thinking: false";
+  if (config.thinkingOff === "stuck")
+    return "engine kept thinking under both the spec disable and enable_thinking: false — ran with thinking on, not comparable to non-thinking runs";
+  return null;
 }
 
 /** Warmup (discarded) + K measured runs of the same request. */
@@ -800,36 +812,15 @@ export async function runBenchmark(
   // methodology — whichever mode produced the number is named in the report.
   const EXACT_LENGTH = { ignore_eos: true, min_tokens: DECODE_TOKENS };
   onProgress?.("decode length probe");
-  let ctx = outerCtx;
-  let reasoningNote: string | null = null;
-  let lengthProbe = await timedRun(
+  const ctx = outerCtx;
+  const reasoningNote = reasoningNoteFor(ctx.config);
+  const lengthProbe = await timedRun(
     ctx,
     surface,
     cacheBust(DECODE_PROMPT),
     DECODE_TOKENS,
     EXACT_LENGTH,
   );
-  // The first request doubles as the effort probe: a strict engine 400s the
-  // param, and the whole bench must then run bare rather than fail outright.
-  const effort = ctx.config.benchReasoning;
-  if (effort && lengthProbe.error?.startsWith("HTTP 400")) {
-    const bareCtx = {
-      ...ctx,
-      config: { ...ctx.config, benchReasoning: undefined },
-    };
-    const bare = await timedRun(
-      bareCtx,
-      surface,
-      cacheBust(DECODE_PROMPT),
-      DECODE_TOKENS,
-      EXACT_LENGTH,
-    );
-    if (bare.error === undefined) {
-      ctx = bareCtx;
-      lengthProbe = bare;
-      reasoningNote = `engine rejected reasoning ${effort}; ran at its default — not comparable to runs that set the effort`;
-    }
-  }
   onSample?.({
     label: "decode length probe",
     value: lengthProbe.decodeTokPerSec,
@@ -1003,7 +994,7 @@ export async function runBenchmark(
       : null;
 
   const sampling = ctx.config.benchSampling;
-  const { benchRungs, benchRuns } = ctx.config;
+  const { benchRungs, benchRuns, reasoningEffort: effort } = ctx.config;
   const custom = [
     benchRuns !== undefined ? `${benchRuns} runs per scenario` : null,
     benchRungs ? `rungs ${benchRungs.map(rungName).join(", ")}` : null,
