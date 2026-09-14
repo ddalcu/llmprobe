@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
 
+import { chatAdapter } from "../chat/adapter";
+import { responsesAdapter } from "../responses/adapter";
 import { messagesAdapter } from "./adapter";
 
 // These two mappings silently regressed to null once — the thinking-budget
@@ -49,5 +51,34 @@ describe("messages usage mapping", () => {
 
     expect(reply.usage.reasoningTokens).toBe(3);
     expect(reply.usage.cacheCreationInputTokens).toBe(1200);
+  });
+});
+
+describe("reasoning effort none", () => {
+  const config = {
+    baseUrl: "http://x",
+    apiKey: "",
+    model: "m",
+    timeoutMs: 1,
+    depth: "quick" as const,
+    reasoningHeadroom: 0,
+  };
+  const request = {
+    turns: [{ type: "user" as const, text: "hi" }],
+    maxTokens: 4096,
+    reasoningEffort: "none" as const,
+  };
+
+  test("messages sends thinking disabled", () => {
+    expect(messagesAdapter.buildBody(request, config).thinking).toEqual({
+      type: "disabled",
+    });
+  });
+
+  test("chat and responses send the spec's none value", () => {
+    expect(chatAdapter.buildBody(request, config).reasoning_effort).toBe("none");
+    expect(responsesAdapter.buildBody(request, config).reasoning).toEqual({
+      effort: "none",
+    });
   });
 });

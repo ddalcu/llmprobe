@@ -67,7 +67,8 @@ export type ResponseFormat =
   | { type: "json_object" }
   | { type: "json_schema"; name: string; schema: Record<string, unknown> };
 
-export type ReasoningEffort = "low" | "medium" | "high";
+/** `none` is the spec's explicit off (`reasoning_effort: "none"`, `thinking: disabled`). */
+export type ReasoningEffort = "none" | "low" | "medium" | "high";
 
 /**
  * Messages has no effort enum, only a token budget. Spend a share of the
@@ -75,7 +76,7 @@ export type ReasoningEffort = "low" | "medium" | "high";
  * than max_tokens, so a tiny cap sends no thinking block at all.
  */
 export function thinkingBudgetFor(
-  effort: ReasoningEffort,
+  effort: Exclude<ReasoningEffort, "none">,
   maxTokens: number,
 ): number | null {
   const share = { low: 0.25, medium: 0.5, high: 0.75 }[effort];

@@ -12,10 +12,14 @@ import type { ConformanceTest } from "../core/context";
 import { checkSSEFraming } from "../core/sse";
 import {
   BOOKING_TOOL,
+  DELIMITER_FILE_CONTENT,
+  MARKER_SCHEMA,
+  MARKER_STRING,
   PERSON_SCHEMA,
   TIME_TOOL,
   TINY_PNG_DATA_URL,
   WEATHER_TOOL,
+  WRITE_FILE_TOOL,
 } from "./fixtures";
 
 /**
@@ -1045,6 +1049,183 @@ export function sharedTests(
     });
   }
 
+  if (adapter.capabilities.jsonSchema) {
+    const markerRequest = {
+      turns: [
+        {
+          type: "user" as const,
+          text: "Return the JSON object required by the schema.",
+        },
+      ],
+      responseFormat: {
+        type: "json_schema" as const,
+        name: "markers",
+        schema: MARKER_SCHEMA as unknown as Record<string, unknown>,
+      },
+      temperature: 0,
+    };
+    const markerNote = (text: string): string | null => {
+      const parsed = tryParseJson(text);
+      if (!parsed.ok) return null;
+      const note = (parsed.value as { note?: unknown } | null)?.note;
+      return typeof note === "string" ? note : null;
+    };
+
+    tests.push({
+      id: `${s}-structured-markers`,
+      name: `${adapter.label}: marker strings inside constrained JSON are data`,
+      surface: s,
+      tier: "extended",
+      async run(ctx, a) {
+        // The schema pins the whole answer, so the only way `note` can differ
+        // from the enum is the engine reading its own reasoning or tool
+        // markers out of the JSON on the way back to the caller.
+        const plain = await ctx.send(s, { ...markerRequest, maxTokens: 256 });
+        if (plain.status >= 400) {
+          throw new Unsupported(
+            `rejects json_schema with HTTP ${plain.status}`,
+          );
+        }
+        a.must(
+          `${s}-structured-markers-data`,
+          "a marker-shaped enum value arrives byte-exact in content",
+          markerNote(plain.reply.text) === MARKER_STRING,
+          `content was: ${plain.reply.text.slice(0, 160)}`,
+        );
+
+        const { reply, stream } = await ctx.sendStream(s, {
+          ...markerRequest,
+          maxTokens: 256,
+        });
+        if (stream.status !== 200) return;
+        a.must(
+          `${s}-structured-markers-stream`,
+          "the streamed content is the same bytes as the non-streamed one",
+          reply.text === plain.reply.text,
+          `stream: ${reply.text.slice(0, 120)} | non-stream: ${plain.reply.text.slice(0, 120)}`,
+        );
+      },
+    });
+
+    tests.push({
+      id: `${s}-structured-terminates`,
+      name: `${adapter.label}: constrained output terminates, cold and warm`,
+      surface: s,
+      tier: "extended",
+      slow: true,
+      async run(ctx, a) {
+        // A schema-constrained decode must end in the JSON, never in a cap:
+        // an engine whose grammar lets a masked model idle (on whitespace, on a
+        // repeated token) reports `length` with empty content while max_tokens
+        // still had room. Two identical sends, because a prefix-cache hit takes
+        // a different numeric path than a cold prefill and that is where the
+        // first live instance surfaced. Reasoning is opted in where the surface
+        // has a standard knob, so the grammar has to hand over after a thought.
+        const maxTokens = 1024;
+        const base = { ...markerRequest, maxTokens, allowReasoning: false };
+        const send = async () => {
+          if (adapter.reasoningOptIn) {
+            const r = await ctx.send(s, {
+              ...base,
+              extra: adapter.reasoningOptIn,
+            });
+            if (r.status < 400) return r;
+          }
+          return ctx.send(s, base);
+        };
+        const cold = await send();
+        if (cold.status >= 400) {
+          throw new Unsupported(`rejects json_schema with HTTP ${cold.status}`);
+        }
+        const warm = await send();
+
+        for (const [label, res] of [
+          ["cold", cold],
+          ["warm", warm],
+        ] as const) {
+          const out = res.reply.usage.outputTokens;
+          const hitCap =
+            typeof out === "number" && out >= maxTokens - MAX_SPECULATIVE_BLOCK;
+          const finish = res.reply.finishReason ?? "";
+          a.must(
+            `${s}-structured-terminates-${label}`,
+            `the ${label} constrained answer stops on its own, not on the cap`,
+            !isLengthStyleFinish(finish) || hitCap,
+            `finish_reason ${finish} after ${out ?? "?"} of ${maxTokens} tokens; content: ${res.reply.text.slice(0, 80)}`,
+          );
+          a.must(
+            `${s}-structured-valid-${label}`,
+            `the ${label} constrained answer is the schema's JSON`,
+            markerNote(res.reply.text) === MARKER_STRING,
+            `content was: ${res.reply.text.slice(0, 160)}`,
+          );
+        }
+      },
+    });
+  }
+
+  if (adapter.capabilities.tools) {
+    tests.push({
+      id: `${s}-tool-args-literal-delimiter`,
+      name: `${adapter.label}: tool arguments may spell the model's own delimiters`,
+      surface: s,
+      tier: "extended",
+      slow: true,
+      async run(ctx, a) {
+        // File content that contains `</tool_call>` and `</think>` verbatim:
+        // a model typing its own terminator inside an argument tends to end
+        // the turn there instead. That is a capability, so it is reported as
+        // a rate and never as a MUST; three trials at a real temperature.
+        const trials = 3;
+        let called = 0;
+        let exact = 0;
+        for (let i = 0; i < trials; i++) {
+          const res = await ctx.send(s, {
+            turns: [
+              {
+                type: "user" as const,
+                text:
+                  "Call write_file with path notes.md and content exactly:\n" +
+                  DELIMITER_FILE_CONTENT,
+              },
+            ],
+            tools: [WRITE_FILE_TOOL],
+            toolChoice: { name: "write_file" },
+            temperature: 0.7,
+            maxTokens: 512,
+          });
+          if (res.status >= 400) {
+            throw new Unsupported(
+              `rejects the request with HTTP ${res.status}`,
+            );
+          }
+          const call = res.reply.toolCalls.find((c) => c.name === "write_file");
+          if (!call) continue;
+          called += 1;
+          const args = tryParseJson(call.argsJson);
+          const content = (args.value as { content?: unknown } | null)?.content;
+          if (content === DELIMITER_FILE_CONTENT) exact += 1;
+        }
+        if (called === 0) {
+          throw new Inconclusive("no write_file call in any trial");
+        }
+        const rate = `${exact}/${trials} exact (${called}/${trials} called)`;
+        a.should(
+          `${s}-tool-args-literal-any`,
+          "at least one trial carries the delimiter-bearing content byte-exact",
+          exact > 0,
+          rate,
+        );
+        a.may(
+          `${s}-tool-args-literal-all`,
+          "every trial carries the delimiter-bearing content byte-exact",
+          exact === trials,
+          rate,
+        );
+      },
+    });
+  }
+
   // ── vision ────────────────────────────────────────────────────────────────
 
   if (adapter.capabilities.vision) {
@@ -1359,6 +1540,55 @@ export function sharedTests(
         "reasoning does not leak into the visible content",
         leaked.tag === null,
         `found a raw ${leaked.tag} wrapper inside the assistant content`,
+      );
+    },
+  });
+
+  tests.push({
+    id: `${s}-reasoning-cap`,
+    name: `${adapter.label}: a cap spent on reasoning is reported as a cap`,
+    surface: s,
+    tier: "extended",
+    async run(ctx, a) {
+      if (!adapter.reasoningOptIn) {
+        throw new Unsupported("surface has no standard reasoning opt-in");
+      }
+      // Small cap, long think: the model exhausts max_tokens inside its
+      // reasoning. The engine must say so (`length`), count the reasoning it
+      // generated, and not overshoot the cap by more than a draft block.
+      const maxTokens = 32;
+      const res = await ctx.send(s, {
+        turns: [
+          {
+            type: "user" as const,
+            text: "Explain, step by step and at length, why the sky is blue.",
+          },
+        ],
+        temperature: 0,
+        maxTokens,
+        allowReasoning: false,
+        extra: adapter.reasoningOptIn,
+      });
+      if (res.status >= 400) {
+        throw new Unsupported(
+          `the standard reasoning opt-in was rejected with HTTP ${res.status}`,
+        );
+      }
+      const thought =
+        (res.reply.reasoningText ?? "").length > 0 ||
+        (res.reply.usage.reasoningTokens ?? 0) > 0;
+      if (!thought) throw new Inconclusive("the model did not think");
+      if (!isLengthStyleFinish(res.reply.finishReason ?? "")) {
+        throw new Inconclusive("the model finished inside the cap");
+      }
+      const out = res.reply.usage.outputTokens;
+      a.must(
+        `${s}-reasoning-cap-usage`,
+        "completion tokens stay within the cap (plus one draft block)",
+        typeof out === "number" &&
+          out > 0 &&
+          out <= maxTokens + MAX_SPECULATIVE_BLOCK,
+        `completion_tokens ${out ?? "missing"} against max_tokens ${maxTokens}`,
       );
     },
   });

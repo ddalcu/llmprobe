@@ -1,5 +1,6 @@
 import { Agent, type BodyInit, fetch as undiciFetch } from "undici";
 
+import type { ReasoningEffort } from "./adapter";
 import { parseSSEFrames, type SSEFrame } from "./sse";
 export interface RunConfig {
   /** Effective root, already resolved by the probe (e.g. http://host:8080/v1). */
@@ -26,6 +27,8 @@ export interface RunConfig {
    * sampling path instead of the greedy shortcut.
    */
   benchSampling?: BenchSampling;
+  /** --reasoning for --bench requests (default medium). Absent sends no effort param. */
+  benchReasoning?: ReasoningEffort;
   /** --rungs: which context-ladder sizes to run, replacing the depth's ladder. */
   benchRungs?: number[];
   /** --runs: measured runs per scenario and per rung (after the warmup). */

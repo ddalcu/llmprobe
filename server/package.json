@@ -1,0 +1,33 @@
+{
+  "name": "llmprobe-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Upload archive and browser for llmprobe JSON reports.",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "prisma generate && tsc -p tsconfig.build.json",
+    "start": "prisma migrate deploy && node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:db": "DATABASE_URL=$TEST_DATABASE_URL prisma migrate deploy && vitest run"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.0",
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.15.0",
+    "@types/supertest": "^6.0.3",
+    "prisma": "^6.19.0",
+    "supertest": "^7.1.4",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  },
+  "allowScripts": {
+    "@prisma/engines@6.19.3": true,
+    "esbuild@0.28.2": true,
+    "prisma@6.19.3": true
+  }
+}

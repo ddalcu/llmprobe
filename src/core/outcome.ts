@@ -464,6 +464,8 @@ export interface BenchReport {
   samplingNote?: string | null;
   /** Set when --rungs or --runs changed the ladder or the repetition count. */
   runsNote?: string | null;
+  /** Set when the engine 400'd the reasoning effort param and the bench ran bare. */
+  reasoningNote?: string | null;
   /** Time to first generated token, ms. */
   ttftMs: BenchStat | null;
   /** Prompt ingestion rate, tokens/sec, from a deliberately long prompt. */

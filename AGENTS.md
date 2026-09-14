@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`bin/llmprobe.ts` is the CLI entry point; `npm run build:cli` bundles it to `bin/dist/`. Core probing, scoring, registries, and reporting live in `src/core/`. API-specific adapters are under `src/surfaces/`, while reusable protocol checks live in `src/conformance/`. Capability grading is in `src/evals/`, agent simulations in `src/agentic/`, benchmarks in `src/bench/`, and the offline mock engine in `src/fixtures/`. OpenAPI inputs are stored in `schema/`; derived validators under `src/generated/` should be regenerated rather than hand-edited. Baseline reports belong in `baselines/`.
+`bin/llmprobe.ts` is the CLI entry point; `npm run build:cli` bundles it to `bin/dist/`. Core probing, scoring, registries, and reporting live in `src/core/`. API-specific adapters are under `src/surfaces/`, while reusable protocol checks live in `src/conformance/`. Capability grading is in `src/evals/`, agent simulations in `src/agentic/`, benchmarks in `src/bench/`, and the offline mock engine in `src/fixtures/`. OpenAPI inputs are stored in `schema/`; derived validators under `src/generated/` should be regenerated rather than hand-edited. Baseline reports belong in `baselines/`. `server/` is a standalone Express/Prisma/Postgres archive for `--upload` with its own package, tests and compose file.
 
 ## Build, Test, and Development Commands
 

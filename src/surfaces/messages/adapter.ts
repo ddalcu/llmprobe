@@ -165,7 +165,9 @@ export const messagesAdapter: SurfaceAdapter = {
       body.temperature = request.temperature;
     if (request.topP !== undefined) body.top_p = request.topP;
     if (request.stop) body.stop_sequences = request.stop;
-    if (request.reasoningEffort) {
+    if (request.reasoningEffort === "none") {
+      body.thinking = { type: "disabled" };
+    } else if (request.reasoningEffort) {
       const budget = thinkingBudgetFor(
         request.reasoningEffort,
         body.max_tokens as number,

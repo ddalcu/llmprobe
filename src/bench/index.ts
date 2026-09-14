@@ -1,6 +1,6 @@
-import { arch, cpus, platform, totalmem } from "node:os";
 
 import { tryParseJson } from "../core/assert";
+import { machineInfo } from "../core/machine";
 import {
   type BenchSampling,
   BudgetExceededError,
@@ -13,7 +13,6 @@ import type {
   ContextPoint,
   ContextSpeculative,
   LoadDriftResult,
-  MachineInfo,
   PrefixCacheResult,
   SpeculativeResult,
 } from "../core/outcome";
@@ -361,6 +360,9 @@ async function timedRun(
         ...(sampling?.topP !== undefined ? { topP: sampling.topP } : {}),
         maxTokens,
         includeUsage: true,
+        ...(ctx.config.benchReasoning
+          ? { reasoningEffort: ctx.config.benchReasoning }
+          : {}),
         ...(extra ? { extra } : {}),
       },
       ctx.config,
@@ -779,23 +781,14 @@ async function batchingProbe(
   };
 }
 
-function machineInfo(): MachineInfo {
-  return {
-    platform: platform(),
-    arch: arch(),
-    cpu: cpus()[0]?.model.trim() || null,
-    memGB: Math.round(totalmem() / 2 ** 30),
-  };
-}
-
 export async function runBenchmark(
-  ctx: RunContext,
+  outerCtx: RunContext,
   reasoningModel: boolean,
   onProgress?: (label: string) => void,
   onRung?: (point: ContextPoint) => void,
   onSample?: (sample: BenchSample) => void,
 ): Promise<BenchReport | null> {
-  const surface = ctx.evalSurface;
+  const surface = outerCtx.evalSurface;
   if (!surface) return null;
 
   // Can the engine be made to generate to exactly the cap? A model that stops
@@ -807,13 +800,36 @@ export async function runBenchmark(
   // methodology — whichever mode produced the number is named in the report.
   const EXACT_LENGTH = { ignore_eos: true, min_tokens: DECODE_TOKENS };
   onProgress?.("decode length probe");
-  const lengthProbe = await timedRun(
+  let ctx = outerCtx;
+  let reasoningNote: string | null = null;
+  let lengthProbe = await timedRun(
     ctx,
     surface,
     cacheBust(DECODE_PROMPT),
     DECODE_TOKENS,
     EXACT_LENGTH,
   );
+  // The first request doubles as the effort probe: a strict engine 400s the
+  // param, and the whole bench must then run bare rather than fail outright.
+  const effort = ctx.config.benchReasoning;
+  if (effort && lengthProbe.error?.startsWith("HTTP 400")) {
+    const bareCtx = {
+      ...ctx,
+      config: { ...ctx.config, benchReasoning: undefined },
+    };
+    const bare = await timedRun(
+      bareCtx,
+      surface,
+      cacheBust(DECODE_PROMPT),
+      DECODE_TOKENS,
+      EXACT_LENGTH,
+    );
+    if (bare.error === undefined) {
+      ctx = bareCtx;
+      lengthProbe = bare;
+      reasoningNote = `engine rejected reasoning ${effort}; ran at its default — not comparable to runs that set the effort`;
+    }
+  }
   onSample?.({
     label: "decode length probe",
     value: lengthProbe.decodeTokPerSec,
@@ -991,6 +1007,9 @@ export async function runBenchmark(
   const custom = [
     benchRuns !== undefined ? `${benchRuns} runs per scenario` : null,
     benchRungs ? `rungs ${benchRungs.map(rungName).join(", ")}` : null,
+    effort !== "medium"
+      ? `reasoning ${effort === "none" ? "off" : (effort ?? "default")}`
+      : null,
   ].filter(Boolean);
   return {
     decodeTokPerSec: decodeStat,
@@ -1005,6 +1024,7 @@ export async function runBenchmark(
       custom.length > 0
         ? `custom setup: ${custom.join(", ")} — not comparable to default runs`
         : null,
+    reasoningNote,
     ttftMs: pick(decodeSamples, "ttftMs"),
     prefillTokPerSec: pick(prefillSamples, "prefillTokPerSec"),
     prefillPromptTokens,

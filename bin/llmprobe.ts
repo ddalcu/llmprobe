@@ -41,6 +41,7 @@ import {
 import { detectReasoning, REASONING_HEADROOM } from "../src/core/reasoning";
 import { CREDITS, FEATURES, SURFACES } from "../src/core/registry";
 import { paletteFor } from "../src/core/report/colors";
+import { resolveUploadUrl, uploadReport } from "../src/core/upload";
 import {
   buildJsonReport,
   diffBaseline,
@@ -108,8 +109,11 @@ interface Args {
   /** Generation cap per question (default 16000). */
   /** Unset: each question's own cap (hard suite), else 16000. */
   evalMaxTokens?: number;
-  /** --reasoning: effort asked for on every eval question; "off" sends nothing. */
-  reasoning: ReasoningEffort | "off";
+  /**
+   * --reasoning: effort sent on every eval and bench request. CLI "off" is
+   * stored as "none" (the spec's explicit disable); "default" sends nothing.
+   */
+  reasoning: ReasoningEffort | "default";
   /** Questions / eval samples in flight at once (default 1 = sequential). */
   concurrency?: number;
   /** --rungs: context-ladder sizes to run instead of the depth's ladder. */
@@ -126,6 +130,10 @@ interface Args {
   html?: string;
   /** Skip recording this run in the library. */
   noSave: boolean;
+  /** Post the JSON report to the llmprobe server. */
+  upload: boolean;
+  /** Server base URL for --upload; falls back to LLMPROBE_UPLOAD_URL. */
+  uploadUrl?: string;
   /** `--library` given with no directory: act on the home library. */
   libraryDefault: boolean;
   /** Directory for the model library (index + cards + compare); auto-synced. */
@@ -152,6 +160,7 @@ function parseArgs(argv: string[]): Args {
     reasoning: "medium",
     timeoutSec: 60,
     noSave: false,
+    upload: false,
     libraryDefault: false,
     open: false,
     noColor: false,
@@ -255,11 +264,14 @@ function parseArgs(argv: string[]): Args {
         break;
       case "--reasoning": {
         const effort = value();
-        if (!["off", "low", "medium", "high"].includes(effort)) {
-          console.error("--reasoning must be off, low, medium or high");
+        if (!["off", "low", "medium", "high", "default"].includes(effort)) {
+          console.error(
+            "--reasoning must be off, low, medium, high or default",
+          );
           process.exit(2);
         }
-        args.reasoning = effort as Args["reasoning"];
+        args.reasoning =
+          effort === "off" ? "none" : (effort as Args["reasoning"]);
         break;
       }
       case "--concurrency": {
@@ -325,6 +337,12 @@ function parseArgs(argv: string[]): Args {
         } else {
           args.library = value();
         }
+        break;
+      }
+      case "--upload": {
+        args.upload = true;
+        const v = argv[i + 1];
+        if (v !== undefined && !v.startsWith("-")) args.uploadUrl = value();
         break;
       }
       case "--no-save":
@@ -425,10 +443,13 @@ Options:
                         --eval-suite deck
       --eval-max-tokens <n> Generation cap per question (default: 16000, or the
                         question's own cap in the hard suite)
-      --reasoning <e>   Thinking effort sent with every eval question, in the
-                        surface's own vocabulary: off, low, medium (default) or
-                        high. Engines that reject the param fall back to their
-                        default and the report says so
+      --reasoning <e>   Thinking effort sent with every bench and eval request,
+                        in the surface's own vocabulary: off, low, medium
+                        (default) or high. "off" sends the spec's explicit
+                        disable (reasoning_effort none / thinking disabled);
+                        "default" sends nothing, so the engine runs at its own
+                        setting. Engines that reject the param fall back to
+                        their default and the report says so
       --concurrency <n> Questions / eval samples in flight at once (default: 1).
                         Speeds up --eval on engines that serve in parallel;
                         benchmark timing always stays serial
@@ -453,6 +474,9 @@ Options:
       --html <f>        Export a standalone report card to this path
       --library [dir]   Use a different library than ~/.llmprobe. With no
                         target URL, rebuilds the library without probing
+      --upload [url]    Post the JSON report to an llmprobe server. Default:
+                        $LLMPROBE_UPLOAD_URL or http://localhost:3000.
+                        Auth via $LLMPROBE_UPLOAD_TOKEN. Needs a benchmark
       --no-save         Do not record this run in the library
       --open            Open the report card (or the library, with --library)
       --compare <f...>  Interactive compare workbench from saved --save reports
@@ -666,6 +690,9 @@ async function probeModel(
     reasoningHeadroom: 0,
     ...(args.sampling
       ? { benchSampling: SAMPLING_PRESETS[args.sampling] }
+      : {}),
+    ...(args.reasoning !== "default"
+      ? { benchReasoning: args.reasoning }
       : {}),
     ...(args.rungs ? { benchRungs: args.rungs } : {}),
     ...(args.runs !== undefined ? { benchRuns: args.runs } : {}),
@@ -1053,7 +1080,7 @@ async function probeModel(
           : {}),
         temperature: sampling?.temperature ?? 0,
         ...(sampling?.topP !== undefined ? { topP: sampling.topP } : {}),
-        ...(args.reasoning !== "off"
+        ...(args.reasoning !== "default"
           ? { reasoningEffort: args.reasoning }
           : {}),
         ...(args.evalQuestions !== undefined
@@ -1368,6 +1395,22 @@ async function probeModel(
     writeFileSync(htmlPath, renderHtml(json, baselineContext));
     log(`${c.gray("html report →")} ${htmlPath}`);
     openedHtml = htmlPath;
+  }
+
+  if (args.upload) {
+    const url = resolveUploadUrl(
+      args.uploadUrl,
+      process.env.LLMPROBE_UPLOAD_URL,
+    );
+    try {
+      const key = await uploadReport(json, {
+        url,
+        token: process.env.LLMPROBE_UPLOAD_TOKEN,
+      });
+      log(`${c.gray("uploaded →")} ${url} ${c.gray(key)}`);
+    } catch (err) {
+      console.error(c.yellow(`upload skipped — ${(err as Error).message}`));
+    }
   }
 
   if (args.json) {

@@ -1,8 +1,10 @@
+import { machineInfo } from "../machine";
 import type {
   ConformanceResult,
   CoverageEntry,
   EvalResult,
   EvalCategory,
+  MachineInfo,
   RunReport,
 } from "../outcome";
 
@@ -45,6 +47,8 @@ export interface JsonReport {
   version: 1 | 2;
   run?: ReportRunScope;
   target: RunReport["target"];
+  /** Where the run happened. Always present from v2; older reports lack it. */
+  machine?: MachineInfo;
   /** Set when the target died mid-run; every score below is partial. */
   incomplete?: string;
   coverage: {
@@ -125,6 +129,7 @@ export function buildJsonReport(
     version: 2,
     run: details.run,
     target: report.target,
+    machine: machineInfo(),
     ...(report.incomplete ? { incomplete: report.incomplete } : {}),
     coverage: {
       byTier: report.coverage.byTier,

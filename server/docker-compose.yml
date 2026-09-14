@@ -1,0 +1,31 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: llmprobe
+      POSTGRES_PASSWORD: llmprobe
+      POSTGRES_DB: llmprobe
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U llmprobe"]
+      interval: 5s
+      retries: 10
+
+  server:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://llmprobe:llmprobe@db:5432/llmprobe
+      UPLOAD_TOKEN: ${UPLOAD_TOKEN:-}
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

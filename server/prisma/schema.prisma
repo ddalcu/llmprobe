@@ -1,0 +1,18 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Key/value archive: the llmprobe JSON report is the whole record.
+/// Everything the UI shows is projected out of `data` at query time.
+model Run {
+  key       String   @id
+  data      Json
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}

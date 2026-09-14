@@ -41,6 +41,70 @@ function coherent(stat: BenchStat | null): void {
 }
 
 describe("runBenchmark against the mock", () => {
+  test("benchReasoning rides on every bench request", async () => {
+    engine = await startMockEngine();
+    const root = normalizeRoot(engine.url);
+
+    const config: RunConfig = {
+      baseUrl: `${root}/v1`,
+      apiKey: "",
+      model: "mock-model-12b",
+      timeoutMs: 15_000,
+      depth: "quick",
+      reasoningHeadroom: 0,
+      benchSettleMs: 0,
+      benchReasoning: "low",
+    };
+    const client = new EngineClient(config);
+    const ctx = createContext({
+      config,
+      client,
+      adapters: new Map<string, SurfaceAdapter>(ADAPTERS.map((a) => [a.id, a])),
+      present: new Set(["models", "chat"]),
+      evalSurface: primarySurface(new Set(["chat"])),
+    });
+
+    await runBenchmark(ctx, false);
+
+    expect(engine.chatBodies.length).toBeGreaterThan(0);
+    for (const body of engine.chatBodies) {
+      expect(body.reasoning_effort).toBe("low");
+    }
+  }, 60_000);
+
+  test("an engine that 400s the effort param gets the rest of the bench bare", async () => {
+    engine = await startMockEngine({ rejectsReasoningEffort: true });
+    const root = normalizeRoot(engine.url);
+
+    const config: RunConfig = {
+      baseUrl: `${root}/v1`,
+      apiKey: "",
+      model: "mock-model-12b",
+      timeoutMs: 15_000,
+      depth: "quick",
+      reasoningHeadroom: 0,
+      benchSettleMs: 0,
+      benchReasoning: "medium",
+    };
+    const client = new EngineClient(config);
+    const ctx = createContext({
+      config,
+      client,
+      adapters: new Map<string, SurfaceAdapter>(ADAPTERS.map((a) => [a.id, a])),
+      present: new Set(["models", "chat"]),
+      evalSurface: primarySurface(new Set(["chat"])),
+    });
+
+    const report = await runBenchmark(ctx, false);
+    expect(report).not.toBeNull();
+
+    expect(engine.chatBodies[0]!.reasoning_effort).toBe("medium");
+    for (const body of engine.chatBodies.slice(1)) {
+      expect(body.reasoning_effort).toBeUndefined();
+    }
+    expect(report!.reasoningNote).toMatch(/rejected/);
+  }, 60_000);
+
   test("produces a coherent, non-throwing report", async () => {
     engine = await startMockEngine();
     const root = normalizeRoot(engine.url);

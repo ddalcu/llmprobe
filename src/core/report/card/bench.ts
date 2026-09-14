@@ -300,6 +300,7 @@ export function benchSection(bench: BenchReport): string {
     bench.streamCaveat ? `⚠ ${bench.streamCaveat}` : null,
     bench.samplingNote ? `⚠ ${bench.samplingNote}` : null,
     bench.runsNote ? `⚠ ${bench.runsNote}` : null,
+    bench.reasoningNote ? `⚠ ${bench.reasoningNote}` : null,
   ].filter(Boolean) as string[];
 
   const ladder =

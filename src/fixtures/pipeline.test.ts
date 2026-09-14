@@ -631,3 +631,58 @@ describe("embeddings", () => {
     expect(honoured.present.has("embeddings")).toBe(true);
   });
 });
+
+describe("constrained output", () => {
+  test("a grammar that lets the model idle on whitespace is named by the terminate check", async () => {
+    // Live 2026-09-12 against mlx-serve + Qwen3.8-27B: on a prefix-cache hit
+    // the masked model's real argmax was off-schema, the grammar admitted
+    // newlines without bound, and the loop guard cut the request as `length`
+    // with empty content while max_tokens had room.
+    const run = await probeAndRun(
+      { structuredStallsOnWhitespace: true },
+      "full",
+    );
+    expect(failedIds(run.results)).toContain("chat-structured-terminates-cold");
+    expect(failedIds(run.results)).toContain("chat-structured-valid-cold");
+  });
+
+  test("marker text stripped out of the JSON is named by the markers check", async () => {
+    const run = await probeAndRun({ mangleMarkersInJson: true });
+    expect(failedIds(run.results)).toContain("chat-structured-markers-data");
+  });
+
+  test("a sound engine passes every constrained-output check at full depth", async () => {
+    const run = await probeAndRun({ reasoningRequiresOptIn: true }, "full");
+    for (const id of [
+      "chat-structured-markers",
+      "chat-structured-terminates",
+      "chat-tool-args-literal-delimiter",
+    ]) {
+      expect(find(run.results, id)!.outcome).toBe("pass");
+    }
+    expect(failedIds(run.results)).toEqual([]);
+  });
+});
+
+describe("reasoning cap", () => {
+  test("a cap spent thinking that is reported as stop is named", async () => {
+    const run = await probeAndRun(
+      { reasoningModel: true, wrongLengthFinishReason: true },
+      "default",
+      1024,
+    );
+    // The mock thinks past a 32-token cap and lies about the finish reason,
+    // so the cap check sees no length-style finish and cannot proceed; the
+    // finish-reason check is what names that lie. The cap check must then be
+    // inconclusive, never a silent pass.
+    expect(find(run.results, "chat-reasoning-cap")!.outcome).toBe(
+      "inconclusive",
+    );
+    expect(failedIds(run.results)).toContain("chat-finish-is-length");
+  });
+
+  test("a cap spent thinking is a pass when the engine reports it honestly", async () => {
+    const run = await probeAndRun({ reasoningModel: true }, "default", 1024);
+    expect(find(run.results, "chat-reasoning-cap")!.outcome).toBe("pass");
+  });
+});

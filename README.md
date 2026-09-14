@@ -167,6 +167,8 @@ This is deliberately a measurement rather than an OS thermal reading. `ProcessIn
 
 Two honesty guardrails: the report states it's **hardware-dependent** (cross-engine comparison only holds on the same machine), and on a reasoning model it flags that the "repeat this" task still triggers a novel thinking phase, so the ratio **understates** real speculative gains rather than silently misreporting them.
 
+Every bench request carries a thinking effort of `medium` by default, the same `--reasoning off|low|medium|high` flag the eval uses, so two engines serving the same reasoning model bench with the same thinking budget instead of each engine's own default. `off` sends the spec's explicit disable (`reasoning_effort: "none"`, `thinking: {type: "disabled"}`), so a reasoning model actually benches without thinking; `default` sends nothing and takes whatever the engine does. Anything other than medium is noted in the report as a custom setup, not comparable to default runs. An engine that 400s the param gets the rest of the bench bare and the report says so, same as the eval.
+
 ## Reasoning eval (`--eval`)
 
 Off by default and never scored. 92 fixed questions: 25 GPQA Diamond, 25 SuperGPQA, 25 AIME 2025 and 17 COMPSEC (single-function C/C++ vulnerability localization). The model gets the question, a strict `Answer: <letter|integer|line numbers>` format instruction, and up to `--eval-max-tokens` (16000) to think. The grader reads the last `Answer:` line, with fallbacks for bold markers, "the answer is F", `m+n = 256+37 = 293` and "not B, so D". A question that hits the token cap without an answer line counts as _out of tokens_, reported apart from wrong: that is a budget fact, not a wrong answer.
@@ -184,7 +186,7 @@ llmprobe localhost:8080 --eval-only --eval-cases aime
 
 This is the one intelligence benchmark in llmprobe, and it is small on purpose: it is a regression harness for "did this engine or quant make the model dumber", not a leaderboard. On a thinking model it is also by far the most expensive thing here.
 
-Every question carries a thinking effort of `medium` by default (`--reasoning off|low|medium|high`), expressed in each surface's own vocabulary: `reasoning_effort` on chat/completions, `reasoning.effort` on Responses, and a `thinking` budget of half the question's token cap on Messages (a quarter for low, three quarters for high). Without it, each engine runs the model at its own default, and the eval ends up comparing engine defaults instead of the model. An engine that rejects the param gets the rest of the run without it and the report says so. Vendor toggles like `enable_thinking` are still never sent.
+Every question carries a thinking effort of `medium` by default (`--reasoning off|low|medium|high|default`, shared with the bench; `off` is the spec's explicit disable, `default` sends nothing), expressed in each surface's own vocabulary: `reasoning_effort` on chat/completions, `reasoning.effort` on Responses, and a `thinking` budget of half the question's token cap on Messages (a quarter for low, three quarters for high). Without it, each engine runs the model at its own default, and the eval ends up comparing engine defaults instead of the model. An engine that rejects the param gets the rest of the run without it and the report says so. Vendor toggles like `enable_thinking` are still never sent.
 
 `--eval-suite hard` swaps in the ds4-eval hard suite instead, 50 questions meant for large models: 30 MMLU-Pro (10-choice), 10 OlympiadBench (open answers: integer, reduced fraction, ordered tuples, exact expression), 5 LiveBench zebra puzzles (ordered answers) and 5 NIST Juliet line-localization reductions. Open answers are graded from the `Answer:` line only, normalized the same way ds4-eval does, against the published answer and its listed equivalent forms. Each hard question carries its own token cap (16k for MMLU-Pro, Juliet and LiveBench, 100k for OlympiadBench, well above what ds4-eval uses since this suite is aimed at large thinking models and a capped answer tells you nothing) unless `--eval-max-tokens` is given. Hard runs are reported as such and are not comparable to core runs. `--eval-cases` takes `mmlupro`, `olympiad`, `livebench` and `juliet` as source names, and source names and ids resolve across every suite, so `--eval-cases gpqa,mmlupro` works without `--eval-suite`; only 1-based numbers index the chosen deck.
 
@@ -260,6 +262,11 @@ model name (or **View**) to open its report card.
 | a project-local library instead of the home one     | `--library <dir>`             |
 | rebuild pages after upgrading llmprobe              | `--library [dir]` with no URL |
 | don't record this run                               | `--no-save`                   |
+| push this run to a shared archive                   | `--upload [url]`              |
+
+`--upload` posts the JSON report to an [llmprobe server](server/README.md) —
+`$LLMPROBE_UPLOAD_URL` or `http://localhost:3000` by default, authenticated with
+`$LLMPROBE_UPLOAD_TOKEN`. Runs with no benchmark are refused.
 
 `--html` is a pure export: it writes that one file and touches nothing else.
 

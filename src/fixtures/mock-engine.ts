@@ -136,6 +136,14 @@ export interface MockDefects {
    * the request silently runs against the default model.
    */
   imageEditsIgnoreFormModel?: boolean;
+  /**
+   * A grammar that admits whitespace without bound: a schema-constrained
+   * request comes back empty with `finish_reason: "length"` well under the cap,
+   * the loop guard having cut a model that idled on newlines.
+   */
+  structuredStallsOnWhitespace?: boolean;
+  /** Strip reasoning markers out of schema-constrained JSON on the way out. */
+  mangleMarkersInJson?: boolean;
   /** Fixed port. Defaults to 0 (random), which is what the tests want. */
   port?: number;
 }
@@ -280,7 +288,7 @@ function respondTo(body: any, defects: MockDefects) {
     return {
       content: "",
       reasoning: "Let me think about this step by step...",
-      finishReason: "length",
+      finishReason: defects.wrongLengthFinishReason ? "stop" : "length",
       outputTokens: maxTokens,
     };
   }
@@ -299,6 +307,15 @@ function respondTo(body: any, defects: MockDefects) {
         ? body.tool_choice.function?.name
         : undefined;
     const name = forced ?? (/(time)/i.test(text) ? "get_time" : "get_weather");
+
+    if (name === "write_file") {
+      const content = /content exactly:\n([\s\S]*)$/.exec(text)?.[1] ?? "";
+      return {
+        toolCalls: [{ name, args: { path: "notes.md", content } }],
+        finishReason: defects.toolCallHitsCap ? "length" : "tool_calls",
+        outputTokens: 24,
+      };
+    }
 
     // The defect: a request that disabled parallel calls gets two anyway.
     if (defects.ignoresParallelDisable && body.parallel_tool_calls === false) {
@@ -329,6 +346,21 @@ function respondTo(body: any, defects: MockDefects) {
   }
 
   if (body.response_format) {
+    const schema = body.response_format.json_schema?.schema;
+    const enumValue = schema?.properties?.note?.enum?.[0];
+    if (typeof enumValue === "string") {
+      if (defects.structuredStallsOnWhitespace) {
+        return { content: "", finishReason: "length", outputTokens: 30 };
+      }
+      const note = defects.mangleMarkersInJson
+        ? enumValue.replace(/<think>.*?<\/think>\s*/g, "")
+        : enumValue;
+      return {
+        content: JSON.stringify({ note }),
+        finishReason: "stop",
+        outputTokens: 40,
+      };
+    }
     return {
       content: JSON.stringify({ name: "Ada", age: 36 }),
       finishReason: "stop",

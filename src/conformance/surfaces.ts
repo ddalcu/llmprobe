@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { bearerAuth, type Turn } from "../core/adapter";
-import { Inconclusive, isLengthStyleFinish } from "../core/assert";
+import { Inconclusive, isLengthStyleFinish, Unsupported } from "../core/assert";
 import type { ConformanceTest, TestVerdict } from "../core/context";
 import { checkSSEFraming } from "../core/sse";
 import { messagesAdapter } from "../surfaces/messages/adapter";
@@ -374,6 +374,40 @@ export const audioTests: ConformanceTest[] = [
 // ── Responses-specific ──────────────────────────────────────────────────────
 
 export const responsesOnlyTests: ConformanceTest[] = [
+  {
+    id: "responses-reasoning-effort-none",
+    name: "responses: reasoning.effort none turns thinking off",
+    surface: "responses",
+    tier: "extended",
+    async run(ctx, a) {
+      // `none` is the spec's explicit off. An engine that reads any present
+      // effort as "on" ships a thought the caller asked not to pay for.
+      const res = await ctx.send("responses", {
+        turns: [
+          {
+            type: "user",
+            text: "What is 17 * 3? Think it through, then answer.",
+          },
+        ],
+        temperature: 0,
+        maxTokens: 256,
+        allowReasoning: false,
+        extra: { reasoning: { effort: "none" } },
+      });
+      if (res.status >= 400) {
+        throw new Unsupported(`rejects effort "none" with HTTP ${res.status}`);
+      }
+      const thought =
+        (res.reply.reasoningText ?? "").length > 0 ||
+        (res.reply.usage.reasoningTokens ?? 0) > 0;
+      a.must(
+        "responses-effort-none-no-reasoning",
+        "no reasoning item and no reasoning tokens with effort none",
+        !thought,
+        `reasoning tokens ${res.reply.usage.reasoningTokens ?? "n/a"}, reasoning text ${(res.reply.reasoningText ?? "").length} chars`,
+      );
+    },
+  },
   {
     id: "responses-event-order",
     name: "responses: streaming event order",

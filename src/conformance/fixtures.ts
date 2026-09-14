@@ -61,3 +61,38 @@ export const PERSON_SCHEMA = {
   required: ["name", "age"],
   additionalProperties: false,
 } as const;
+
+/**
+ * Every reasoning and tool marker an engine's response parser might mistake
+ * for structure, as ONE enum value. Under a strict schema the answer is fully
+ * determined, so any byte that differs is the engine's transport, not the model.
+ */
+export const MARKER_STRING =
+  "<think>kept</think> </think:opensource> <|channel>thought <|channel|>final <|content_thinking|> to=self<|message|> <tool_call>literal</tool_call>";
+
+export const MARKER_SCHEMA = {
+  type: "object",
+  properties: {
+    note: { type: "string", enum: [MARKER_STRING] },
+  },
+  required: ["note"],
+  additionalProperties: false,
+} as const;
+
+export const WRITE_FILE_TOOL: ToolDef = {
+  name: "write_file",
+  description: "Write a text file.",
+  parameters: {
+    type: "object",
+    properties: {
+      path: { type: "string" },
+      content: { type: "string" },
+    },
+    required: ["path", "content"],
+    additionalProperties: false,
+  },
+};
+
+/** File content that spells the tool and think delimiters the model itself uses. */
+export const DELIMITER_FILE_CONTENT =
+  "Delimiters used by this format: </tool_call> and </think> and <|im_end|>.";
