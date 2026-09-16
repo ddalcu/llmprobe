@@ -21,6 +21,8 @@ export interface ReportRunScope {
   mode: "probe" | "bench-only" | "eval-only";
   /** Free-text note from --label, e.g. "qwen4 with kv8". */
   label?: string;
+  /** `label` was derived from the engine's settings, not given with --label. */
+  labelAuto?: boolean;
   startedAt: string;
   phases: Record<
     | "coverage"

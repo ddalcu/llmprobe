@@ -1,7 +1,7 @@
 import { fetch as undiciFetch } from "undici";
 import type { JsonReport } from "./report/json";
 
-const DEFAULT_URL = "http://localhost:3000";
+const DEFAULT_URL = "https://llmprobe.deploy.dalcu.com";
 
 export interface UploadPayload {
   key: string;

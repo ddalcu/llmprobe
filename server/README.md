@@ -16,8 +16,8 @@ open endpoint (localhost only).
 ## Upload
 
 ```sh
-llmprobe localhost:8080 --upload                    # http://localhost:3000
-llmprobe localhost:8080 --upload https://probe.lan  # or $LLMPROBE_UPLOAD_URL
+llmprobe localhost:8080 --upload                        # https://llmprobe.deploy.dalcu.com
+llmprobe localhost:8080 --upload http://localhost:3000  # or $LLMPROBE_UPLOAD_URL
 ```
 
 Auth comes from `$LLMPROBE_UPLOAD_TOKEN`. A run with no benchmark is refused —

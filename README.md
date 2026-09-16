@@ -267,8 +267,9 @@ model name (or **View**) to open its report card.
 | push this run to a shared archive                   | `--upload [url]`              |
 
 `--upload` posts the JSON report to an [llmprobe server](server/README.md) —
-`$LLMPROBE_UPLOAD_URL` or `http://localhost:3000` by default, authenticated with
-`$LLMPROBE_UPLOAD_TOKEN`. Runs with no benchmark are refused.
+`$LLMPROBE_UPLOAD_URL` or `https://llmprobe.deploy.dalcu.com` by default, authenticated with
+`$LLMPROBE_UPLOAD_TOKEN`. Runs with no benchmark are refused. Older saved reports go up with
+`llmprobe --upload-file runs/*.json`.
 
 `--html` is a pure export: it writes that one file and touches nothing else.
 

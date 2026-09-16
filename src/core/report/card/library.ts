@@ -16,6 +16,7 @@ import { renderCardHtml } from "./single";
 import { renderCompareWorkbenchHtml } from "./compare-workbench";
 import { CARD_STYLE } from "./style.css";
 import { THEME_BOOT, THEME_SCRIPT, themeSwitcherHtml } from "./theme";
+import { engineSettingsSummary } from "../../engine-settings";
 import { LIBRARY_SCRIPT } from "./library-script";
 import {
   endpointLabel,
@@ -208,6 +209,9 @@ function runSummary(run: LibraryRun) {
     model: r.target?.model ?? run.label,
     short: shortModel(r.target?.model ?? run.label),
     engine: r.target?.engine ?? null,
+    settings: r.run?.labelAuto
+      ? null
+      : engineSettingsSummary(r.target?.engineSettings) || null,
     baseUrl: r.target?.baseUrl ?? null,
     // What separates two rows for the same model, so it is what the row shows.
     endpoint: endpointLabel(r.target?.baseUrl),

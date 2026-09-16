@@ -8,7 +8,11 @@ const report = (bench: unknown): JsonReport =>
   ({
     version: 2,
     run: { startedAt: "2026-09-09T10:00:00.000Z" },
-    target: { baseUrl: "http://localhost:8080", model: "qwen3", engine: "llama.cpp" },
+    target: {
+      baseUrl: "http://localhost:8080",
+      model: "qwen3",
+      engine: "llama.cpp",
+    },
     machine,
     bench,
   }) as unknown as JsonReport;
@@ -20,7 +24,9 @@ describe("resolveUploadUrl", () => {
 
   it("falls back to the env var, then to localhost", () => {
     expect(resolveUploadUrl(undefined, "http://env")).toBe("http://env");
-    expect(resolveUploadUrl(undefined, undefined)).toBe("http://localhost:3000");
+    expect(resolveUploadUrl(undefined, undefined)).toBe(
+      "https://llmprobe.deploy.dalcu.com",
+    );
   });
 
   it("strips a trailing slash", () => {

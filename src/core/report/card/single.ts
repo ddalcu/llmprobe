@@ -4,6 +4,7 @@ import { benchSection } from "./bench";
 import { reasoningCard, reasoningSection } from "./reasoning";
 import { CARD_STYLE } from "./style.css";
 import { THEME_BOOT, THEME_SCRIPT, themeSwitcherHtml } from "./theme";
+import { engineSettingsSummary } from "../../engine-settings";
 import { REPORT_SCRIPT } from "./report-script";
 import {
   AGENTIC_FAILURE_GLOSS,
@@ -127,6 +128,7 @@ export function renderCardHtml(
   const report = normalizeJsonReport(reportIn);
   const model = report.target?.model ?? "unknown";
   const engine = report.target?.engine ?? null;
+  const settings = engineSettingsSummary(report.target?.engineSettings);
   const baseUrl = report.target?.baseUrl ?? "";
   const core = tier(report, "core");
   const conf = report.conformance;
@@ -588,8 +590,9 @@ export function renderCardHtml(
       <h1>${esc(model)}</h1>
       <div class="meta">
         ${engine ? `<span>${esc(engine)}</span>` : ""}
+        ${settings ? `<span${report.target?.engineSettingsChanged ? ` class="badge" title="settings changed during the run; showing the end"` : ""}>${esc(settings)}</span>` : ""}
         ${baseUrl ? `<span>${esc(baseUrl)}</span>` : ""}
-        ${report.run?.label ? `<span class="badge">${esc(report.run.label)}</span>` : ""}
+        ${report.run?.label && !report.run.labelAuto ? `<span class="badge">${esc(report.run.label)}</span>` : ""}
         ${report.run?.mode === "bench-only" ? `<span class="badge">benchmark only</span>` : ""}
         ${report.run?.mode === "eval-only" ? `<span class="badge">eval only</span>` : ""}
         ${report.run?.depth && report.run.depth !== "default" ? `<span class="badge">--${esc(report.run.depth)}</span>` : ""}

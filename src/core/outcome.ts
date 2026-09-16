@@ -1,3 +1,4 @@
+import type { EngineSettings } from "./engine-settings";
 import type { ReasoningReport } from "../reasoning/types";
 
 /**
@@ -276,6 +277,10 @@ export interface RunTarget {
   model: string;
   /** Best-effort engine identification, when the server reveals it. */
   engine?: string;
+  /** Serving settings the engine reported (kv quant, MTP, ...); absent when it reports none. */
+  engineSettings?: EngineSettings;
+  /** The settings differed between the start and end of the run; `engineSettings` is the end. */
+  engineSettingsChanged?: boolean;
 }
 
 export interface UsageTotals {

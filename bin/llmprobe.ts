@@ -47,6 +47,11 @@ import { CREDITS, FEATURES, SURFACES } from "../src/core/registry";
 import { paletteFor } from "../src/core/report/colors";
 import { resolveUploadUrl, uploadReport } from "../src/core/upload";
 import {
+  autoLabel,
+  engineSettingsSummary,
+  fetchEngineSettings,
+} from "../src/core/engine-settings";
+import {
   buildJsonReport,
   diffBaseline,
   type ReportPhase,
@@ -138,6 +143,8 @@ interface Args {
   upload: boolean;
   /** Server base URL for --upload; falls back to LLMPROBE_UPLOAD_URL. */
   uploadUrl?: string;
+  /** Saved JSON reports to post to the server instead of probing. */
+  uploadFiles?: string[];
   /** `--library` given with no directory: act on the home library. */
   libraryDefault: boolean;
   /** Directory for the model library (index + cards + compare); auto-synced. */
@@ -348,6 +355,18 @@ function parseArgs(argv: string[]): Args {
         if (v !== undefined && !v.startsWith("-")) args.uploadUrl = value();
         break;
       }
+      case "--upload-file": {
+        const files: string[] = [];
+        while (i + 1 < argv.length && !argv[i + 1]!.startsWith("-")) {
+          files.push(argv[++i]!);
+        }
+        if (files.length === 0) {
+          console.error("--upload-file needs at least one saved JSON report");
+          process.exit(1);
+        }
+        args.uploadFiles = files;
+        break;
+      }
       case "--no-save":
         args.noSave = true;
         break;
@@ -376,7 +395,11 @@ function parseArgs(argv: string[]): Args {
         args.version = true;
         break;
       default:
-        if (!arg.startsWith("-") && !args.target) args.target = arg;
+        if (arg.startsWith("-")) {
+          console.error(`unknown option: ${arg} (see --help)`);
+          process.exit(2);
+        }
+        if (!args.target) args.target = arg;
     }
   }
 
@@ -473,15 +496,18 @@ Options:
       --json            Machine-readable output (also the baseline format)
       --markdown        README-ready report with badges
       --label <text>    Note recorded with the run and shown in the report and
-                        library, e.g. "qwen4 with kv8"
+                        library, e.g. "qwen4 with kv8". Default on mlx-serve:
+                        the non-default server settings, e.g. "kv8 mtp-off"
       --baseline <f>    Diff against a saved run and flag regressions
       --save <f>        Write the JSON report to a file
       --html <f>        Export a standalone report card to this path
       --library [dir]   Use a different library than ~/.llmprobe. With no
                         target URL, rebuilds the library without probing
       --upload [url]    Post the JSON report to an llmprobe server. Default:
-                        $LLMPROBE_UPLOAD_URL or http://localhost:3000.
+                        $LLMPROBE_UPLOAD_URL or https://llmprobe.deploy.dalcu.com.
                         Auth via $LLMPROBE_UPLOAD_TOKEN. Needs a benchmark
+      --upload-file <f...>  Post saved --save reports instead of probing.
+                        Server URL from --upload <url> or the same defaults
       --no-save         Do not record this run in the library
       --open            Open the report card (or the library, with --library)
       --compare <f...>  Interactive compare workbench from saved --save reports
@@ -508,6 +534,7 @@ Examples:
   llmprobe --library --open                        # open ~/.llmprobe
   llmprobe --library runs/lib                      # rebuild, no probing
   llmprobe --compare a.json b.json c.json --html compare.html
+  llmprobe --upload-file runs/*.json               # archive older runs
   llmprobe localhost:8080 --bench-only --rungs 4k,32k,128k --runs 5
   llmprobe localhost:8080 --eval-only              # 92-question core eval
   llmprobe localhost:8080 --eval-only --eval-suite hard --concurrency 4
@@ -622,6 +649,7 @@ function logLibrarySync(
 /** Everything the per-model probe needs that discovery already worked out. */
 interface ProbeShared {
   args: Args;
+  root: string;
   baseUrl: string;
   apiKey: string;
   present: Set<string>;
@@ -671,6 +699,7 @@ async function probeModel(
 ): Promise<ProbeOutcome> {
   const {
     args,
+    root,
     baseUrl,
     apiKey,
     present,
@@ -734,6 +763,13 @@ async function probeModel(
     evalSurface,
   });
 
+  const engine = detectEngine(serverHeader, ownedBy);
+  const readSettings = () =>
+    engine === "mlx-serve"
+      ? fetchEngineSettings(root, model, bearerAuth(baseConfig))
+      : Promise.resolve(undefined);
+  const settingsAtStart = await readSettings();
+
   log();
   log(
     `${c.gray("model:")} ${model}   ${c.gray("depth:")} ${args.depth}${
@@ -742,6 +778,9 @@ async function probeModel(
         : ""
     }`,
   );
+  if (settingsAtStart) {
+    log(`${c.gray("engine:")} ${engineSettingsSummary(settingsAtStart)}`);
+  }
   {
     const { thinkingOff } = setup;
     const thinkingLine = !thinks
@@ -1210,8 +1249,27 @@ async function probeModel(
     onlyMode ? new Set(FEATURES.map((f) => f.id)) : unprobed,
   );
 
+  const settingsAtEnd = await readSettings();
+  const engineSettings = settingsAtEnd ?? settingsAtStart;
+  const label = args.label ?? autoLabel(engineSettings);
+  const settingsChanged =
+    !!settingsAtStart &&
+    !!settingsAtEnd &&
+    JSON.stringify(settingsAtStart) !== JSON.stringify(settingsAtEnd);
+  if (settingsChanged) {
+    log(
+      `${c.yellow("⚠")} engine settings changed during the run: ${engineSettingsSummary(settingsAtStart)} → ${engineSettingsSummary(settingsAtEnd)}`,
+    );
+  }
+
   const report: RunReport = {
-    target: { baseUrl, model, engine: detectEngine(serverHeader, ownedBy) },
+    target: {
+      baseUrl,
+      model,
+      engine,
+      ...(engineSettings ? { engineSettings } : {}),
+      ...(settingsChanged ? { engineSettingsChanged: true } : {}),
+    },
     ...(incomplete ? { incomplete } : {}),
     coverage: scoreCoverage(entries, [...credits, ...testCredits]),
     conformance: scoreConformance(conformanceResults),
@@ -1231,7 +1289,8 @@ async function probeModel(
   const runScope: ReportRunScope = {
     depth: args.depth,
     mode: args.evalOnly ? "eval-only" : args.benchOnly ? "bench-only" : "probe",
-    ...(args.label ? { label: args.label } : {}),
+    ...(label ? { label } : {}),
+    ...(label && !args.label ? { labelAuto: true } : {}),
     startedAt: new Date(startedAt).toISOString(),
     phases: {
       coverage: phase(
@@ -1478,7 +1537,7 @@ async function probeModel(
       renderReport(report, {
         color: !args.noColor,
         benchOnly: onlyMode,
-        ...(args.label ? { label: args.label } : {}),
+        ...(label ? { label } : {}),
       }),
     );
   }
@@ -1532,6 +1591,26 @@ async function probeModel(
   };
 }
 
+async function uploadFiles(args: Args, files: string[]): Promise<void> {
+  const c = paletteFor(!args.noColor);
+  const url = resolveUploadUrl(args.uploadUrl, process.env.LLMPROBE_UPLOAD_URL);
+  let failed = 0;
+  for (const file of files) {
+    try {
+      const json = JSON.parse(readFileSync(file, "utf8")) as JsonReport;
+      const key = await uploadReport(json, {
+        url,
+        token: process.env.LLMPROBE_UPLOAD_TOKEN,
+      });
+      console.log(`${c.gray("uploaded →")} ${file} ${c.gray(key)}`);
+    } catch (err) {
+      failed += 1;
+      console.error(c.red(`${file}: ${(err as Error).message}`));
+    }
+  }
+  if (failed) process.exit(1);
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
@@ -1547,6 +1626,11 @@ async function main(): Promise<void> {
 
   if (args.compare) {
     runComparison(args);
+    return;
+  }
+
+  if (args.uploadFiles) {
+    await uploadFiles(args, args.uploadFiles);
     return;
   }
 
@@ -1776,6 +1860,7 @@ async function main(): Promise<void> {
   const outcomes: ProbeOutcome[] = [];
   const shared: ProbeShared = {
     args,
+    root,
     baseUrl,
     apiKey,
     present,

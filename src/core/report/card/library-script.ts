@@ -227,7 +227,7 @@ export const LIBRARY_SCRIPT = `
         '<tr data-slug="' + row.slug + '"' + (isSel ? ' class="selected"' : "") + ">" +
         '<td class="rank-num">' + (i + 1) + "</td>" +
         '<td><a class="rank-model" href="' + escText(row.href) + '">' + escText(row.short) +
-          '<span class="sub">' + escText([row.label, row.engine, row.endpoint || row.source].filter(Boolean).join(" · ") || "") + "</span></a></td>" +
+          '<span class="sub">' + escText([row.label, row.engine, row.settings, row.endpoint || row.source].filter(Boolean).join(" · ") || "") + "</span></a></td>" +
         "<td>" + tierCell(row) + "</td>" +
         '<td class="metric-cell ' + confT + '">' + fmtPct(row.conformance) + "</td>" +
         '<td class="metric-cell ' + capT + '">' + fmtPct(row.capability) +
