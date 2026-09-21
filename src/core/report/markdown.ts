@@ -149,7 +149,14 @@ export function renderMarkdown(report: RunReport): string {
       const result = task.passed
         ? "✅"
         : `❌ ${task.detail ?? task.failure ?? "failed"}`;
-      lines.push(`| ${task.name} | ${result} | ${task.steps} |`);
+      const notes = (task.violations ?? [])
+        .map(
+          (v) => `${v.severity === "must" ? "✗" : "!"} ${v.rule}: ${v.detail}`,
+        )
+        .join("<br>");
+      lines.push(
+        `| ${task.name} | ${result}${notes ? `<br>${notes}` : ""} | ${task.steps} |`,
+      );
     }
   }
 

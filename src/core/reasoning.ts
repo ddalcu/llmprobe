@@ -1,10 +1,12 @@
-import type {
-  ChatReply,
-  ChatRequest,
-  ReasoningEffort,
-  SurfaceAdapter,
-  ThinkingOff,
-  ToolDef,
+import {
+  type ChatReply,
+  type ChatRequest,
+  type ReasoningEffort,
+  type SurfaceAdapter,
+  type ThinkingOff,
+  OPT_IN_MAX_TOKENS,
+  optInTimeoutMs,
+  type ToolDef,
 } from "./adapter";
 import type { EngineClient, RunConfig } from "./client";
 
@@ -49,10 +51,12 @@ async function probeThinking(
   adapter: SurfaceAdapter,
   config: RunConfig,
   request: ChatRequest,
+  timeoutMs?: number,
 ): Promise<boolean | null> {
   const result = await client.request("POST", adapter.path, {
     body: adapter.buildBody(request, config),
     headers: adapter.headers(config),
+    timeoutMs,
   });
 
   if (result.status !== 200) return null;
@@ -72,8 +76,9 @@ const thinksOn = async (
   adapter: SurfaceAdapter,
   config: RunConfig,
   request: ChatRequest,
+  timeoutMs?: number,
 ): Promise<boolean> =>
-  (await probeThinking(client, adapter, config, request)) === true;
+  (await probeThinking(client, adapter, config, request, timeoutMs)) === true;
 
 /**
  * Does this model spend tokens thinking before it produces visible output?
@@ -108,11 +113,18 @@ export async function detectReasoning(
     //
     // "Can think" is the safe side to err on: headroom only ever RAISES a
     // budget, and the tests where a small cap is the point opt out of it.
-    return await thinksOn(client, adapter, config, {
-      ...PROBE_REQUEST,
-      tools: [PROBE_TOOL],
-      extra: adapter.reasoningOptIn,
-    });
+    return await thinksOn(
+      client,
+      adapter,
+      config,
+      {
+        ...PROBE_REQUEST,
+        maxTokens: OPT_IN_MAX_TOKENS,
+        tools: [PROBE_TOOL],
+        extra: adapter.reasoningOptIn,
+      },
+      optInTimeoutMs(config.timeoutMs),
+    );
   } catch {
     // If we cannot tell, assume not — and let the conformance tests report
     // whatever actually goes wrong, rather than inventing a budget.

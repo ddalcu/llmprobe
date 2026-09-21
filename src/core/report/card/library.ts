@@ -188,7 +188,7 @@ function mtimeIso(path: string): string {
 }
 
 /** Model, plus the endpoint that tells two runs of it apart. */
-function runLabel(report: JsonReport): string {
+export function runLabel(report: JsonReport): string {
   const model = shortModel(report.target?.model) || "run";
   const host = endpointLabel(report.target?.baseUrl);
   return host ? `${model} · ${host}` : model;
@@ -240,7 +240,8 @@ function runSummary(run: LibraryRun) {
 /** Ranking table + search + multi-select compare dock. */
 export function renderLibraryHtml(
   runs: LibraryRun[],
-  options: { dirLabel?: string } = {},
+  /** `hosted`: served from the upload archive, not a local folder — no rebuild hints. */
+  options: { dirLabel?: string; hosted?: boolean } = {},
 ): string {
   const catalog = runs.map(runSummary);
   const dirLabel = options.dirLabel ?? "this directory";
@@ -262,7 +263,7 @@ export function renderLibraryHtml(
       <h1>Model library</h1>
       <div class="meta">
         <span id="library-count">${catalog.length} model${catalog.length === 1 ? "" : "s"}</span>
-        <span>auto-synced · ${esc(dirLabel)}</span>
+        <span>${options.hosted ? esc(dirLabel) : `auto-synced · ${esc(dirLabel)}`}</span>
         <span>scores stay independent</span>
       </div>
     </div>
@@ -347,13 +348,17 @@ export function renderLibraryHtml(
     </table>
   </div>
 
-  <p class="fine" style="margin-top:4px">
+  ${
+    options.hosted
+      ? ""
+      : `<p class="fine" style="margin-top:4px">
     Rebuild: <code>llmprobe --library ${esc(dirLabel)}</code>
     · Probe into this library:
     <code>llmprobe &lt;url&gt; --library ${esc(dirLabel)}</code>
     · Auto-sync also runs when <code>--save</code>/<code>--html</code> write into
     a folder that already has <code>library.json</code>.
-  </p>
+  </p>`
+  }
 </div>
 
 <div class="compare-dock" id="compare-dock" role="dialog" aria-label="Compare selection">

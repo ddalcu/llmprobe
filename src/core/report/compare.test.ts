@@ -110,6 +110,41 @@ describe("renderComparisonHtml", () => {
   });
 });
 
+test("the workbench carries per-stream decode and where the burst ladder stopped", () => {
+  const b = bench([
+    [4096, 50],
+    [16384, 40],
+  ])!;
+  b.contextScaling![0]!.concurrent = {
+    streams: 4,
+    singleTokPerSec: 50,
+    aggregateTokPerSec: 160,
+    efficiency: 0.8,
+    worstTtftMs: 900,
+    verdict: "batched",
+    perStreamTokPerSec: 38.5,
+    note: null,
+  };
+  b.contextScaling![1]!.concurrent = {
+    streams: 4,
+    singleTokPerSec: 40,
+    aggregateTokPerSec: null,
+    efficiency: null,
+    worstTtftMs: null,
+    verdict: "unknown",
+    perStreamTokPerSec: null,
+    note: "2 of 4 streams failed: HTTP 503 — KV cache is full",
+  };
+  const html = renderComparisonHtml([
+    { label: "a", report: report({ bench: b }) },
+    { label: "b", report: report() },
+  ]);
+  expect(html).toContain('"perStream":38.5');
+  expect(html).toContain(
+    "x4 ok to 4.1k · failed at 16.4k: 2 of 4 streams failed: HTTP 503 — KV cache is full",
+  );
+});
+
 describe("renderBenchmarkComparisonHtml", () => {
   test("overlays one series per run and keeps every rung's own token count", () => {
     // Two runs that never land on the same x. A category axis would stack them
@@ -214,6 +249,20 @@ describe("renderBenchmarkComparisonHtml", () => {
     expect(html).toContain('class="cell tied"');
     expect(html).toContain("tied at");
     expect(html).not.toContain('class="cell best"');
+  });
+
+  test("agentic scores over different task sets are not ranked against each other", () => {
+    const agentic = (passed: number, total: number) =>
+      ({ tasks: [], passed, total, pct: 0 }) as JsonReport["agentic"];
+    const html = renderBenchmarkComparisonHtml([
+      { label: "A", report: report({ agentic: agentic(2, 3) }) },
+      { label: "B", report: report({ agentic: agentic(6, 8) }) },
+    ]);
+    const row = html.match(
+      /<tr><td class="cell metric"[^>]*>Agentic<\/td>.*<\/tr>/,
+    )![0];
+    expect(row).not.toMatch(/cell (best|worst)/);
+    expect(row).toMatch(/different task sets \(3 vs 8 tasks\)/);
   });
 
   test("lower-is-better rows rank the other way round", () => {

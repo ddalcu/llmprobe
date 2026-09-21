@@ -604,6 +604,8 @@ async function contextScaling(
   const runsPerRung = ctx.config.benchRuns ?? (full ? CONTEXT_RUNS_FULL : 1);
   const points: ContextPoint[] = [];
   const fits: LadderFit[] = [];
+  const streams = ctx.config.benchStreams ?? 1;
+  let burstAlive = streams > 1;
 
   // One throwaway request in exactly the ladder's shape, generating a single
   // token, so even the first rung is sized against this tokenizer instead of a
@@ -687,6 +689,42 @@ async function contextScaling(
     }
 
     point.speculative = rungSpeculation(ok, counting);
+
+    // The single-stream rung is the reference: end-to-end rate, prefill
+    // included, so a burst that serialises its prefills reads as one.
+    if (burstAlive) {
+      onProgress?.(`context ~${fmtK(target)} x${streams}`);
+      const prompts = Array.from(
+        { length: streams },
+        () => `${buildArchive(fillerBytes)}\n\n${CODE_INSTRUCTION}`,
+      );
+      const single = median(
+        ok
+          .map((s) => tokensPerSecond(s.outputTokens, s.wallMs))
+          .filter((v): v is number => v !== null),
+      );
+      const { result, runs } = await burst(
+        ctx,
+        surface,
+        prompts,
+        CONTEXT_GEN_TOKENS,
+        single > 0 ? single : null,
+      );
+      const failed = runs.filter((s) => s.error !== undefined);
+      const perStream = medianDecode(runs);
+      point.concurrent = {
+        ...result,
+        perStreamTokPerSec: perStream > 0 ? round1(perStream) : null,
+        note:
+          failed.length > 0
+            ? `${failed.length} of ${streams} streams failed: ${failed[0]!.error}`
+            : null,
+      };
+      burstAlive = failed.length === 0;
+    } else if (streams > 1) {
+      point.concurrent = null;
+    }
+
     points.push(point);
     // Reported as each rung lands rather than only at the end: the ladder is
     // the longest part of the run, and a 64k rung alone can take minutes.
@@ -732,14 +770,57 @@ async function prefixCacheProbe(
   };
 }
 
+const round1 = (v: number | null): number | null =>
+  v !== null ? Math.round(v * 10) / 10 : null;
+
 /**
- * Batched or queued? One stream alone against a burst of four.
+ * Every prompt in flight at once, measured against one stream's rate.
  *
  * Aggregate throughput is the burst's output tokens over the burst's wall
  * clock — not a sum of per-request rates, which would report a queue as
- * perfectly parallel. Prompts differ per stream so the engine is batching
- * rather than serving three of them from one cache entry.
+ * perfectly parallel. Callers keep the prompts distinct so the engine is
+ * batching rather than serving them from one cache entry.
  */
+async function burst(
+  ctx: RunContext,
+  surface: string,
+  prompts: string[],
+  maxTokens: number,
+  singleTokPerSec: number | null,
+): Promise<{ result: BatchingResult; runs: RunSample[] }> {
+  const streams = prompts.length;
+  const startedMs = Date.now();
+  const runs = await runConcurrent(streams, streams, (i) =>
+    timedRun(ctx, surface, prompts[i]!, maxTokens),
+  );
+  const wallMs = Date.now() - startedMs;
+
+  const complete = runs.every((s) => s.error === undefined);
+  const tokens = runs.reduce((sum, s) => sum + (s.outputTokens ?? 0), 0);
+  const aggregateTokPerSec = complete ? tokensPerSecond(tokens, wallMs) : null;
+  const ttfts = runs
+    .map((s) => s.ttftMs)
+    .filter((v): v is number => v !== null);
+  const { efficiency, verdict } = classifyBatching(
+    singleTokPerSec,
+    aggregateTokPerSec,
+    streams,
+  );
+
+  return {
+    runs,
+    result: {
+      streams,
+      singleTokPerSec: round1(singleTokPerSec),
+      aggregateTokPerSec: round1(aggregateTokPerSec),
+      efficiency,
+      worstTtftMs: ttfts.length > 0 ? Math.max(...ttfts) : null,
+      verdict,
+    },
+  };
+}
+
+/** Batched or queued? One stream alone against a burst of four. */
 async function batchingProbe(
   ctx: RunContext,
   surface: string,
@@ -750,47 +831,21 @@ async function batchingProbe(
       `Write a short descriptive paragraph. Subject number ${i}: ` +
         "a harbour at dawn, a kite above a field, a ledger, a paper lantern.",
     );
-  const rate = (tokens: number | null, wallMs: number): number | null =>
-    tokensPerSecond(tokens, wallMs);
 
   onProgress?.("batching 1 stream");
   const single = await timedRun(ctx, surface, ask(0), BATCH_GEN_TOKENS);
   if (single.error !== undefined) return null;
 
   onProgress?.(`batching ${BATCH_STREAMS} streams`);
-  const startedMs = Date.now();
-  const burst = await runConcurrent(BATCH_STREAMS, BATCH_STREAMS, (i) =>
-    timedRun(ctx, surface, ask(i + 1), BATCH_GEN_TOKENS),
+  const prompts = Array.from({ length: BATCH_STREAMS }, (_, i) => ask(i + 1));
+  const { result } = await burst(
+    ctx,
+    surface,
+    prompts,
+    BATCH_GEN_TOKENS,
+    tokensPerSecond(single.outputTokens, single.wallMs),
   );
-  const burstWallMs = Date.now() - startedMs;
-
-  const singleTokPerSec = rate(single.outputTokens, single.wallMs);
-  const complete = burst.every((s) => s.error === undefined);
-  const burstTokens = burst.reduce((sum, s) => sum + (s.outputTokens ?? 0), 0);
-  const aggregateTokPerSec = complete ? rate(burstTokens, burstWallMs) : null;
-
-  const ttfts = burst
-    .map((s) => s.ttftMs)
-    .filter((v): v is number => v !== null);
-
-  const { efficiency, verdict } = classifyBatching(
-    singleTokPerSec,
-    aggregateTokPerSec,
-    BATCH_STREAMS,
-  );
-
-  return {
-    streams: BATCH_STREAMS,
-    singleTokPerSec:
-      singleTokPerSec !== null ? Math.round(singleTokPerSec * 10) / 10 : null,
-    aggregateTokPerSec:
-      aggregateTokPerSec !== null
-        ? Math.round(aggregateTokPerSec * 10) / 10
-        : null,
-    efficiency,
-    worstTtftMs: ttfts.length > 0 ? Math.max(...ttfts) : null,
-    verdict,
-  };
+  return result;
 }
 
 export async function runBenchmark(

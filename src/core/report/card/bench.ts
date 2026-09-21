@@ -1,4 +1,5 @@
 import type { BenchReport, BenchStat } from "../../outcome";
+import { describeConcurrent } from "../../../bench/stats";
 import { esc, statusPill } from "./shared";
 
 /** 16384 → "16.4k". Matches the terminal report's context ladder. */
@@ -49,6 +50,12 @@ function ladderRows(
           <td colspan="4">✗ ${esc(p.note)}</td>
         </tr>`;
       }
+      const burst = p.concurrent
+        ? `<tr${p.concurrent.note ? ' class="fail-row"' : ""}>
+          <td></td>
+          <td colspan="4">${esc(describeConcurrent(p.concurrent))}</td>
+        </tr>`
+        : "";
       const spec = p.speculative;
       const specBits = [
         spec?.tokensPerStep != null ? `${spec.tokensPerStep} tok/step` : null,
@@ -61,7 +68,7 @@ function ladderRows(
         <td>${p.ttftMs != null ? fmtLatency(p.ttftMs) : "n/a"}</td>
         <td>${p.prefillTokPerSec != null ? `${round(p.prefillTokPerSec)} tok/s` : "n/a"}</td>
         <td>${specBits.length > 0 ? esc(specBits.join(" · ")) : "—"}</td>
-      </tr>`;
+      </tr>${burst}`;
     })
     .join("");
 }
@@ -177,10 +184,26 @@ function contextChartsHtml(
   const prefill = measured
     .filter((p) => p.prefillTokPerSec != null)
     .map((p) => ({ x: x(p), y: p.prefillTokPerSec! }));
+  const burst = measured.filter(
+    (p) => p.concurrent?.perStreamTokPerSec != null,
+  );
+  const perStream = burst.map((p) => ({
+    x: x(p),
+    y: p.concurrent!.perStreamTokPerSec!,
+  }));
   const charts = [
     decode.length >= 2
       ? lineChartSvg("Decode vs context", "tok/s", [
           { label: "decode", color: "var(--engine)", points: decode },
+          ...(perStream.length > 0
+            ? [
+                {
+                  label: `x${burst[0]!.concurrent!.streams} each`,
+                  color: "var(--caution, #c98a00)",
+                  points: perStream,
+                },
+              ]
+            : []),
         ])
       : "",
     ttft.length >= 2

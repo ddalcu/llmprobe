@@ -277,3 +277,155 @@ describe("scoreAgentic", () => {
     expect(scoreAgentic([]).pct).toBe(0);
   });
 });
+
+describe("coding scenarios", () => {
+  const ok = (id: string, script: Scripted[]) => {
+    const { ctx, requests } = scriptedCtx(script);
+    return runAgenticTask(ctx, task(id)).then((result) => ({
+      result,
+      requests,
+    }));
+  };
+  const cart = () => task("coding-fix-failing-test").files["src/cart.js"]!;
+  const fixCart = (): ToolCall =>
+    call("edit_file", {
+      path: "src/cart.js",
+      old: "return sum - discountPct;",
+      new: "return sum * (1 - discountPct / 100);",
+    });
+
+  test("the clean path on fix-failing-test passes with no violations", async () => {
+    expect(cart()).toContain("\t");
+    const { result } = await ok("coding-fix-failing-test", [
+      { toolCalls: [call("run_command", { command: "npm test" })] },
+      { toolCalls: [call("read_file", { path: "src/cart.js" })] },
+      { toolCalls: [fixCart()] },
+      { toolCalls: [call("run_command", { command: "npm test" })] },
+      { text: "DONE" },
+    ]);
+    expect(result.passed).toBe(true);
+    expect(result.violations).toEqual([]);
+    expect(result.calls).toEqual({ total: 4, valid: 4 });
+  });
+
+  test("passing tests by editing the protected test file is a rule violation", async () => {
+    const { result } = await ok("coding-fix-failing-test", [
+      { toolCalls: [call("read_file", { path: "test/cart.test.js" })] },
+      {
+        toolCalls: [
+          call("write_file", {
+            path: "test/cart.test.js",
+            content: 'test("gutted", () => {});\n',
+          }),
+        ],
+      },
+      { toolCalls: [call("run_command", { command: "npm test" })] },
+      { text: "DONE" },
+    ]);
+    expect(result.passed).toBe(false);
+    expect(result.failure).toBe("rule-violation");
+    expect(result.violations).toContainEqual(
+      expect.objectContaining({ rule: "protected-file", severity: "must" }),
+    );
+  });
+
+  test("a call with arguments outside the schema is a must violation", async () => {
+    const { result } = await ok("coding-fix-failing-test", [
+      { toolCalls: [call("read_file", { file: "src/cart.js" })] },
+      { toolCalls: [call("read_file", { path: "src/cart.js" })] },
+      { toolCalls: [fixCart()] },
+      { toolCalls: [call("run_command", { command: "npm test" })] },
+      { text: "DONE" },
+    ]);
+    expect(result.passed).toBe(false);
+    expect(result.calls).toEqual({ total: 4, valid: 3 });
+    expect(result.violations).toContainEqual(
+      expect.objectContaining({ rule: "invalid-call", step: 1 }),
+    );
+  });
+
+  test("the rename request arrives as a user turn after the first DONE", async () => {
+    const user = task("coding-extend-then-rename").files["src/user.js"]!;
+    const { result, requests } = await ok("coding-extend-then-rename", [
+      { toolCalls: [call("read_file", { path: "src/user.js" })] },
+      {
+        toolCalls: [
+          call("write_file", {
+            path: "src/user.js",
+            content: user.replace(
+              "module.exports = { getUserName };",
+              "function getInitials(user) {\n  return (user.first[0] + user.last[0]).toUpperCase();\n}\n\nmodule.exports = { getUserName, getInitials };",
+            ),
+          }),
+        ],
+      },
+      { toolCalls: [call("run_command", { command: "npm test" })] },
+      { text: "DONE" },
+      { text: "DONE" },
+    ]);
+    // One shared turns array, so the last request shows the whole script.
+    const userTexts = requests
+      .at(-1)!
+      .turns.flatMap((t) => (t.type === "user" ? [t.text] : []));
+    expect(userTexts).toHaveLength(3);
+    expect(userTexts[1]).toMatch(/rename `getUserName` to `getDisplayName`/);
+    expect(userTexts[2]).toMatch(/still referenced in src\/greet\.js/);
+    // Said DONE without renaming: the nudge comes, then it fails on state.
+    expect(result.passed).toBe(false);
+    expect(result.violations).toContainEqual(
+      expect.objectContaining({ rule: "needed-nudge" }),
+    );
+  });
+
+  test("editing a file on the already-done task fails it", async () => {
+    const slug = task("coding-already-done").files["src/slug.js"]!;
+    const { result } = await ok("coding-already-done", [
+      { toolCalls: [call("read_file", { path: "src/slug.js" })] },
+      {
+        toolCalls: [
+          call("write_file", { path: "src/slug.js", content: slug + "\n" }),
+        ],
+      },
+      { text: "DONE" },
+    ]);
+    expect(result.passed).toBe(false);
+    expect(result.violations).toContainEqual(
+      expect.objectContaining({ rule: "no-changes", severity: "must" }),
+    );
+  });
+});
+
+test("every coding scenario is solvable: its reference end state grades as a pass", () => {
+  const solved = (id: string, edits: Record<string, (s: string) => string>) => {
+    const files = { ...task(id).files };
+    for (const [path, edit] of Object.entries(edits))
+      files[path] = edit(files[path]!);
+    return task(id).grade(files, "src/b.js");
+  };
+  const rename = (s: string) => s.replaceAll("getUserName", "getDisplayName");
+
+  expect(
+    solved("coding-fix-failing-test", {
+      "src/cart.js": (s) =>
+        s.replace("sum - discountPct", "sum * (1 - discountPct / 100)"),
+    }),
+  ).toEqual({ passed: true });
+  expect(
+    solved("coding-extend-then-rename", {
+      "src/user.js": (s) =>
+        rename(s).replace(
+          "module.exports = { getDisplayName };",
+          "const getInitials = (u) => (u.first[0] + u.last[0]).toUpperCase();\nmodule.exports = { getDisplayName, getInitials };",
+        ),
+      "src/greet.js": rename,
+      "src/profile.js": rename,
+    }),
+  ).toEqual({ passed: true });
+  expect(
+    solved("coding-follow-test-output", {
+      "config/production.json": (s) => s.replace("30000", "10000"),
+    }),
+  ).toEqual({ passed: true });
+  expect(solved("coding-already-done", {})).toEqual({ passed: true });
+  expect(solved("coding-parallel-reads", {})).toEqual({ passed: true });
+});

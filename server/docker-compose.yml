@@ -16,7 +16,9 @@ services:
       retries: 10
 
   server:
-    build: .
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
     environment:
       DATABASE_URL: postgresql://llmprobe:llmprobe@db:5432/llmprobe
       UPLOAD_TOKEN: ${UPLOAD_TOKEN:-}

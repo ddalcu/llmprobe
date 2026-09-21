@@ -281,13 +281,22 @@ export function renderCardHtml(
           const detail = !t.passed
             ? `<div class="detail">→ ${esc([gloss, t.detail].filter(Boolean).join(" — ") || "failed")}</div>`
             : "";
+          const violations = (t.violations ?? [])
+            .map(
+              (v) =>
+                `<div class="detail">${v.severity === "must" ? "✗" : "!"} ${esc(`${v.rule}${v.step !== null ? ` (step ${v.step})` : ""}: ${v.detail}`)}</div>`,
+            )
+            .join("");
+          const calls = t.calls
+            ? ` · ${t.calls.valid}/${t.calls.total} valid calls`
+            : "";
           return `<div class="task">
             ${icon}
             <div>
               <div class="name">${esc(t.name)}${chip}</div>
             </div>
-            <div class="steps">${t.steps} steps</div>
-            ${detail}
+            <div class="steps">${t.steps} steps${calls}</div>
+            ${detail}${violations}
           </div>`;
         })
         .join("")

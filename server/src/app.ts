@@ -1,6 +1,6 @@
 import express from "express";
-import { join } from "node:path";
 import type { PrismaClient } from "@prisma/client";
+import { cardPage, comparePage, libraryPage, libraryRuns } from "./pages";
 import { facets, listRuns } from "./queries";
 
 const str = (v: unknown): string | undefined =>
@@ -44,6 +44,27 @@ export function createApp(db: PrismaClient, token?: string) {
     res.json(row.data);
   });
 
-  app.use(express.static(join(__dirname, "..", "public")));
+  const allRuns = async () =>
+    libraryRuns(
+      await db.run.findMany({
+        select: { key: true, data: true, createdAt: true },
+      }),
+    );
+
+  app.get(["/", "/index.html"], async (_req, res) => {
+    res.type("html").send(libraryPage(await allRuns()));
+  });
+
+  app.get("/compare.html", async (_req, res) => {
+    res.type("html").send(comparePage(await allRuns()));
+  });
+
+  app.get("/card.html", async (req, res) => {
+    const key = str(req.query.key);
+    const row = key && (await db.run.findUnique({ where: { key } }));
+    if (!row) return res.status(404).type("text").send("No run for that key.");
+    res.type("html").send(cardPage(row.data as any));
+  });
+
   return app;
 }

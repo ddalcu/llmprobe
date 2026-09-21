@@ -56,15 +56,23 @@ They are never averaged. A weak model cannot drag down the engine's score, and a
 
 The capability card asks whether a single tool call comes out right. The agentic card asks the question you actually have about a local model: can it run a loop? Read the right file, act on what it found, stop.
 
-Three tasks against a simulated file workspace (`list_files`, `read_file`, `write_file`, executed in-process by llmprobe, no sandbox). Each has a trap for a characteristic agent failure:
+Three tasks run against a simulated file workspace (`list_files`, `read_file`, `write_file`, executed in-process by llmprobe, no sandbox). Each has a trap for a characteristic agent failure:
 
 1. **Read**: the answer is in `config.json`, and a decoy README suggests a different, more plausible value. Catches models that answer from priors instead of looking.
 2. **Find and edit**: change a port that lives in one of three files, touch nothing else. Catches models that edit the plausible file, clobber sibling settings, or rewrite files they were told to leave alone.
 3. **Indirection**: `build.cfg` names the file that holds the version; a decoy `version.txt` sits right there. Catches models that guess by filename instead of following the pointer.
 
-Grading is the same deal as everywhere else in this suite: deterministic, temperature 0, final state compared by string. Failures are classified (`no-tool-call`, `wrong-answer`, `step-limit`, `engine-error`) so a 1/3 tells you _how_ it failed, not just that it did. The step cap is about twice the optimal path, and a model that did the work but never stopped calling tools still fails, with the detail saying exactly that.
+Grading is the same deal as everywhere else in this suite: deterministic, temperature 0, final state compared by string. Failures are classified (`no-tool-call`, `wrong-answer`, `step-limit`, `engine-error`) so a low score tells you _how_ it failed, not just that it did. The step cap is about twice the optimal path, and a model that did the work but never stopped calling tools still fails, with the detail saying exactly that.
 
-This card is deliberately harder than the floor and never blended into the capability verdict. A capable model that scores 0/3 here reads as exactly that: fine as a chatbot, not ready to be an agent.
+Five more tasks simulate a coding agent. The tools grow to `search`, `edit_file` (exact, single-match replace) and `run_command`, where `npm test` runs the workspace's tests in-process and any other command is refused. These grade the trajectory, not the code: valid tool syntax, the right tool for the job, and order rules like running the tests after the last edit. Rules are `must` (fails the task as `rule-violation`) or `should` (reported only), so any sane path passes.
+
+1. **Fix a failing test**: fix the source, not the test. The source is tab-indented, so `edit_file` with spaces fails and the model has to recover.
+2. **Extend, then rename**: add a function, then a scripted user asks for a rename across files, with one nudge if it stops early. `CHANGELOG.md` mentions the old name and must stay untouched.
+3. **Follow the test output**: the failing test names the config file that overrides the obvious-by-name defaults file.
+4. **Already done**: nothing to change. Look, then stop.
+5. **Which file exports it**: answer only; reading the files in one parallel batch is a `should`.
+
+This card is deliberately harder than the floor and never blended into the capability verdict. A capable model that scores 0 here reads as exactly that: fine as a chatbot, not ready to be an agent.
 
 ## This suite is normative
 

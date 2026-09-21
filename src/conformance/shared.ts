@@ -1,4 +1,8 @@
-import type { SurfaceAdapter } from "../core/adapter";
+import {
+  OPT_IN_MAX_TOKENS,
+  optInTimeoutMs,
+  type SurfaceAdapter,
+} from "../core/adapter";
 import {
   approxTextSimilarity,
   detectReasoningLeak,
@@ -1512,15 +1516,18 @@ export function sharedTests(
       let optInStatus: number | null = null;
 
       if (!hasChannel && adapter.reasoningOptIn) {
-        const retry = await ctx.send(s, {
-          turns,
-          temperature: 0,
-          // Room to think AND answer without headroom: the messages opt-in
-          // carries a 256-token budget, and max_tokens must exceed it.
-          maxTokens: 640,
-          allowReasoning: false,
-          extra: adapter.reasoningOptIn,
-        });
+        const retry = await ctx.send(
+          s,
+          {
+            turns,
+            temperature: 0,
+            // No headroom: max_tokens must exceed the messages opt-in budget.
+            maxTokens: OPT_IN_MAX_TOKENS,
+            allowReasoning: false,
+            extra: adapter.reasoningOptIn,
+          },
+          { timeoutMs: optInTimeoutMs(ctx.config.timeoutMs) },
+        );
         optInStatus = retry.status;
         if (retry.status === 200 && channelIn(retry)) {
           res = retry;

@@ -2,13 +2,18 @@
 
 Archive for `llmprobe --upload`. Express + Prisma + Postgres. The JSON report is
 the record; everything the page shows is projected out of it at query time.
+The pages are llmprobe's own library, compare and report card, rendered from
+`../src/core/report`, so they show everything a local `--library` does.
 
 ## Run
 
 ```sh
 cp .env.example .env
 docker compose up -d --build     # db + server on :3000
+docker build -f server/Dockerfile .   # image only, from the repo root
 ```
+
+The build context is the repo root because the server bundles `../src`.
 
 Set `UPLOAD_TOKEN` to require a bearer token on upload; leave it empty for an
 open endpoint (localhost only).
@@ -27,6 +32,9 @@ timings are the point of the archive.
 
 | Method | Path                         |                                              |
 | ------ | ---------------------------- | -------------------------------------------- |
+| GET    | `/`                          | Library: ranking table, pick runs to compare |
+| GET    | `/compare.html?a=&b=`        | Compare workbench                            |
+| GET    | `/card.html?key=`            | Full report card for one run                 |
 | POST   | `/api/runs`                  | `{ key, data }`, upserts on `key`            |
 | GET    | `/api/runs?model=&hardware=` | Filtered summaries, newest first             |
 | GET    | `/api/runs/:key`             | The full JSON report                         |

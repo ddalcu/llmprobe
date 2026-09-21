@@ -1,6 +1,12 @@
 import { z } from "zod";
 
-import { bearerAuth, type Turn } from "../core/adapter";
+import {
+  bearerAuth,
+  OPT_IN_MAX_TOKENS,
+  optInTimeoutMs,
+  THINKING_BUDGET,
+  type Turn,
+} from "../core/adapter";
 import { Inconclusive, isLengthStyleFinish, Unsupported } from "../core/assert";
 import type { ConformanceTest, TestVerdict } from "../core/context";
 import { checkSSEFraming } from "../core/sse";
@@ -892,19 +898,22 @@ export const messagesOnlyTests: ConformanceTest[] = [
       // thinking blocks in a separate channel with reasoning kept out of the
       // visible text. No feature id — the shared reasoning test owns the
       // coverage line; this is the Messages-specific wire contract.
-      // Budget kept small on purpose: a big local model thinking through a
-      // 1024-token budget blew straight past the 60s default request timeout
-      // on a real run. 256 is enough to prove the contract.
-      const res = await ctx.send("messages", {
-        turns: [
-          {
-            type: "user",
-            text: "What is 17 * 23? Think it through, then answer.",
-          },
-        ],
-        maxTokens: 640,
-        extra: { thinking: { type: "enabled", budget_tokens: 256 } },
-      });
+      // Anthropic rejects budgets under 1024. A big local model thinking
+      // through the full budget blows the 60s default, hence the timeout.
+      const res = await ctx.send(
+        "messages",
+        {
+          turns: [
+            {
+              type: "user",
+              text: "What is 17 * 23? Think it through, then answer.",
+            },
+          ],
+          maxTokens: OPT_IN_MAX_TOKENS,
+          extra: messagesAdapter.reasoningOptIn,
+        },
+        { timeoutMs: optInTimeoutMs(ctx.config.timeoutMs) },
+      );
 
       if (res.status !== 200) {
         return {
@@ -933,8 +942,8 @@ export const messagesOnlyTests: ConformanceTest[] = [
         a.should(
           "messages-thinking-budget-respected",
           "the thinking budget is roughly respected",
-          reasoningTokens <= 256 * 1.5,
-          `budget_tokens 256 but reasoning used ${reasoningTokens} tokens`,
+          reasoningTokens <= THINKING_BUDGET * 1.5,
+          `budget_tokens ${THINKING_BUDGET} but reasoning used ${reasoningTokens} tokens`,
         );
       }
     },

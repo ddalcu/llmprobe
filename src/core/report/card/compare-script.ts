@@ -290,7 +290,12 @@ export const COMPARE_SCRIPT = `
       }
     }
     if (a.agenticPassed != null && b.agenticPassed != null) {
-      if (a.agenticPassed !== b.agenticPassed || a.agenticTotal !== b.agenticTotal) {
+      if (a.agenticTotal !== b.agenticTotal) {
+        lines.push(
+          "Agentic task sets differ (" + a.agenticTotal + " vs " + b.agenticTotal +
+            " tasks), so those scores are not comparable.",
+        );
+      } else if (a.agenticPassed !== b.agenticPassed) {
         lines.push(
           "Agentic " + a.agenticPassed + "/" + a.agenticTotal + " → " +
             b.agenticPassed + "/" + b.agenticTotal + ".",
@@ -504,6 +509,18 @@ export const COMPARE_SCRIPT = `
     if (decodeSeries.some((s) => s.points.length >= 2) || decodeSeries.length >= 2) {
       timing.push(lineChartSvg("Decode vs context", "tok/s", decodeSeries));
     }
+    const burstSeries = picked
+      .map((run) => ({
+        label: runLabel(run.r),
+        color: run.color,
+        points: (run.r.contextScaling || [])
+          .filter((p) => p.perStream != null)
+          .map((p) => ({ x: p.tokens, y: p.perStream })),
+      }))
+      .filter((s) => s.points.length > 0);
+    if (burstSeries.length) {
+      timing.push(lineChartSvg("Decode per stream under --concurrency", "tok/s", burstSeries));
+    }
     const ttftSeries = picked
       .map((run) => ({
         label: runLabel(run.r),
@@ -603,8 +620,14 @@ export const COMPARE_SCRIPT = `
     const coreVals = rows.map((r) => (r ? r.core : null));
     const confVals = rows.map((r) => (r ? r.conformance : null));
     const capVals = rows.map((r) => (r ? r.capability : null));
+    // Task sets change between versions: no winner across different totals.
+    const agenticTotals = new Set(
+      picked.filter((r) => r.agenticTotal != null).map((r) => r.agenticTotal),
+    );
     const agentVals = rows.map((r) =>
-      r && r.agenticTotal != null ? r.agenticPassed / Math.max(1, r.agenticTotal) : null,
+      r && r.agenticTotal != null && agenticTotals.size <= 1
+        ? r.agenticPassed / Math.max(1, r.agenticTotal)
+        : null,
     );
     const fidVals = rows.map((r) => (r ? r.fidelity : null));
     const mustVals = rows.map((r) => (r ? r.mustViolations : null));
@@ -628,7 +651,10 @@ export const COMPARE_SCRIPT = `
           : v + "%" + (r && r.verdict ? ' <span class="hint">' + esc(r.verdict) + "</span>" : ""),
       ) +
       row(rows, "Agentic", agentVals, true, (v, r) =>
-        r && r.agenticTotal != null ? r.agenticPassed + "/" + r.agenticTotal : "—",
+        r && r.agenticTotal != null
+          ? r.agenticPassed + "/" + r.agenticTotal +
+            (agenticTotals.size > 1 ? ' <span class="hint">different task set</span>' : "")
+          : "—",
       ) +
       row(rows, "Fidelity", fidVals, true, pctText) +
       row(rows, "MUST violations", mustVals, false, (v) =>
@@ -653,6 +679,9 @@ export const COMPARE_SCRIPT = `
       ) +
       row(rows, "Total time", rows.map((r) => (r ? r.durationMs : null)), null, (v) =>
         v == null ? "—" : fmtDuration(v),
+      ) +
+      row(rows, "Concurrent ladder", rows.map(() => null), null, (v, r) =>
+        r && r.burst ? '<span class="hint">' + esc(r.burst) + "</span>" : "—",
       ) +
       "</div>";
 

@@ -5,7 +5,7 @@
   "description": "Upload archive and browser for llmprobe JSON reports.",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "prisma generate && tsc -p tsconfig.build.json",
+    "build": "prisma generate && esbuild src/index.ts --bundle --platform=node --target=node22 --packages=external --outfile=dist/index.js",
     "start": "prisma migrate deploy && node dist/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -23,7 +23,8 @@
     "supertest": "^7.1.4",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "esbuild": "^0.28.0"
   },
   "allowScripts": {
     "@prisma/engines@6.19.3": true,

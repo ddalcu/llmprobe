@@ -1,6 +1,12 @@
 import { describe, expect, test } from "vitest";
 
-import { executeTool, WORKSPACE_TOOLS, type Workspace } from "./env";
+import {
+  CODING_TOOLS,
+  executeTool,
+  runTests,
+  WORKSPACE_TOOLS,
+  type Workspace,
+} from "./env";
 
 const files = (): Workspace => ({
   "config.json": '{"port":8443}',
@@ -79,6 +85,60 @@ describe("workspace tools", () => {
     expect(executeTool(files(), "read_file", "{}")).toContain("path");
     expect(executeTool(files(), "write_file", '{"path":"a.txt"}')).toContain(
       "content",
+    );
+  });
+});
+
+describe("coding tools", () => {
+  const exec = (fs: Workspace, name: string, args: Record<string, unknown>) =>
+    executeTool(fs, name, JSON.stringify(args), CODING_TOOLS);
+
+  test("edit_file replaces exactly one match and refuses zero or several", () => {
+    const fs: Workspace = { "a.js": "let x = 1;\nlet y = 1;\n" };
+    expect(
+      exec(fs, "edit_file", { path: "a.js", old: "= 2", new: "= 3" }),
+    ).toMatch(/matched 0 times/);
+    expect(
+      exec(fs, "edit_file", { path: "a.js", old: "= 1", new: "= 3" }),
+    ).toMatch(/matched 2 times/);
+    expect(
+      exec(fs, "edit_file", { path: "a.js", old: "x = 1", new: "x = 3" }),
+    ).toMatch(/^ok/);
+    expect(fs["a.js"]).toBe("let x = 3;\nlet y = 1;\n");
+  });
+
+  test("npm test runs the workspace tests through require, fail then pass", () => {
+    const fs: Workspace = {
+      "src/add.js": "module.exports = { add: (a, b) => a - b };\n",
+      "test/add.test.js":
+        'const assert = require("assert");\nconst { add } = require("../src/add");\ntest("adds", () => assert.strictEqual(add(2, 3), 5));\n',
+    };
+    const failed = exec(fs, "run_command", { command: "npm test" });
+    expect(failed).toMatch(/FAIL test\/add\.test\.js/);
+    expect(failed).toMatch(/-1 !== 5/);
+
+    fs["src/add.js"] = "module.exports = { add: (a, b) => a + b };\n";
+    expect(runTests(fs).passed).toBe(true);
+  });
+
+  test("a runaway loop in workspace code times out instead of hanging", () => {
+    const fs: Workspace = {
+      "test/loop.test.js": 'test("spins", () => { while (true) {} });\n',
+    };
+    const result = runTests(fs);
+    expect(result.passed).toBe(false);
+    expect(result.output).toMatch(/timed out/);
+  });
+
+  test("shell file access is refused with a pointer to the real tools", () => {
+    expect(exec({}, "run_command", { command: "cat src/a.js" })).toMatch(
+      /read_file/,
+    );
+  });
+
+  test("the workspace-only toolset still refuses the coding tools", () => {
+    expect(executeTool({}, "run_command", '{"command":"npm test"}')).toMatch(
+      /unknown tool/,
     );
   });
 });

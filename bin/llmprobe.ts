@@ -83,6 +83,7 @@ import {
 } from "../src/core/score";
 import { runAgentic } from "../src/agentic/index";
 import { SAMPLING_PRESETS, parseRungs, runBenchmark } from "../src/bench/index";
+import { describeConcurrent } from "../src/bench/stats";
 import { runFidelity } from "../src/fidelity/index";
 import {
   DEFAULT_MAX_TOKENS,
@@ -479,8 +480,9 @@ Options:
                         at its own setting. Engines that reject the param fall
                         back to their default and the report says so
       --concurrency <n> Questions / eval samples in flight at once (default: 1).
-                        Speeds up --eval on engines that serve in parallel;
-                        benchmark timing always stays serial
+                        Speeds up --eval on engines that serve in parallel.
+                        With --bench, each context rung also runs as a burst
+                        of n streams; the rest of the timing stays serial
       --sampling <p>    Sampling preset for benchmark and eval requests, to check the
                         engine off the greedy path. Not comparable to greedy
                         runs; the report says so. One of:
@@ -730,6 +732,7 @@ async function probeModel(
       : {}),
     ...(args.rungs ? { benchRungs: args.rungs } : {}),
     ...(args.runs !== undefined ? { benchRuns: args.runs } : {}),
+    ...((args.concurrency ?? 1) > 1 ? { benchStreams: args.concurrency } : {}),
   };
 
   const client = new EngineClient(baseConfig);
@@ -1089,6 +1092,12 @@ async function probeModel(
             log(
               `    ${c.bold(size.padStart(8))}  ${c.gray(parts.join(" · "))}`,
             );
+            if (point.concurrent) {
+              const line = `${" ".repeat(10)}${describeConcurrent(point.concurrent)}`;
+              log(
+                `    ${point.concurrent.note ? c.yellow(line) : c.gray(line)}`,
+              );
+            }
           },
           (sample) => {
             const label = sample.label.padEnd(26);

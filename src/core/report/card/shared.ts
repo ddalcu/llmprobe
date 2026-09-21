@@ -20,6 +20,7 @@ export const AGENTIC_FAILURE_GLOSS: Record<string, string> = {
   "wrong-answer": "Used tools but final state or answer was wrong",
   "step-limit": "Hit the step cap before finishing cleanly",
   "engine-error": "Engine/API error during the agent loop",
+  "rule-violation": "Reached the goal but broke a must rule on the way",
 };
 
 export function esc(s: string): string {

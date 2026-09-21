@@ -125,6 +125,12 @@ export interface MockDefects {
    */
   rejectAbovePromptBytes?: number;
   /**
+   * A shared KV pool: reject a chat completion once the prompts in flight
+   * together exceed this many bytes, the way an engine runs out of KV cache
+   * (or splits its context across slots) under concurrent long prompts.
+   */
+  kvPoolPromptBytes?: number;
+  /**
    * Report `prompt_tokens` as the prompt's byte length over this ratio, instead
    * of the flat 20. English runs ~4.4 bytes/token, and a suite that assumes 4
    * builds every context rung ~10% short — this is what lets a test see whether
@@ -585,6 +591,7 @@ export async function startMockEngine(
   const requests: string[] = [];
   const chatBodies: Array<Record<string, unknown>> = [];
   let chatInFlight = 0;
+  let inFlightPromptBytes = 0;
   let chatPeakInFlight = 0;
   /** System prompts already prefilled once — the simulated prefix cache. */
   const seenSystems = new Set<string>();
@@ -647,6 +654,18 @@ export async function startMockEngine(
         const last = (body.messages ?? []).at(-1);
         const text = typeof last?.content === "string" ? last.content : "";
         if (text.length > defects.stallAbovePromptBytes) await sleep(1_000);
+      }
+
+      if (defects.kvPoolPromptBytes !== undefined) {
+        inFlightPromptBytes += promptBytes;
+        res.on("close", () => {
+          inFlightPromptBytes -= promptBytes;
+        });
+        // Long enough for a burst's siblings to land before anyone answers.
+        await sleep(50);
+        if (inFlightPromptBytes > defects.kvPoolPromptBytes) {
+          return json(res, { error: { message: "KV cache is full" } }, 503);
+        }
       }
 
       if (

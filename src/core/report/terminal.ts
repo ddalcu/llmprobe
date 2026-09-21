@@ -1,4 +1,4 @@
-import { STEP_SPECULATION_FLOOR } from "../../bench/stats";
+import { describeConcurrent, STEP_SPECULATION_FLOOR } from "../../bench/stats";
 import { effortNote, type ReasoningReport } from "../../reasoning/types";
 import type {
   AgenticScore,
@@ -214,10 +214,19 @@ function renderAgentic(agentic: AgenticScore, c: Palette): string[] {
   for (const task of agentic.tasks) {
     const icon = task.passed ? c.green("✓") : c.red("✗");
     const name = task.name.padEnd(width + 2);
-    const steps = c.gray(`${task.steps} ${plural(task.steps, "step")}`);
+    const calls = task.calls
+      ? ` · ${task.calls.valid}/${task.calls.total} valid calls`
+      : "";
+    const steps = c.gray(`${task.steps} ${plural(task.steps, "step")}${calls}`);
     lines.push(`  ${icon} ${name}${steps}`);
     if (!task.passed && task.detail) {
       lines.push(`      ${c.red("→")} ${c.gray(task.detail)}`);
+    }
+    for (const v of task.violations ?? []) {
+      const where = v.step !== null ? ` (step ${v.step})` : "";
+      lines.push(
+        `      ${v.severity === "must" ? c.red("✗") : c.yellow("!")} ${c.gray(`${v.rule}${where}: ${v.detail}`)}`,
+      );
     }
   }
 
@@ -436,6 +445,12 @@ function renderBench(bench: BenchReport, c: Palette): string[] {
       lines.push(
         `  ${c.gray(`${sizeLabel}   ${decode}${ttft}`)}${rungSpeculation(point.speculative, c)}`,
       );
+      if (point.concurrent) {
+        const line = `${" ".repeat(11)}${describeConcurrent(point.concurrent)}`;
+        lines.push(
+          `  ${point.concurrent.note ? c.yellow(line) : c.gray(line)}`,
+        );
+      }
     }
   }
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "vitest";
 
-import { runAgentic } from "../agentic/index";
+import { runAgentic, TASKS } from "../agentic/index";
 import {
   ADAPTERS,
   buildConformanceTests,
@@ -606,15 +606,17 @@ describe("pipeline depth", () => {
 describe("agentic over the wire", () => {
   test("a model that never engages the workspace fails every task with a named reason — and cannot crash the run", async () => {
     // The mock model answers everything with prose, never touching the
-    // workspace tools. That must come back as three classified failures on the
+    // workspace tools. That must come back as classified failures on the
     // agentic card, with the engine's own cards untouched — same two-card
     // promise as capability, one bar higher.
     const run = await probeAndRun();
     const agentic = await runAgentic(run.ctx);
 
-    expect(agentic.total).toBe(3);
+    expect(agentic.total).toBe(TASKS.length);
     expect(agentic.passed).toBe(0);
-    expect(agentic.tasks.every((t) => t.failure === "no-tool-call")).toBe(true);
+    // The mock calls get_time on any prompt saying "time", so the timeout
+    // scenario loops on an unknown tool instead: a named failure all the same.
+    expect(agentic.tasks.every((t) => !t.passed && t.failure)).toBe(true);
     expect(run.conformance.pct).toBe(100);
   });
 });

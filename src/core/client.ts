@@ -48,6 +48,8 @@ export interface RunConfig {
   benchRuns?: number;
   /** Idle time before the closing drift runs; tests set 0. Default 5s. */
   benchSettleMs?: number;
+  /** --concurrency above 1: each context rung also runs as a burst this wide. */
+  benchStreams?: number;
 }
 
 export interface BenchSampling {

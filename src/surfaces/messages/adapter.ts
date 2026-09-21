@@ -15,6 +15,7 @@ import {
   emptyUsage,
   type StreamReply,
   type SurfaceAdapter,
+  THINKING_BUDGET,
   thinkingBudgetFor,
   type ToolCall,
   type ToolChoice,
@@ -145,9 +146,11 @@ export const messagesAdapter: SurfaceAdapter = {
     };
   },
 
-  // Anthropic requires max_tokens > budget_tokens; the probe's retry sends a
-  // max_tokens comfortably above this.
-  reasoningOptIn: { thinking: { type: "enabled", budget_tokens: 256 } },
+  // Anthropic requires max_tokens > budget_tokens; opt-in callers send
+  // OPT_IN_MAX_TOKENS.
+  reasoningOptIn: {
+    thinking: { type: "enabled", budget_tokens: THINKING_BUDGET },
+  },
   reasoningHistory: true,
 
   responseSchema: messageSchema,

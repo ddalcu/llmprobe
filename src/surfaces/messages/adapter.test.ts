@@ -76,7 +76,9 @@ describe("reasoning effort none", () => {
   });
 
   test("chat and responses send the spec's none value", () => {
-    expect(chatAdapter.buildBody(request, config).reasoning_effort).toBe("none");
+    expect(chatAdapter.buildBody(request, config).reasoning_effort).toBe(
+      "none",
+    );
     expect(responsesAdapter.buildBody(request, config).reasoning).toEqual({
       effort: "none",
     });
@@ -102,7 +104,9 @@ describe("non-standard reasoning effort", () => {
   };
 
   test("chat and responses pass the value through", () => {
-    expect(chatAdapter.buildBody(request, config).reasoning_effort).toBe("xhigh");
+    expect(chatAdapter.buildBody(request, config).reasoning_effort).toBe(
+      "xhigh",
+    );
     expect(responsesAdapter.buildBody(request, config).reasoning).toEqual({
       effort: "xhigh",
     });
@@ -114,4 +118,11 @@ describe("non-standard reasoning effort", () => {
       budget_tokens: 3072,
     });
   });
+});
+
+test("thinking opt-in clears Anthropic's 1024-token budget floor", () => {
+  const optIn = messagesAdapter.reasoningOptIn as {
+    thinking: { budget_tokens: number };
+  };
+  expect(optIn.thinking.budget_tokens).toBeGreaterThanOrEqual(1024);
 });

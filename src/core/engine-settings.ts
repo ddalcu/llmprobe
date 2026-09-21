@@ -1,5 +1,3 @@
-import { fetch as undiciFetch } from "undici";
-
 /** Serving settings as the engine reports them (mlx-serve `/props` `settings`). Opaque beyond the summary. */
 export type EngineSettings = Record<string, unknown>;
 
@@ -16,7 +14,7 @@ export async function fetchEngineSettings(
   headers: Record<string, string>,
 ): Promise<EngineSettings | undefined> {
   try {
-    const res = await undiciFetch(
+    const res = await fetch(
       `${root}/props?model=${encodeURIComponent(model)}`,
       { headers, signal: AbortSignal.timeout(2000) },
     );

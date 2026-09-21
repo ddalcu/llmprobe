@@ -86,6 +86,14 @@ export type ReasoningEffort =
  */
 export type ThinkingOff = "spec" | "vendor" | "stuck";
 
+/** Thinking budget for opt-in probes; Anthropic's floor is 1024. */
+export const THINKING_BUDGET = 2048;
+/** max_tokens for an opt-in probe: must exceed the budget, plus room to answer. */
+export const OPT_IN_MAX_TOKENS = THINKING_BUDGET + 512;
+/** A slow local model thinking through the full budget blows the 60s default. */
+export const optInTimeoutMs = (configured: number) =>
+  Math.max(configured, 180_000);
+
 /**
  * Messages has no effort enum, only a token budget. Spend a share of the
  * answer cap on thinking; Anthropic needs at least 1024 and strictly less

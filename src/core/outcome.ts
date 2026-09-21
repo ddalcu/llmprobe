@@ -252,7 +252,20 @@ export type AgenticFailure =
   /** Still calling tools when the step cap ran out. */
   | "step-limit"
   /** The engine errored mid-task; says nothing good about either party. */
-  | "engine-error";
+  | "engine-error"
+  /** Got the result, but broke a must rule on the way (edited a protected file, bad call syntax). */
+  | "rule-violation";
+
+/** One broken trajectory rule on a coding task. */
+export interface AgenticViolation {
+  /** Kebab-case rule id, e.g. "protected-file". */
+  rule: string;
+  /** must fails the task; should is reported only. */
+  severity: "must" | "should";
+  /** Model request the offending call came from; null for whole-run rules. */
+  step: number | null;
+  detail: string;
+}
 
 export interface AgenticTaskResult {
   id: string;
@@ -262,11 +275,15 @@ export interface AgenticTaskResult {
   steps: number;
   failure?: AgenticFailure;
   detail?: string;
+  /** Coding tasks only: every rule the trajectory broke. */
+  violations?: AgenticViolation[];
+  /** Coding tasks only: tool calls made, and how many fit their schema. */
+  calls?: { total: number; valid: number };
 }
 
 export interface AgenticScore {
   tasks: AgenticTaskResult[];
-  /** Whole tasks, pass/fail — with 3 tasks, sample-level pcts would be noise. */
+  /** Whole tasks, pass/fail — with this few tasks, sample-level pcts would be noise. */
   passed: number;
   total: number;
   pct: number;
@@ -410,6 +427,14 @@ export interface ContextSpeculative {
   note: string | null;
 }
 
+/** One context rung run as a burst of `streams` requests at once. */
+export interface ConcurrentRung extends BatchingResult {
+  /** Median decode rate one stream saw inside the burst. */
+  perStreamTokPerSec: number | null;
+  /** Failed streams and the engine's first error, e.g. a full KV cache. */
+  note: string | null;
+}
+
 /** One rung of the context-length ladder — how the engine does at this size. */
 export interface ContextPoint {
   /** The size we aimed for (0.5k … 64k; the top rungs run only at --full). */
@@ -433,6 +458,11 @@ export interface ContextPoint {
    * attempted, and their absence means "not tried", never "n/a".
    */
   note: string | null;
+  /**
+   * The same rung as a --concurrency burst. Null once a burst has failed:
+   * larger rungs skip it. Absent when --concurrency was not above 1.
+   */
+  concurrent?: ConcurrentRung | null;
 }
 
 /**

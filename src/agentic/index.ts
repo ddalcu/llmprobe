@@ -1,7 +1,12 @@
-import type { Turn } from "../core/adapter";
+import type { ToolDef, Turn } from "../core/adapter";
+import { tryParseJson } from "../core/assert";
 import { BudgetExceededError, TargetUnreachableError } from "../core/client";
 import type { RunContext } from "../core/context";
-import type { AgenticScore, AgenticTaskResult } from "../core/outcome";
+import type {
+  AgenticFailure,
+  AgenticScore,
+  AgenticTaskResult,
+} from "../core/outcome";
 import {
   expectNumber,
   fail,
@@ -9,24 +14,32 @@ import {
   pass,
   stripThinking,
 } from "../evals/grading";
-import { executeTool, WORKSPACE_TOOLS, type Workspace } from "./env";
+import { type CallRecord, CODING_TASKS, type Rule } from "./coding";
+import {
+  executeTool,
+  invalidCall,
+  WORKSPACE_TOOLS,
+  type Workspace,
+} from "./env";
 
 /**
  * Agentic — can the model run a short tool loop, not just answer one call?
  *
  * The capability card asks "does a single tool call come out right". This card
  * asks the question people actually have about a local model: read the right
- * file, act on what it found, verify, stop. Three tasks, each with a trap that
+ * file, act on what it found, verify, stop. Workspace tasks, each with a trap that
  * catches the characteristic failure of models that clear the floor but fall
  * apart as agents — answering from priors instead of looking, editing the
  * plausible file instead of the configured one, never stopping.
  *
  * Grading is deterministic: the final workspace state (or final answer) is
  * compared by string, at temperature 0, k=1. The step cap is ~2× the optimal
- * path, so "ran out of steps" means looping, not tight budgeting.
+ * path, so "ran out of steps" means looping, not tight budgeting. The coding
+ * tasks (./coding.ts) grade the tool trajectory as well.
  */
 
-const STEP_MAX_TOKENS = 512;
+// Room for an edit_file or write_file carrying a whole small module.
+const STEP_MAX_TOKENS = 1024;
 
 export interface AgenticTaskDef {
   id: string;
@@ -41,9 +54,18 @@ export interface AgenticTaskDef {
    * edit followed by a missing sign-off still counts as the work being done.
    */
   grade(files: Workspace, finalText: string): Graded;
+  /** Defaults to the three workspace tools. */
+  tools?: ToolDef[];
+  /**
+   * The scripted user: called each time the model stops, with how many times
+   * it has stopped before. A string is the next user turn; null ends the task.
+   */
+  followUp?(files: Workspace, round: number): string | null;
+  /** Trajectory rules; a task with rules reports violations and call counts. */
+  rules?: Rule[];
 }
 
-export const TASKS: AgenticTaskDef[] = [
+const WORKSPACE_TASKS: AgenticTaskDef[] = [
   {
     id: "agentic-read",
     name: "reads the config instead of answering from priors",
@@ -76,7 +98,7 @@ export const TASKS: AgenticTaskDef[] = [
     },
     maxSteps: 8,
     grade: (files) => {
-      const task = TASKS.find((t) => t.id === "agentic-edit")!;
+      const task = WORKSPACE_TASKS.find((t) => t.id === "agentic-edit")!;
 
       let settings: unknown;
       try {
@@ -122,7 +144,7 @@ export const TASKS: AgenticTaskDef[] = [
     },
     maxSteps: 8,
     grade: (files) => {
-      const task = TASKS.find((t) => t.id === "agentic-indirect")!;
+      const task = WORKSPACE_TASKS.find((t) => t.id === "agentic-indirect")!;
 
       if (files["version.txt"] !== task.files["version.txt"]) {
         return fail(
@@ -144,6 +166,8 @@ export const TASKS: AgenticTaskDef[] = [
   },
 ];
 
+export const TASKS: AgenticTaskDef[] = [...WORKSPACE_TASKS, ...CODING_TASKS];
+
 export async function runAgenticTask(
   ctx: RunContext,
   task: AgenticTaskDef,
@@ -151,12 +175,54 @@ export async function runAgenticTask(
   const surface = ctx.evalSurface;
   if (!surface) throw new Error("no chat-shaped surface available");
 
+  const tools = task.tools ?? WORKSPACE_TOOLS;
   const files: Workspace = { ...task.files };
   const turns: Turn[] = [{ type: "user", text: task.prompt }];
-  const base = { id: task.id, name: task.name };
+  const calls: CallRecord[] = [];
+  const userTurns: string[] = [];
 
   let steps = 0;
   let usedTool = false;
+
+  // Rules only speak for tasks that declare them; a must violation fails a
+  // task whose end state was otherwise right.
+  const finish = (
+    graded: { passed: boolean; message?: string },
+    failure: AgenticFailure | undefined,
+    detail: string | undefined,
+  ): AgenticTaskResult => {
+    const result: AgenticTaskResult = {
+      id: task.id,
+      name: task.name,
+      passed: graded.passed && failure === undefined,
+      steps,
+    };
+    if (task.rules) {
+      const trajectory = {
+        calls,
+        initial: task.files,
+        files,
+        userTurns,
+        prompt: task.prompt,
+      };
+      result.violations = task.rules.flatMap((rule) => rule(trajectory));
+      result.calls = {
+        total: calls.length,
+        valid: calls.filter((c) => c.invalid === null).length,
+      };
+      const broken = result.violations.find((v) => v.severity === "must");
+      if (result.passed && broken) {
+        result.passed = false;
+        failure = "rule-violation";
+        detail = broken.detail;
+      }
+    }
+    if (!result.passed) {
+      result.failure = failure ?? "wrong-answer";
+      if (detail) result.detail = detail;
+    }
+    return result;
+  };
 
   while (steps < task.maxSteps) {
     steps += 1;
@@ -166,7 +232,7 @@ export async function runAgenticTask(
       reply = (
         await ctx.send(surface, {
           turns,
-          tools: WORKSPACE_TOOLS,
+          tools,
           temperature: 0,
           maxTokens: STEP_MAX_TOKENS,
         })
@@ -175,38 +241,59 @@ export async function runAgenticTask(
       if (err instanceof BudgetExceededError) throw err;
       // The target is gone — the remaining tasks would only measure a corpse.
       if (err instanceof TargetUnreachableError) throw err;
-      return {
-        ...base,
-        passed: false,
-        steps,
-        failure: "engine-error",
-        detail: err instanceof Error ? err.message : String(err),
-      };
+      return finish(
+        { passed: false },
+        "engine-error",
+        err instanceof Error ? err.message : String(err),
+      );
     }
 
-    // No tool calls means the model considers itself done — grade it.
+    // No tool calls means the model considers itself done: the scripted user
+    // may have more to ask, otherwise grade it.
     if (reply.toolCalls.length === 0) {
-      const graded = task.grade(files, stripThinking(reply.text));
-      if (graded.passed) return { ...base, passed: true, steps };
-      return {
-        ...base,
-        passed: false,
-        steps,
-        failure: usedTool ? "wrong-answer" : "no-tool-call",
-        detail: usedTool
+      const text = stripThinking(reply.text);
+      const next = task.followUp?.(files, userTurns.length) ?? null;
+      if (next !== null) {
+        userTurns.push(next);
+        turns.push({ type: "assistant-text", text });
+        turns.push({ type: "user", text: next });
+        continue;
+      }
+      const graded = task.grade(files, text);
+      // A coding task is about the trajectory; a right answer without one is
+      // a guess.
+      if (graded.passed && (usedTool || !task.rules))
+        return finish(graded, undefined, undefined);
+      return finish(
+        graded,
+        usedTool ? "wrong-answer" : "no-tool-call",
+        usedTool
           ? graded.message
           : `never used a tool${graded.message ? ` — ${graded.message}` : ""}`,
-      };
+      );
     }
 
     usedTool = true;
     for (const call of reply.toolCalls) {
+      const output = executeTool(files, call.name, call.argsJson, tools);
+      const parsed = tryParseJson(call.argsJson === "" ? "{}" : call.argsJson);
+      calls.push({
+        step: steps,
+        round: userTurns.length,
+        name: call.name,
+        args:
+          parsed.ok && typeof parsed.value === "object" && parsed.value !== null
+            ? (parsed.value as Record<string, unknown>)
+            : null,
+        invalid: invalidCall(tools, call.name, call.argsJson),
+        output,
+      });
       turns.push({ type: "assistant-tool-call", call });
       turns.push({
         type: "tool-result",
         toolCallId: call.id,
         toolName: call.name,
-        output: executeTool(files, call.name, call.argsJson),
+        output,
       });
     }
   }
@@ -214,15 +301,13 @@ export async function runAgenticTask(
   // Still calling tools at the cap. Grade the state anyway: "did the work but
   // never stopped" and "never got there" are different diagnoses.
   const state = task.grade(files, "");
-  return {
-    ...base,
-    passed: false,
-    steps,
-    failure: "step-limit",
-    detail: state.passed
+  return finish(
+    { passed: false },
+    "step-limit",
+    state.passed
       ? `the work itself was done — the model never stopped calling tools`
       : `hit the ${task.maxSteps}-step cap${state.message ? ` (${state.message})` : ""}`,
-  };
+  );
 }
 
 export function scoreAgentic(tasks: AgenticTaskResult[]): AgenticScore {

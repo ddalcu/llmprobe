@@ -394,6 +394,12 @@ function scorecard(
   const swatch = (i: number): string =>
     `<span class="swatch" style="background:${color(i)}"></span>`;
 
+  // Task sets change between versions; 2/3 against 6/8 is not a result.
+  const agenticTotals = [
+    ...new Set(inputs.flatMap((i) => i.report.agentic?.total ?? [])),
+  ];
+  const agenticComparable = agenticTotals.length <= 1;
+
   const renderRow = (row: ScoreRow): string => {
     const values = inputs.map(row.value);
     const present = values.filter((v): v is number => v !== null);
@@ -406,10 +412,12 @@ function scorecard(
         row.label,
       );
     const fidelityRow = row.label === "Fidelity";
+    const agenticRow = row.label === "Agentic";
     const comparable =
       present.length >= 2 &&
       (timingComparable || !timingRow) &&
-      (fidelityComparable || !fidelityRow);
+      (fidelityComparable || !fidelityRow) &&
+      (agenticComparable || !agenticRow);
     const best = comparable
       ? row.better === "higher"
         ? Math.max(...present)
@@ -431,7 +439,13 @@ function scorecard(
       if (value === null) {
         parts.push("not measured in this run");
       } else if (!comparable) {
-        parts.push(`${fmt(value)} — only run with this measured`);
+        parts.push(
+          agenticRow && !agenticComparable
+            ? `${fmt(value)} — not comparable: different task sets (${agenticTotals.join(" vs ")} tasks)`
+            : present.length >= 2
+              ? `${fmt(value)} — not comparable across these runs`
+              : `${fmt(value)} — only run with this measured`,
+        );
       } else if (tied) {
         cls = "tied";
         mark = "=";

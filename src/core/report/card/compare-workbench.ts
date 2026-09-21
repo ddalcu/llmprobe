@@ -1,4 +1,5 @@
 import type { JsonReport } from "../json";
+import { fmtTokensK } from "../html";
 import { normalizeJsonReport } from "../json";
 import { CARD_STYLE } from "./style.css";
 import { THEME_BOOT, THEME_SCRIPT, themeSwitcherHtml } from "./theme";
@@ -31,6 +32,26 @@ export interface CompareWorkbenchInput {
   recordedAt?: string | null;
 }
 
+/** "x4 ok to 16k · failed at 32k: <engine error>", or null without --concurrency. */
+function burstSummary(
+  points: NonNullable<NonNullable<JsonReport["bench"]>["contextScaling"]>,
+): string | null {
+  const bursts = points.filter((p) => p.concurrent);
+  if (bursts.length === 0) return null;
+  const size = (p: (typeof points)[number]) =>
+    fmtTokensK(p.inputTokens ?? p.targetTokens);
+  const ok = bursts.filter((p) => !p.concurrent!.note);
+  const failed = bursts.find((p) => p.concurrent!.note);
+  return [
+    `x${bursts[0]!.concurrent!.streams}`,
+    ok.length > 0 ? `ok to ${size(ok.at(-1)!)}` : "no rung ok",
+    failed ? `failed at ${size(failed)}: ${failed.concurrent!.note}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ")
+    .replace(/^(x\d+) · /, "$1 ");
+}
+
 function compareEntry(input: CompareWorkbenchInput, index: number) {
   const r = normalizeJsonReport(input.report);
   const core = tier(r, "core");
@@ -46,7 +67,8 @@ function compareEntry(input: CompareWorkbenchInput, index: number) {
       r.target?.model || input.label || `run-${index + 1}`,
       r.target?.baseUrl,
     );
-  const measured = (r.bench?.contextScaling ?? []).filter((p) => !p.note);
+  const points = r.bench?.contextScaling ?? [];
+  const measured = points.filter((p) => !p.note);
   return {
     slug: baseSlug,
     href: input.href ?? null,
@@ -62,7 +84,9 @@ function compareEntry(input: CompareWorkbenchInput, index: number) {
       decode: p.decodeTokPerSec,
       ttft: p.ttftMs,
       prefill: p.prefillTokPerSec ?? null,
+      perStream: p.concurrent?.perStreamTokPerSec ?? null,
     })),
+    burst: burstSummary(points),
     durationMs: r.durationMs ?? null,
     reasoning: r.reasoning
       ? {

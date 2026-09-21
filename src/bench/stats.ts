@@ -1,3 +1,5 @@
+import type { ConcurrentRung } from "../core/outcome";
+
 /**
  * Pure statistics for the mini benchmark.
  *
@@ -413,4 +415,22 @@ export function analyzeStepProfile(
     frames,
     note: null,
   };
+}
+
+/** One line for a --concurrency burst: "x4 · 85 tok/s total · 21 tok/s each ...". */
+export function describeConcurrent(c: ConcurrentRung): string {
+  if (c.note) return `x${c.streams} ✗ ${c.note}`;
+  return [
+    `x${c.streams}`,
+    c.aggregateTokPerSec !== null
+      ? `${c.aggregateTokPerSec} tok/s total`
+      : null,
+    c.perStreamTokPerSec !== null ? `${c.perStreamTokPerSec} tok/s each` : null,
+    c.efficiency !== null ? `${c.efficiency} efficiency (${c.verdict})` : null,
+    c.worstTtftMs !== null
+      ? `${(c.worstTtftMs / 1000).toFixed(1)}s worst first token`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }

@@ -507,6 +507,46 @@ describe("runBenchmark against the mock", () => {
     expect(dead.note).toMatch(/context window exceeded/);
   });
 
+  test("--concurrency bursts every rung and names where the KV pool runs out", async () => {
+    // 2 streams at ~4 bytes/token: the 4k burst fits a 100 KB pool, the 16k
+    // burst does not, while a single 16k and 20k stream still do.
+    engine = await startMockEngine({
+      kvPoolPromptBytes: 100_000,
+      bytesPerToken: 4,
+    });
+    const root = normalizeRoot(engine.url);
+
+    const config: RunConfig = {
+      baseUrl: `${root}/v1`,
+      apiKey: "",
+      model: "mock-model-12b",
+      timeoutMs: 15_000,
+      depth: "default",
+      reasoningHeadroom: 0,
+      benchSettleMs: 0,
+      benchRungs: [4096, 16384, 20480],
+      benchStreams: 2,
+    };
+    const client = new EngineClient(config);
+    const ctx = createContext({
+      config,
+      client,
+      adapters: new Map<string, SurfaceAdapter>(ADAPTERS.map((a) => [a.id, a])),
+      present: new Set(["models", "chat"]),
+      evalSurface: primarySurface(new Set(["chat"])),
+    });
+
+    const report = await runBenchmark(ctx, false);
+    const [small, big, bigger] = report!.contextScaling!;
+
+    expect(small!.concurrent).toMatchObject({ streams: 2, note: null });
+    expect(big!.runs).toBe(1);
+    expect(big!.concurrent!.aggregateTokPerSec).toBeNull();
+    expect(big!.concurrent!.note).toMatch(/of 2 streams failed.*KV cache/);
+    expect(bigger!.runs).toBe(1);
+    expect(bigger!.concurrent).toBeNull();
+  });
+
   test("sizes each rung against what the engine actually counted, not a byte guess", async () => {
     // English runs ~4.4 bytes/token, so a flat 4-bytes-per-token estimate lands
     // every rung ~10% short and the x-axis reads 3.7k where it says 4k. The
