@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   matchModelChoice,
   matchModelChoices,
+  pickerModelIds,
   pickModels,
 } from "./model-picker";
 
@@ -115,5 +116,25 @@ describe("pickModels", () => {
 
     expect(picked).toEqual(["b", "c"]);
     expect(answers).toHaveLength(0);
+  });
+});
+
+describe("pickerModelIds", () => {
+  test("hides models whose metadata says they cannot chat, keeps unknowns", () => {
+    expect(
+      pickerModelIds([
+        { id: "chat-a", capabilities: ["chat", "tool_use"] },
+        { id: "embed-b", capabilities: ["embeddings"] },
+        { id: "embed-c", type: "embeddings" },
+        { id: "no-metadata" },
+        { id: "" },
+      ]),
+    ).toEqual(["chat-a", "no-metadata"]);
+  });
+
+  test("never empties the list", () => {
+    expect(
+      pickerModelIds([{ id: "only-embed", capabilities: ["embeddings"] }]),
+    ).toEqual(["only-embed"]);
   });
 });

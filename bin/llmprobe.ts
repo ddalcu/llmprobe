@@ -25,7 +25,7 @@ import {
 } from "../src/core/client";
 import { createContext } from "../src/core/context";
 import { detectEngine } from "../src/core/engine-id";
-import { pickModels } from "../src/core/model-picker";
+import { pickerModelIds, pickModels } from "../src/core/model-picker";
 import type {
   ConformanceResult,
   CreditEntry,
@@ -59,6 +59,7 @@ import {
   type JsonReport,
 } from "../src/core/report/json";
 import { renderComparisonHtml } from "../src/core/report/compare";
+import { compareFingerprints } from "../src/fidelity/fingerprint";
 import { renderHtml } from "../src/core/report/html";
 import { slug } from "../src/core/report/card/shared";
 import {
@@ -514,7 +515,9 @@ Options:
       --open            Open the report card (or the library, with --library)
       --compare <f...>  Interactive compare workbench from saved --save reports
                         instead of probing. Pick models per column;
-                        sticky freeze header while scrolling.
+                        sticky freeze header while scrolling. Also prints
+                        top-1 agreement and KL divergence of every run
+                        against the first (same model weights only).
       --budget <n>      Hard ceiling on total tokens (paid endpoints)
       --timeout <sec>   Per-request timeout (default: 60; --bench and --eval requests are
                         never timed out — a cold prefill takes what it takes)
@@ -536,6 +539,7 @@ Examples:
   llmprobe --library --open                        # open ~/.llmprobe
   llmprobe --library runs/lib                      # rebuild, no probing
   llmprobe --compare a.json b.json c.json --html compare.html
+  llmprobe --compare before.json after.json        # KLD/top-1 drift check
   llmprobe --upload-file runs/*.json               # archive older runs
   llmprobe localhost:8080 --bench-only --rungs 4k,32k,128k --runs 5
   llmprobe localhost:8080 --eval-only              # 92-question core eval
@@ -566,6 +570,43 @@ function openInBrowser(filePath: string): void {
     child.unref();
   } catch {
     // Non-fatal: CI / headless environments may lack a browser opener.
+  }
+}
+
+/**
+ * Top-1 agreement and KL divergence of every run against the first, from the
+ * logprob fingerprints saved in each report. This is the "is the engine still
+ * computing the same function" check, so it only means anything when the runs
+ * share model weights — a different quant is *expected* to move it.
+ */
+function logFingerprintDeltas(
+  inputs: Array<{ label: string; report: JsonReport }>,
+  c: ReturnType<typeof paletteFor>,
+): void {
+  const ref = inputs[0]!;
+  const refPrint = ref.report.fidelity?.fingerprint;
+  if (!refPrint) {
+    console.log(
+      c.gray("no logprob fingerprint in the first report — skipping KLD/top-1"),
+    );
+    return;
+  }
+  console.log(c.gray(`logprob agreement vs ${ref.label} (reference)`));
+  for (const input of inputs.slice(1)) {
+    const candPrint = input.report.fidelity?.fingerprint;
+    const delta = candPrint ? compareFingerprints(refPrint, candPrint) : null;
+    if (!delta) {
+      console.log(`  ${input.label}  ${c.gray("no comparable fingerprint")}`);
+      continue;
+    }
+    const split = delta.prompts
+      .filter((p) => p.divergedAt !== null)
+      .map((p) => `${p.id}@${p.divergedAt}`);
+    console.log(
+      `  ${input.label}  top-1 ${delta.top1Pct.toFixed(1)}% · KLD mean ${delta.meanKld.toFixed(4)} max ${delta.maxKld.toFixed(3)} nats · ` +
+        `${delta.identicalPaths}/${delta.prompts.length} greedy paths identical` +
+        (split.length > 0 ? ` · diverged ${split.join(", ")}` : ""),
+    );
   }
 }
 
@@ -614,6 +655,8 @@ function runComparison(args: Args): void {
         : base[i]!,
     report,
   }));
+
+  logFingerprintDeltas(inputs, c);
 
   const htmlDir = dirname(resolve(outPath));
   mkdirSync(htmlDir, { recursive: true });
@@ -1796,15 +1839,16 @@ async function main(): Promise<void> {
       }
     } else {
       const data = (await res.json()) as {
-        data?: Array<{ id?: string; owned_by?: string }>;
+        data?: Array<{
+          id?: string;
+          owned_by?: string;
+          type?: string;
+          capabilities?: string[];
+        }>;
       };
       ownedBy = data?.data?.find((m) => m.owned_by)?.owned_by ?? null;
       if (models.length === 0) {
-        modelIds = (data?.data ?? [])
-          .map((m) => m.id)
-          .filter(
-            (id): id is string => typeof id === "string" && id.length > 0,
-          );
+        modelIds = pickerModelIds(data?.data ?? []);
         if (modelIds.length === 0) {
           modelsListError = `GET ${baseUrl}/models returned no model ids`;
         }

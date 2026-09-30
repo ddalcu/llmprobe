@@ -588,6 +588,26 @@ export interface FidelityMeasurement {
   margin: number | null;
 }
 
+/**
+ * A run's logprob fingerprint: the greedy path the engine took on a few fixed
+ * prompts, with the top-k distribution at every token. Never scored — it is
+ * the input to a run-vs-run comparison (top-1 agreement, KL divergence), which
+ * needs a *reference* run and so can only happen at --compare time.
+ */
+export interface FingerprintToken {
+  /** The emitted token. */
+  t: string;
+  /** Its logprob. */
+  lp: number;
+  /** Top-k alternatives as [token, logprob] pairs. */
+  top: Array<[string, number]>;
+}
+
+export interface Fingerprint {
+  topK: number;
+  prompts: Array<{ id: string; tokens: FingerprintToken[] }>;
+}
+
 export interface FidelityScore {
   /** 0..100, the single rankable number, blended over measured slices only. */
   pct: number;
@@ -622,6 +642,8 @@ export interface FidelityScore {
     meanMargin: number | null;
     items: FidelityMeasurement[];
   };
+  /** Greedy paths + top-k logprobs for --compare's KLD / top-1 check; null without logprobs. */
+  fingerprint?: Fingerprint | null;
   /**
    * True on a reasoning model: it spends budget thinking before the visible
    * answer, so Confidence reads the post-thinking distribution and the score is

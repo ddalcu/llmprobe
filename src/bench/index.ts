@@ -77,8 +77,12 @@ export const SAMPLING_PRESETS: Record<string, BenchSampling> = {
 const K = 3;
 const DECODE_TOKENS = 192;
 const PREFILL_TOKENS = 8;
-/** ~8 KB of filler ≈ a couple thousand tokens, enough to time prefill. */
-const PREFILL_PROMPT_BYTES = 8192;
+/**
+ * ~40 KB of filler ≈ 8k tokens. Prefill has a fixed per-request cost, so a
+ * short prompt under-reads the engine: on an M-series Mac a 1.6k-token prompt
+ * measured 3.5k tok/s where 8k+ plateaus near 5k tok/s.
+ */
+const PREFILL_PROMPT_BYTES = 40960;
 
 /** The default ladder; --rungs may name any size, on it or off it. */
 export const CONTEXT_RUNGS = [512, 4096, 8192, 16384, 32768, 65536];

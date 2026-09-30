@@ -7,6 +7,40 @@ export interface PickerIO {
   print: (line: string) => void;
 }
 
+interface ModelEntry {
+  id?: unknown;
+  type?: unknown;
+  capabilities?: unknown;
+}
+
+/**
+ * Can this /v1/models entry chat? Only a positive statement to the contrary
+ * says no: a `capabilities` list without "chat"/"completion" (mlx-serve, LM
+ * Studio) or an embedding/rerank `type`. An entry with no such metadata —
+ * which is most engines — is shown, because hiding a model we merely know
+ * nothing about is worse than listing one that turns out not to chat.
+ */
+export function isChatCandidate(entry: ModelEntry): boolean {
+  if (typeof entry.type === "string") {
+    if (/^(embed|rerank|tts|stt|whisper|image)/i.test(entry.type)) return false;
+  }
+  if (Array.isArray(entry.capabilities) && entry.capabilities.length > 0) {
+    const caps = entry.capabilities.map((c) => String(c).toLowerCase());
+    return caps.some((c) => c === "chat" || c === "completion");
+  }
+  return true;
+}
+
+/** Ids worth offering in the picker; never empties a non-empty list. */
+export function pickerModelIds(entries: ModelEntry[]): string[] {
+  const all = entries.filter(
+    (m): m is ModelEntry & { id: string } =>
+      typeof m.id === "string" && m.id.length > 0,
+  );
+  const chat = all.filter(isChatCandidate);
+  return (chat.length > 0 ? chat : all).map((m) => m.id);
+}
+
 /**
  * Resolve one line of user input against the model list. Accepts a 1-based
  * index, an exact model id, or an empty line for the default (first) model.

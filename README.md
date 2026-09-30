@@ -350,6 +350,29 @@ llmprobe localhost:8080 --baseline baselines/llama-cpp-b4321.json
 
 The saved JSON also carries the fidelity card's raw numbers under `fidelity.measurements`: mean top-1 probability, mean gap to the runner-up, and both per battery item. The graded slices are floor checks and saturate on purpose — a healthy engine reads 100 — so anyone separating two healthy engines, or correlating against an external benchmark, wants the continuous values. They cost nothing extra to produce: the logprobs were already fetched. Nulls stay null, because a zero would read as a maximally unconfident engine.
 
+### Did my change hurt quality? (same engine, before and after)
+
+Two saved runs of the same weights on the same engine settings should be numerically identical, so any drift is a signal and there is no noise floor to argue with. Save a baseline, change the engine, probe again, compare:
+
+```bash
+llmprobe localhost:8080 --save baselines/good.json       # before the change
+# ...edit, rebuild, restart the engine...
+llmprobe localhost:8080 --save after.json --baseline baselines/good.json
+llmprobe --compare baselines/good.json after.json        # logprob drift
+# logprob agreement vs good (reference)
+#   after  top-1 100.0% · KLD mean 0.0000 max 0.000 nats · 3/3 greedy paths identical
+```
+
+`--baseline` flags checks that regressed (conformance, capability). `--compare` prints the logprob check, which catches what those cannot: a kernel, cache or quantisation change that leaves every answer correct while moving the distribution. Each fidelity run saves a **fingerprint**: the greedy path on the three determinism prompts, with the top-20 logprobs at every token, under `fidelity.fingerprint`. `--compare` walks two fingerprints together and reports, against the first file:
+
+- **top-1** — share of positions where both runs' most likely token agreed;
+- **KLD** — mean and max KL(reference ‖ candidate) in nats over the union of the two top-20 sets (a token absent from one side gets that side's smallest listed probability, so the estimate is finite);
+- **greedy paths identical** — and where any split, as `prompt@token`.
+
+How to read it, on one engine with fixed settings: `KLD 0.0000` with identical paths means bit-for-bit safe. A tiny KLD (~1e-4) with identical paths means the numerics moved (a kernel reorder, accumulation order) and is now your call. A path split, or KLD near 1e-2 and up, means something broke. Thresholds are guidance, not calibrated gates, and the command never sets the exit code.
+
+Limits worth knowing. The comparison stops at the first differing token, because after that the two contexts differ and the distributions are no longer comparable; the split position is itself the result. The sample is small (about 120 tokens over three prompts), so subtle drift can hide. It only means something when model weights **and** engine settings match — KV dtype, MTP, PLD, batching and reasoning effort can all legitimately move it — so keep those fixed between the two runs. Across different engines, "both correct" still means small nonzero KLD (kernels differ), not zero. Reports saved before the fingerprint existed have none; re-run the baseline. Needs an engine that returns logprobs.
+
 Exit code is non-zero on any `MUST` failure, regression, or exhausted budget, so it works as a CI gate. **The model's score never affects the exit code** — llmprobe gates on the engine, not on how clever the model is.
 
 A run that stopped because the target died exits `2`, not `1`: the cards are partial, the baseline diff is skipped, and a benchmark cut short by a dead server is discarded rather than published. Exit `1` means the engine failed a `MUST`, and a crashed process has not earned that verdict.

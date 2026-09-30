@@ -8,6 +8,7 @@ import {
   type FirstDivergence,
 } from "../core/outcome";
 import { saysWord, stripThinking } from "../evals/grading";
+import { collectFingerprint } from "./fingerprint";
 
 /**
  * Fidelity — does this engine reproduce the model faithfully?
@@ -696,5 +697,12 @@ export async function runFidelity(
     });
   }
 
-  return scoreFidelity(items, determinism, { reasoningCaveat: reasoningModel });
+  const fingerprint = askLogprobs
+    ? await collectFingerprint(ctx, surface, DETERMINISM_PROMPTS, onProgress)
+    : null;
+
+  return {
+    ...scoreFidelity(items, determinism, { reasoningCaveat: reasoningModel }),
+    fingerprint,
+  };
 }

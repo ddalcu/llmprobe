@@ -21,6 +21,8 @@ HTML report cards, compare workbench, and library sync live under `src/core/repo
 `runs/report-card/` is a **stub** (README + rebuild wrapper only); generated HTML/JSON stays local via root gitignore.
 `--html` alone is enough for a polished library experience; explicit `--library` is optional.
 
+To check an engine change did not degrade quality, save a baseline before the change (`--save baselines/x.json`), probe again after (`--save after.json`), then run `npm run probe -- --compare baselines/x.json after.json`. It prints top-1 agreement, KLD and greedy-path splits from the saved logprob fingerprints (README, "Did my change hurt quality?"). Keep model weights and engine settings identical between the two runs; expect KLD 0.0000 on the same engine.
+
 Before opening a PR, run formatting, type checking, and the full test suite.
 
 ## Coding Style & Naming Conventions
