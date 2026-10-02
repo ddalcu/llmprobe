@@ -94,7 +94,10 @@ import {
 } from "../src/reasoning/index";
 import { ALL_EVALS } from "../src/evals/index";
 
+import { runLanguage } from "../src/language/index";
+
 interface Args {
+  languageOnly?: boolean;
   target?: string;
   apiKey?: string;
   model?: string;
@@ -240,6 +243,9 @@ function parseArgs(argv: string[]): Args {
       case "--bench-only":
         args.bench = true;
         args.benchOnly = true;
+        break;
+      case "--language-only":
+        args.languageOnly = true;
         break;
       case "--eval":
         args.eval = true;
@@ -453,6 +459,10 @@ Options:
                         On by default; --no-bench skips it
       --bench-only      Run only the benchmark — no conformance, evals, agentic
                         or fidelity. Surface discovery still runs; it is free.
+      --language-only   Collect 100 multilingual responses for offline review (12 languages).
+                        Requires --model and --save (new JSONL file). Defaults: concurrency 4,
+                        max output 500, greedy sampling, thinking off. Uses --concurrency,
+                        --eval-max-tokens and --timeout. Separate from scored probe reports.
       --eval            Reasoning accuracy: 92 questions from GPQA Diamond,
                         SuperGPQA, AIME 2025 and COMPSEC (informational, never
                         scored). Expensive on a thinking model: up to
@@ -1717,6 +1727,36 @@ async function main(): Promise<void> {
 
   const root = normalizeRoot(args.target);
   const apiKey = args.apiKey ?? process.env.LLMPROBE_API_KEY ?? "";
+  if (args.languageOnly) {
+    if (!args.model || !args.save)
+      throw new Error("--language-only requires --model and --save");
+    if (
+      args.sampling ||
+      args.upload ||
+      args.html ||
+      args.eval ||
+      args.benchOnly ||
+      args.budget ||
+      args.evalCases ||
+      args.evalQuestions
+    )
+      throw new Error(
+        "--language-only supports --model, --save, --concurrency, --eval-max-tokens, --timeout and --api-key; other run modes are not supported",
+      );
+    const result = await runLanguage({
+      root,
+      model: args.model,
+      save: args.save,
+      apiKey,
+      concurrency: args.concurrency,
+      maxTokens: args.evalMaxTokens,
+      timeoutMs: args.timeoutSec * 1000,
+      log,
+    });
+    console.log(JSON.stringify(result));
+    if (result.errors) process.exitCode = 1;
+    return;
+  }
   const startedAt = Date.now();
 
   log(

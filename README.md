@@ -424,3 +424,26 @@ Adding a feature to the tier matrix is an entry in `src/core/registry.ts`, not a
 Licensed under [Apache 2.0](LICENSE). See [`NOTICE`](NOTICE) for attribution.
 
 The probe, scoring, conformance tests, capability evals, benchmark, and CLI are original to llmprobe. The OpenAPI schemas under `schema/` (and the Zod validators generated from them) are derived from [openresponses](https://github.com/openresponses/openresponses) and the official [openai/openai-openapi](https://github.com/openai/openai-openapi) spec, retained under Apache 2.0 — full attribution in [`NOTICE`](NOTICE).
+
+### Multilingual response collection
+
+`--language-only` collects 100 original prompts: eight tasks in each of English,
+Chinese, Thai, Japanese, Spanish, French, German, Korean, Arabic, Portuguese,
+Russian and Italian, plus four cross-language tasks. Categories cover register,
+idioms, pragmatics, grammar, localization, culture, creative writing and ambiguity.
+
+```bash
+npx llmprobe localhost:12345 --language-only --model MODEL \
+  --concurrency 4 --eval-max-tokens 500 --timeout 600 --save runs/language-MODEL.jsonl
+```
+
+This mode defaults to greedy sampling, thinking off, speculation off, concurrency
+4 and a 500-token output cap. The OpenAI-compatible endpoint must support these
+request controls. It writes a manifest, every complete response (including usage,
+finish reason and request settings), errors, and a summary to a new JSONL file.
+Existing logs are never overwritten. It does not upload data or assign automatic
+language scores; evaluate saved answers offline. Scores should cover accuracy,
+naturalness, register/style, nuance/cultural fit and task fulfillment, with equal
+weight per language. Report cross-language cases separately, and disclose the
+judge and any output truncation. These logs are distinct from normal probe report
+JSON and cannot be passed to `--compare`.
