@@ -4,7 +4,11 @@ import { BudgetExceededError } from "../core/client";
 import type { RunContext } from "../core/context";
 import type { AgentSessionReport } from "../core/outcome";
 import type { BenchSample, TimedRun } from "./index";
-import { agentSessionPrefix, agentSessionTask } from "./agent-session-corpus";
+import {
+  agentSessionPrefix,
+  agentSessionTask,
+  SESSION_CAPS,
+} from "./agent-session-corpus";
 import { decodeWindows, median, tokensPerSecond } from "./stats";
 
 function percentiles(values: number[]) {
@@ -23,6 +27,13 @@ export async function runAgentSession(
   onSample?: (sample: BenchSample) => void,
 ): Promise<AgentSessionReport> {
   const settings = ctx.config.agentSession!;
+  const caps = settings.caps ?? SESSION_CAPS.short;
+  const capDiscipline =
+    caps[0] === 256 && caps[1] === 1024
+      ? "short"
+      : caps[0] === 4096 && caps[1] === 16384
+        ? "long"
+        : "custom";
   const prefixSeed = settings.prefixSeed ?? randomUUID();
   const surface = ctx.evalSurface!;
   let bytes = settings.baseTokens * 4;
@@ -51,7 +62,7 @@ export async function runAgentSession(
     ctx,
     surface,
     "Write a TypeScript job validator with tests.",
-    256,
+    caps[0],
     undefined,
     prefix,
   );
@@ -59,6 +70,8 @@ export async function runAgentSession(
 
   const report: AgentSessionReport = {
     scenario: "queue-maintenance-v1",
+    caps,
+    capDiscipline,
     prefixSeed,
     baseTokens: settings.baseTokens,
     targetTokens: settings.targetTokens,
@@ -91,7 +104,7 @@ export async function runAgentSession(
   const gaps: number[] = [];
   const started = Date.now();
   for (let turn = 1; turn <= settings.maxTurns; turn += 1) {
-    const task = agentSessionTask(turn);
+    const task = agentSessionTask(turn, caps);
     turns.push({ type: "user", text: task.text });
     onProgress?.(`agent session ${turn}/${settings.maxTurns}: ${task.name}`);
     const startMs = Date.now() - started;

@@ -7,6 +7,11 @@ export function agentSessionLines(report: AgentSessionReport): string[] {
   const lines = [
     "Agent session — one serial coding conversation; no real tools",
     `scenario: ${report.scenario}; prefix seed: ${JSON.stringify(report.prefixSeed)}`,
+    ...(report.caps
+      ? [
+          `output caps: ${report.capDiscipline ?? "custom"} (${report.caps.join(" / ")} tokens); thinking included; natural stops allowed`,
+        ]
+      : []),
     `base ~${report.baseTokens}; warmup input ${fmt(report.prefixInputTokens)}; target ${report.targetTokens}; reached ${fmt(report.reachedInputTokens)} input tokens; overshoot ${fmt(report.overshootTokens)}`,
     `stop: ${report.stop}${report.note ? ` — ${report.note}` : ""}`,
     `measured wall ${fmt(report.elapsedMs / 1000)}s; aggregate ${fmt(report.aggregateTokPerSec)} output tok/s; ${fmt(report.turnsPerSec)} turns/s`,

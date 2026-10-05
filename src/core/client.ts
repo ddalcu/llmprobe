@@ -52,6 +52,7 @@ export interface RunConfig {
   benchStreams?: number;
   /** A single scripted coding conversation grows from base context to target. */
   agentSession?: {
+    caps?: readonly [number, number];
     baseTokens: number;
     targetTokens: number;
     maxTurns: number;

@@ -12,26 +12,42 @@ export function agentSessionPrefix(seed: string, bytes: number): string {
   );
 }
 
+export const SESSION_CAPS = {
+  short: [256, 1024],
+  long: [4096, 16384],
+} as const;
+
+export function parseSessionCaps(spec: string): readonly [number, number] {
+  if (spec === "short" || spec === "long") return SESSION_CAPS[spec];
+  const parts = spec.split(",");
+  const values = parts.map(Number);
+  if (
+    parts.length !== 2 ||
+    values.some((value) => !Number.isSafeInteger(value) || value < 1)
+  ) {
+    throw new Error(
+      "--session-caps needs short, long, or two positive integers like 2048,8192",
+    );
+  }
+  return [values[0]!, values[1]!];
+}
+
 const TASKS = [
   {
     name: "validation",
     ask: "Write a new validateJob(input: unknown) function with runtime checks for every field and typed errors. Output the new function, not the existing Job or Queue declarations.",
-    cap: 256,
   },
   {
     name: "retry",
     ask: "Write a new scheduleRetry function with capped exponential backoff, jitter, cancellation and injectable clocks. Add at least 12 detailed tests. Output new implementation and tests, not a copy of the queue source.",
-    cap: 1024,
   },
   {
     name: "review",
     ask: "List three concrete risks in this queue: starvation, mutation hazards and boundary conditions. For each give a failing example and proposed fix. Reply in prose; do not reproduce the source code.",
-    cap: 256,
   },
   {
     name: "tests",
     ask: "Write a new Vitest test module importing this Queue. Include at least 20 test cases covering empty queues, duplicate IDs, priority ties, time boundaries and cancellation. Output fixtures and assertions in full, not the Queue implementation.",
-    cap: 1024,
   },
 ];
 
@@ -74,7 +90,10 @@ export class Queue${id} {
 }
 
 /** Fixed task recipe, with fresh modules so a backlog can grow for many turns. */
-export function agentSessionTask(turn: number) {
+export function agentSessionTask(
+  turn: number,
+  caps: readonly [number, number] = SESSION_CAPS.short,
+) {
   const task = TASKS[(turn - 1) % TASKS.length]!;
   const bundleTokens = turn % 2 ? 256 : 2048;
   const pieces: string[] = [];
@@ -88,7 +107,7 @@ export function agentSessionTask(turn: number) {
   return {
     name: task.name,
     bundleTokens,
-    maxTokens: task.cap,
+    maxTokens: caps[(turn - 1) % 2]!,
     text:
       `[agent-session turn ${turn}]\nBacklog item: ${task.name} for Queue${id}.\n` +
       `Scripted read_file bundle (related queue modules):\n\`\`\`typescript\n${pieces.join("")}\`\`\`\n` +

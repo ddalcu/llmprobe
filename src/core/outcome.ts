@@ -560,6 +560,9 @@ export interface AgentSessionTurn {
 
 export interface AgentSessionReport {
   scenario: string;
+  /** Output ceilings for validation/review and implementation/tests, respectively. */
+  caps?: readonly [number, number];
+  capDiscipline?: "short" | "long" | "custom";
   prefixSeed: string;
   baseTokens: number;
   targetTokens: number;

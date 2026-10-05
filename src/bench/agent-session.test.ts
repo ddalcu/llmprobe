@@ -8,7 +8,12 @@ import {
   startMockEngine,
 } from "../fixtures/mock-engine";
 import { runBenchmark } from "./index";
-import { agentSessionPrefix, agentSessionTask } from "./agent-session-corpus";
+import {
+  agentSessionPrefix,
+  agentSessionTask,
+  parseSessionCaps,
+  SESSION_CAPS,
+} from "./agent-session-corpus";
 import { agentSessionLines } from "../core/report/agent-session";
 import { benchSection } from "../core/report/card/bench";
 
@@ -50,6 +55,34 @@ async function bench(
 }
 
 describe("agent session recipe", () => {
+  test("named and custom disciplines change caps without changing task text", () => {
+    expect(parseSessionCaps("short")).toEqual([256, 1024]);
+    expect(parseSessionCaps("long")).toEqual([4096, 16384]);
+    expect(parseSessionCaps("2048,8192")).toEqual([2048, 8192]);
+    expect(parseSessionCaps("1024,256")).toEqual([1024, 256]);
+    for (let turn = 1; turn <= 4; turn++) {
+      const short = agentSessionTask(turn);
+      const long = agentSessionTask(turn, SESSION_CAPS.long);
+      expect(long.text).toBe(short.text);
+      expect(long.maxTokens).toBe(turn % 2 ? 4096 : 16384);
+    }
+  });
+
+  test.each([
+    "medium",
+    "256",
+    "256,1024,4096",
+    "0,1024",
+    "-1,1024",
+    "1.5,2",
+    "NaN,2",
+    "Infinity,2",
+    ",1024",
+    "9007199254740992,1024",
+  ])("rejects invalid caps %s", (spec) => {
+    expect(() => parseSessionCaps(spec)).toThrow("--session-caps needs");
+  });
+
   test("deterministic project and recurring tasks yield fresh source bundles", () => {
     expect(agentSessionPrefix("fixed", 2000)).toBe(
       agentSessionPrefix("fixed", 2000),
@@ -68,6 +101,8 @@ describe("growing agent session", () => {
     const report = await bench();
     const session = report.agentSession!;
     expect(session.stop).toBe("target");
+    expect(session.capDiscipline).toBe("short");
+    expect(session.caps).toEqual([256, 1024]);
     expect(session.reachedInputTokens).toBeGreaterThanOrEqual(5000);
     expect(session.overshootTokens).toBe(session.reachedInputTokens! - 5000);
     expect(session.turns.length).toBeGreaterThan(2);
@@ -109,6 +144,51 @@ describe("growing agent session", () => {
     expect(benchSection(report)).toContain("Agent session");
     expect(benchSection(report)).not.toContain("Prefill throughput</td>");
   });
+
+  test.each([
+    { caps: SESSION_CAPS.long, discipline: "long" },
+    { caps: [128, 512] as const, discipline: "custom" },
+  ])(
+    "sends and records $discipline caps while allowing natural stops",
+    async ({ caps, discipline }) => {
+      const report = await bench(
+        {},
+        {
+          agentSession: {
+            baseTokens: 512,
+            targetTokens: 100000,
+            maxTurns: 4,
+            windowTokens: 16,
+            caps,
+            prefixSeed: "cap-test",
+          },
+        },
+      );
+      const session = report.agentSession!;
+      expect(session.capDiscipline).toBe(discipline);
+      expect(session.caps).toEqual(caps);
+      expect(session.turns.map((turn) => turn.maxTokens)).toEqual([
+        caps[0],
+        caps[1],
+        caps[0],
+        caps[1],
+      ]);
+      expect(
+        session.turns.every(
+          (turn) => turn.outputTokens === 64 && turn.finishReason === "stop",
+        ),
+      ).toBe(true);
+      expect(
+        engine!.chatBodies.every(
+          (body) =>
+            body.min_tokens === undefined && body.ignore_eos === undefined,
+        ),
+      ).toBe(true);
+      expect(agentSessionLines(session).join("\n")).toContain(
+        `output caps: ${discipline}`,
+      );
+    },
+  );
 
   test("fits starting prefix before measurement", async () => {
     const report = await bench({ bytesPerToken: 5 });

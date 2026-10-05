@@ -23,6 +23,10 @@ describe("workload benchmark CLI", () => {
     ["--agent-session", "--long-decode"],
     ["--agent-session", "--session-base", "2000", "--session-target", "1000"],
     ["--agent-session", "--concurrency", "2"],
+    ["--session-caps", "long"],
+    ["--agent-session", "--session-caps", "medium"],
+    ["--agent-session", "--session-caps", "0,1024"],
+    ["--agent-session", "--session-caps", "256,1024,4096"],
   ])("rejects invalid settings %j", (...args) => {
     const result = spawnSync(process.execPath, [cli, "localhost:1", ...args], {
       cwd,
@@ -69,6 +73,48 @@ describe("workload benchmark CLI", () => {
     expect(report.run.phases.conformance.status).toBe("not-run");
     expect(report.bench.longDecode).toBeUndefined();
   });
+
+  test.each([
+    { option: "long", caps: [4096, 16384], discipline: "long" },
+    { option: "512,2048", caps: [512, 2048], discipline: "custom" },
+  ])(
+    "agent session accepts $option output caps",
+    async ({ option, caps, discipline }) => {
+      engine = await startMockEngine({
+        longDecode: { maxOutputTokens: 32, frameDelayMs: 3 },
+      });
+      const output = await new Promise<string>((resolve, reject) =>
+        execFile(
+          process.execPath,
+          [
+            cli,
+            engine!.url,
+            "--model",
+            "mock-model-12b",
+            "--agent-session",
+            "--session-base",
+            "512",
+            "--session-target",
+            "5000",
+            "--session-max-turns",
+            "2",
+            "--session-caps",
+            option,
+            "--no-save",
+            "--json",
+          ],
+          { cwd },
+          (error, stdout) => (error ? reject(error) : resolve(stdout)),
+        ),
+      );
+      const session = JSON.parse(output).bench.agentSession;
+      expect(session.caps).toEqual(caps);
+      expect(session.capDiscipline).toBe(discipline);
+      expect(
+        session.turns.map((turn: { maxTokens: number }) => turn.maxTokens),
+      ).toEqual(caps);
+    },
+  );
 
   test("an unfinished session records partial performance rather than target success", async () => {
     engine = await startMockEngine({

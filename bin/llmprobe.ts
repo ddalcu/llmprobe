@@ -85,6 +85,10 @@ import {
 import { runAgentic } from "../src/agentic/index";
 import { SAMPLING_PRESETS, parseRungs, runBenchmark } from "../src/bench/index";
 import { describeConcurrent } from "../src/bench/stats";
+import {
+  parseSessionCaps,
+  SESSION_CAPS,
+} from "../src/bench/agent-session-corpus";
 import { runFidelity } from "../src/fidelity/index";
 import {
   DEFAULT_MAX_TOKENS,
@@ -138,6 +142,7 @@ interface Args {
   sessionBase?: number;
   sessionTarget?: number;
   sessionMaxTurns?: number;
+  sessionCaps?: readonly [number, number];
   longDecode?: boolean;
   decodeTokens?: number;
   decodeContext?: number;
@@ -255,6 +260,14 @@ function parseArgs(argv: string[]): Args {
         break;
       case "--agent-session":
         args.agentSession = true;
+        break;
+      case "--session-caps":
+        try {
+          args.sessionCaps = parseSessionCaps(value());
+        } catch (error) {
+          console.error((error as Error).message);
+          process.exit(2);
+        }
         break;
       case "--session-base":
       case "--session-target":
@@ -481,10 +494,11 @@ function parseArgs(argv: string[]): Args {
   } else if (
     args.sessionBase !== undefined ||
     args.sessionTarget !== undefined ||
-    args.sessionMaxTurns !== undefined
+    args.sessionMaxTurns !== undefined ||
+    args.sessionCaps !== undefined
   ) {
     console.error(
-      "--session-base, --session-target and --session-max-turns require --agent-session",
+      "--session-base, --session-target, --session-max-turns and --session-caps require --agent-session",
     );
     process.exit(2);
   }
@@ -568,6 +582,9 @@ Options:
       --session-base <n> Approximate starting context (default: 30000 tokens)
       --session-target <n> Stop after request input reaches this size (default: 100000)
       --session-max-turns <n> Safety turn limit (default: 128); no history truncation
+      --session-caps <s> Output-cap discipline: short (256,1024; default),
+                        long (4096,16384), or custom pair, e.g. 2048,8192.
+                        Caps include thinking; natural stops allowed
       --long-decode     Shared-prefix long-output benchmark only (code, prose, counting).
                         Reports estimated decode windows; no scored tests or mini benchmark.
       --decode-tokens <n> Output cap for --long-decode (default: 4096)
@@ -906,6 +923,7 @@ async function probeModel(
     ...(args.agentSession
       ? {
           agentSession: {
+            caps: args.sessionCaps ?? SESSION_CAPS.short,
             baseTokens: args.sessionBase ?? 30000,
             targetTokens: args.sessionTarget ?? 100000,
             maxTurns: args.sessionMaxTurns ?? 128,
@@ -1011,6 +1029,10 @@ async function probeModel(
             [
               "session",
               `one conversation, up to ${args.sessionMaxTurns ?? 128} turns`,
+            ],
+            [
+              "output caps",
+              (args.sessionCaps ?? SESSION_CAPS.short).join(" / "),
             ],
           ]
         : args.bench
