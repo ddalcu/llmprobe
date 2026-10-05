@@ -179,6 +179,23 @@ Two honesty guardrails: the report states it's **hardware-dependent** (cross-eng
 
 The bench runs at the run-wide thinking effort (`--reasoning`, default `medium`; see Reasoning models above), so two engines serving the same reasoning model bench with the same thinking budget. Anything other than medium is noted in the report as a custom setup, not comparable to default runs, and a rejected effort or a vendor-toggle fallback is named in the report's caveats. The startup banner shows thinking, effort, sampling, concurrency, rungs and runs before the first request.
 
+### Long-output decode (`--long-decode`)
+
+An opt-in benchmark for slowdown within one long generation, separate from the cold-cache mini benchmark and scored tests:
+
+```sh
+llmprobe localhost:11234 --long-decode --reasoning off --prefix-seed before-after --save runs/long.json --html runs/long.html
+llmprobe localhost:11234 --long-decode --decode-context 8192 --decode-tokens 4096 --decode-window 256 --runs 2
+```
+
+Defaults: approximately 4096 tokens of shared TypeScript context, a 4096-token output cap, approximately 256 tokens per window, and three measured runs each for code, prose and predictable counting. Each workload has its own discarded warmup. The prefix is warmed once and remains identical from token zero across tasks; sample markers follow it. `--prefix-seed` preserves its identity across invocations at the same context size. Without it, a fresh seed is generated once and saved in the report. Identical prefixes permit reuse but do not guarantee it: cache eviction, restarts and engine settings still matter. Reported cached tokens and actual input usage are recorded for each measured request. Context size is a byte-based approximation; the discarded prefix warmup's input usage gives the measured size including chat-template overhead.
+
+Output tokens are apportioned to chunks by character share, calibrated against final output usage. Equal-time arrivals stay together; windows end on real arrivals rather than invented token timestamps. The first arrival lies outside the decode timing span. Window sizes and token positions are estimates, not tokenizer measurements, and changes in characters per token can distort local rates. A single buffered blob cannot support a decode curve. Reasoning is included when streamed; use `--reasoning off` for visible-output comparisons.
+
+JSON, terminal, HTML and Markdown report whole-generation decode throughput, end-to-end throughput, first/last complete-window rates, arithmetic mean, median, min–max and first-to-last change. The window sequence includes elapsed arrival times and a separately marked partial tail; the partial tail is excluded from summary statistics. Mean window rate is not the time-weighted whole-generation rate. Missing usage or unusable stream timing leaves window statistics unavailable.
+
+Prompts request much more output than the cap. A short length-forcing probe requests `ignore_eos` and `min_tokens`; when supported, those options are requested for measured generations too. Rejections fall back visibly to natural stops. Actual output counts, cap attainment and finish reasons remain visible even when an engine silently ignores the options. Generation beyond a model's natural stop can change its output distribution; compare runs using the same length mode. Decoding methods are selected on the server and compared through separately labelled runs, not changed by this benchmark.
+
 ## Reasoning eval (`--eval`)
 
 Off by default and never scored. 92 fixed questions: 25 GPQA Diamond, 25 SuperGPQA, 25 AIME 2025 and 17 COMPSEC (single-function C/C++ vulnerability localization). The model gets the question, a strict `Answer: <letter|integer|line numbers>` format instruction, and up to `--eval-max-tokens` (16000) to think. The grader reads the last `Answer:` line, with fallbacks for bold markers, "the answer is F", `m+n = 256+37 = 293` and "not B, so D". A question that hits the token cap without an answer line counts as _out of tokens_, reported apart from wrong: that is a budget fact, not a wrong answer.
