@@ -1,4 +1,4 @@
-import type { ToolDef, Turn } from "../core/adapter";
+import type { ResponseFormat, ToolDef, Turn } from "../core/adapter";
 import { tryParseJson } from "../core/assert";
 import { BudgetExceededError, TargetUnreachableError } from "../core/client";
 import type { RunContext } from "../core/context";
@@ -14,13 +14,20 @@ import {
   pass,
   stripThinking,
 } from "../evals/grading";
-import { type CallRecord, CODING_TASKS, type Rule } from "./coding";
+import {
+  type CallRecord,
+  CODING_TASKS,
+  type Rule,
+  type Trajectory,
+} from "./coding";
 import {
   executeTool,
   invalidCall,
   WORKSPACE_TOOLS,
   type Workspace,
 } from "./env";
+import { HARD_SCENARIO_TASKS } from "./hard-scenarios";
+import { SCENARIO_TASKS } from "./scenarios";
 
 /**
  * Agentic — can the model run a short tool loop, not just answer one call?
@@ -35,7 +42,10 @@ import {
  * Grading is deterministic: the final workspace state (or final answer) is
  * compared by string, at temperature 0, k=1. The step cap is ~2× the optimal
  * path, so "ran out of steps" means looping, not tight budgeting. The coding
- * tasks (./coding.ts) grade the tool trajectory as well.
+ * tasks (./coding.ts) grade the tool trajectory as well. At --full, the
+ * tool-use scenarios (./scenarios.ts) add mocked APIs: selection among
+ * distractors, error recovery, refusal, injection, multi-turn state, planning
+ * and structured output, plus tool-eval-bench's Hard Mode (./hard-scenarios.ts).
  */
 
 // Room for an edit_file or write_file carrying a whole small module.
@@ -52,10 +62,23 @@ export interface AgenticTaskDef {
    * Judge the end state. `finalText` is the model's closing reply ("" when it
    * hit the step cap); edit tasks should grade the files alone, so a correct
    * edit followed by a missing sign-off still counts as the work being done.
+   * The runner always passes the trajectory, for tasks graded on their calls.
    */
-  grade(files: Workspace, finalText: string): Graded;
+  grade(files: Workspace, finalText: string, trajectory?: Trajectory): Graded;
   /** Defaults to the three workspace tools. */
   tools?: ToolDef[];
+  /**
+   * Answers a tool call in place of the workspace, given the calls made
+   * before it. A task with a handler is graded on its trajectory, so it never
+   * fails as `no-tool-call`: some of these tasks pass only without tools.
+   */
+  handle?(
+    name: string,
+    args: Record<string, unknown>,
+    calls: CallRecord[],
+  ): string;
+  system?: string;
+  responseFormat?: ResponseFormat;
   /**
    * The scripted user: called each time the model stops, with how many times
    * it has stopped before. A string is the next user turn; null ends the task.
@@ -180,6 +203,15 @@ export async function runAgenticTask(
   const turns: Turn[] = [{ type: "user", text: task.prompt }];
   const calls: CallRecord[] = [];
   const userTurns: string[] = [];
+  const trajectory: Trajectory = {
+    calls,
+    initial: task.files,
+    files,
+    userTurns,
+    prompt: task.prompt,
+    answers: [],
+    texts: [],
+  };
 
   let steps = 0;
   let usedTool = false;
@@ -198,13 +230,6 @@ export async function runAgenticTask(
       steps,
     };
     if (task.rules) {
-      const trajectory = {
-        calls,
-        initial: task.files,
-        files,
-        userTurns,
-        prompt: task.prompt,
-      };
       result.violations = task.rules.flatMap((rule) => rule(trajectory));
       result.calls = {
         total: calls.length,
@@ -233,6 +258,8 @@ export async function runAgenticTask(
         await ctx.send(surface, {
           turns,
           tools,
+          system: task.system,
+          responseFormat: task.responseFormat,
           temperature: 0,
           maxTokens: STEP_MAX_TOKENS,
         })
@@ -248,10 +275,13 @@ export async function runAgenticTask(
       );
     }
 
+    const text = stripThinking(reply.text);
+    trajectory.texts.push(text);
+
     // No tool calls means the model considers itself done: the scripted user
     // may have more to ask, otherwise grade it.
     if (reply.toolCalls.length === 0) {
-      const text = stripThinking(reply.text);
+      trajectory.answers.push(text);
       const next = task.followUp?.(files, userTurns.length) ?? null;
       if (next !== null) {
         userTurns.push(next);
@@ -259,15 +289,16 @@ export async function runAgenticTask(
         turns.push({ type: "user", text: next });
         continue;
       }
-      const graded = task.grade(files, text);
+      const graded = task.grade(files, text, trajectory);
       // A coding task is about the trajectory; a right answer without one is
       // a guess.
       if (graded.passed && (usedTool || !task.rules))
         return finish(graded, undefined, undefined);
+      const toolless = !usedTool && !task.handle;
       return finish(
         graded,
-        usedTool ? "wrong-answer" : "no-tool-call",
-        usedTool
+        toolless ? "no-tool-call" : "wrong-answer",
+        !toolless
           ? graded.message
           : `never used a tool${graded.message ? ` — ${graded.message}` : ""}`,
       );
@@ -275,16 +306,19 @@ export async function runAgenticTask(
 
     usedTool = true;
     for (const call of reply.toolCalls) {
-      const output = executeTool(files, call.name, call.argsJson, tools);
       const parsed = tryParseJson(call.argsJson === "" ? "{}" : call.argsJson);
+      const args =
+        parsed.ok && typeof parsed.value === "object" && parsed.value !== null
+          ? (parsed.value as Record<string, unknown>)
+          : null;
+      const output = task.handle
+        ? task.handle(call.name, args ?? {}, calls)
+        : executeTool(files, call.name, call.argsJson, tools);
       calls.push({
         step: steps,
         round: userTurns.length,
         name: call.name,
-        args:
-          parsed.ok && typeof parsed.value === "object" && parsed.value !== null
-            ? (parsed.value as Record<string, unknown>)
-            : null,
+        args,
         invalid: invalidCall(tools, call.name, call.argsJson),
         output,
       });
@@ -300,7 +334,7 @@ export async function runAgenticTask(
 
   // Still calling tools at the cap. Grade the state anyway: "did the work but
   // never stopped" and "never got there" are different diagnoses.
-  const state = task.grade(files, "");
+  const state = task.grade(files, "", trajectory);
   return finish(
     { passed: false },
     "step-limit",
@@ -322,7 +356,12 @@ export async function runAgentic(
   onProgress?: (result: AgenticTaskResult) => void,
 ): Promise<AgenticScore> {
   const results: AgenticTaskResult[] = [];
-  for (const task of TASKS) {
+  // The tool-use scenarios are many short tasks; --full only.
+  const tasks =
+    ctx.depth === "full"
+      ? [...TASKS, ...SCENARIO_TASKS, ...HARD_SCENARIO_TASKS]
+      : TASKS;
+  for (const task of tasks) {
     const result = await runAgenticTask(ctx, task);
     results.push(result);
     onProgress?.(result);

@@ -37,6 +37,10 @@ export interface Trajectory {
   /** Scripted user turns sent after the prompt. */
   userTurns: string[];
   prompt: string;
+  /** The model's reply each time it stopped calling tools. */
+  answers: string[];
+  /** Every reply's text, tool-calling turns included. */
+  texts: string[];
 }
 
 export type Rule = (t: Trajectory) => AgenticViolation[];

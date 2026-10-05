@@ -72,6 +72,10 @@ Five more tasks simulate a coding agent. The tools grow to `search`, `edit_file`
 4. **Already done**: nothing to change. Look, then stop.
 5. **Which file exports it**: answer only; reading the files in one parallel batch is a `should`.
 
+`--full` adds 57 tool-use scenarios ported from [tool-eval-bench](https://github.com/SeraphimSerapis/tool-eval-bench) (MIT), each against mocked APIs (weather, email, calendar, contacts, files, stocks, a 52-tool crowded namespace) with its fixed date and system prompt. The task ids keep its numbers (`tc34-file-injection` is its TC-34), and only the scenarios llmprobe's evals and conformance checks do not already cover are ported. They cover picking a tool among distractors, parameter precision (relative dates, timezones, enums), recovering from empty results, errors and pending jobs, refusing what no tool can do, asking when a request is ambiguous or missing a parameter, ignoring instructions planted in files, search results and earlier tool results, holding state across corrections, cancellations and up to five turns, planning a goal end to end, and filling a JSON schema from tool results. Each is pass or fail: what tool-eval-bench scores as partial fails here, with the reason as the detail, and any write the task did not ask for (an email, an event, a reminder, a code run) fails a run that otherwise passed. Mock results arrive padded the way tool-eval-bench pads them, with the ids, timestamps, pagination and nested metadata a real API returns, so the model has to pick the field it needs out of a noisy payload.
+
+`--full` also runs tool-eval-bench's 23 Hard Mode scenarios (TC-70 to TC-92), built to separate models that already clear the standard ones. They ask for near-duplicate tools told apart by their descriptions, recovery from a corrupted file and from a lost booking race, an ambiguous commit verified instead of retried, version conflicts resolved without losing a concurrent write, every page of a cursor before a digest goes out, held funds released after a payment fails, a policy that reorders two account changes, a permission check before an urgent revoke, and one tenant's secret rotated without touching another's same-named one. Same pass-or-fail grading; only the default fixtures, not tool-eval-bench's seeded variants.
+
 This card is deliberately harder than the floor and never blended into the capability verdict. A capable model that scores 0 here reads as exactly that: fine as a chatbot, not ready to be an agent.
 
 ## This suite is normative
@@ -412,7 +416,7 @@ src/core/         outcome types, scoring, probe, registry, runner, reports
 src/surfaces/     one adapter per API surface (chat, responses, messages)
 src/conformance/  tests, written once against the adapter contract
 src/evals/        the nine capability categories + deterministic graders
-src/agentic/      the simulated workspace, tasks and driver loop
+src/agentic/      the simulated workspace, tasks, tool-use scenarios and driver loop
 src/fixtures/     mock engine + end-to-end pipeline tests
 schema/           OpenAPI documents → generated Zod schemas
 ```

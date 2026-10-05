@@ -45,5 +45,13 @@ The code suite under src/reasoning/code-cases.ts (--eval-suite code):
   (OpenAI, MIT) and MBPP (Google, CC BY 4.0). 50 prompts and their tests from
   each, unmodified apart from spelling out "JavaScript".
 
+The tool-use scenarios under src/agentic/scenarios.ts and their mock tools in
+src/agentic/scenario-env.ts (--full), the Hard Mode scenarios under
+src/agentic/hard-scenarios.ts and the mock payload padding are
+ported from tool-eval-bench (https://github.com/SeraphimSerapis/tool-eval-bench),
+Copyright (c) 2026 SeraphimSerapis, MIT: prompts, mocked tool results and
+grading criteria for TC-02 through TC-92, minus those llmprobe's own checks
+already cover.
+
 All other source code — the probe, scoring, conformance tests, capability evals,
 benchmark, and CLI — is original to llmprobe.

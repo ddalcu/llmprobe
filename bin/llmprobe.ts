@@ -440,7 +440,8 @@ implements, and separately grades the model's capability.
   Coverage     how much of the standard surface exists (Core / Extended / Frontier)
   Conformance  of what IS implemented, how correct is it (MUST assertions only)
   Capability   below floor / capable / strong (deterministic evals, calibrated for 12B+)
-  Agentic      multi-step tool tasks in a simulated workspace (harder than the floor)
+  Agentic      multi-step tool tasks in a simulated workspace (harder than the floor);
+               --full adds 80 tool-use scenarios against mocked APIs
 
 Every run is recorded in ~/.llmprobe — the model library, with a ranking table
 and a report card per run. See --library, --open and --no-save.
@@ -453,7 +454,8 @@ Options:
                         The picker takes a comma list (e.g. 1,3,5) and runs
                         each pick in turn, one report card per model
       --quick           Surface probe + core smoke tests only
-      --full            Everything, including the slow tests (long context, caching)
+      --full            Everything, including the slow tests (long context,
+                        caching) and the tool-use scenarios
       --bench           Performance benchmark: decode tok/s, TTFT, prefill,
                         and an MTP/speculative-decoding probe (informational).
                         On by default; --no-bench skips it
