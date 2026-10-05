@@ -1,3 +1,4 @@
+import { runLongDecode } from "./long-decode";
 import { tryParseJson } from "../core/assert";
 import { machineInfo } from "../core/machine";
 import {
@@ -26,6 +27,7 @@ import {
 } from "./corpus";
 import {
   type BenchStat,
+  type DeliveryFrame,
   type StepProfile,
   analyzeStepProfile,
   classifyBatching,
@@ -286,6 +288,8 @@ const cacheBust = (text: string): string =>
   `[probe ${CACHE_BUST_TAG}-${(cacheBustSeq++).toString(36)}] ${text}`;
 
 interface RunSample {
+  textFrames: DeliveryFrame[];
+  finishReason: string | null;
   ttftMs: number | null;
   decodeTokPerSec: number | null;
   prefillTokPerSec: number | null;
@@ -308,6 +312,8 @@ interface RunSample {
 }
 
 const failedSample = (error: string): RunSample => ({
+  textFrames: [],
+  finishReason: null,
   ttftMs: null,
   decodeTokPerSec: null,
   prefillTokPerSec: null,
@@ -432,6 +438,11 @@ async function timedRun(
   const delivery = deliveryRate(textFrames, reply.usage.outputTokens);
 
   return {
+    textFrames: textFrames.map((frame) => ({
+      ...frame,
+      timeMs: frame.timeMs - timed.startMs,
+    })),
+    finishReason: reply.finishReason,
     ttftMs,
     decodeTokPerSec: delivery.rate,
     // Prefill: prompt tokens divided by time-to-first-token — the standard
@@ -448,6 +459,8 @@ async function timedRun(
     streamNote: delivery.note,
   };
 }
+
+export type TimedRun = typeof timedRun;
 
 /** How `--reasoning` was enforced, when it took more than sending the param. */
 export function reasoningNoteFor(config: RunConfig): string | null {
@@ -861,6 +874,32 @@ export async function runBenchmark(
 ): Promise<BenchReport | null> {
   const surface = outerCtx.evalSurface;
   if (!surface) return null;
+  if (outerCtx.config.longDecode) {
+    const longDecode = await runLongDecode(
+      outerCtx,
+      timedRun,
+      onProgress,
+      onSample,
+    );
+    return {
+      longDecode,
+      decodeTokPerSec: null,
+      streamCaveat: null,
+      samplingNote: outerCtx.config.benchSampling
+        ? `sampled with the "${outerCtx.config.benchSampling.name}" preset — not comparable to greedy runs`
+        : null,
+      reasoningNote: reasoningNoteFor(outerCtx.config),
+      ttftMs: null,
+      prefillTokPerSec: null,
+      prefillPromptTokens: null,
+      speculative: null,
+      prefixCache: null,
+      batching: null,
+      loadDrift: null,
+      machine: machineInfo(),
+      contextScaling: null,
+    };
+  }
 
   // Can the engine be made to generate to exactly the cap? A model that stops
   // at 40 tokens and one that runs to 192 are otherwise compared on different

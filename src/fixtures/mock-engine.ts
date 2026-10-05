@@ -137,6 +137,16 @@ export interface MockDefects {
    * the ladder calibrates itself against what the engine actually counted.
    */
   bytesPerToken?: number;
+  /** A long-output stream with a controllable late slowdown and delivery granularity. */
+  longDecode?: {
+    maxOutputTokens?: number;
+    tokensPerFrame?: number;
+    frameDelayMs?: number;
+    slowAfterTokens?: number;
+    slowFrameDelayMs?: number;
+    omitUsage?: boolean;
+    rejectLengthForcing?: boolean;
+  };
   /** Which surfaces exist. Defaults to models + chat. */
   surfaces?: string[];
   /**
@@ -728,6 +738,58 @@ export async function startMockEngine(
           if (seenSystems.has(system)) cachedTokens = 10;
           seenSystems.add(system);
         }
+      }
+
+      const longDecode = defects.longDecode;
+      if (
+        longDecode &&
+        body.stream &&
+        (body.messages ?? []).some(
+          (m: any) =>
+            typeof m.content === "string" &&
+            m.content.startsWith("[long-decode prefix "),
+        )
+      ) {
+        if (longDecode.rejectLengthForcing && body.ignore_eos) {
+          return json(
+            res,
+            { error: { message: "ignore_eos not supported" } },
+            400,
+          );
+        }
+        const cap = body.max_completion_tokens ?? body.max_tokens;
+        const tokens = Math.min(cap, longDecode.maxOutputTokens ?? cap);
+        const frameTokens = longDecode.tokensPerFrame ?? 8;
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        for (let emitted = 0; emitted < tokens; emitted += frameTokens) {
+          const delay =
+            emitted >= (longDecode.slowAfterTokens ?? Infinity)
+              ? (longDecode.slowFrameDelayMs ?? 10)
+              : (longDecode.frameDelayMs ?? 1);
+          await sleep(delay);
+          const count = Math.min(frameTokens, tokens - emitted);
+          res.write(
+            `data: ${JSON.stringify({ choices: [{ delta: { content: "text".repeat(count) } }] })}\n\n`,
+          );
+        }
+        res.write(
+          `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: tokens >= cap ? "length" : "stop" }] })}\n\n`,
+        );
+        if (!longDecode.omitUsage)
+          res.write(
+            `data: ${JSON.stringify({
+              choices: [],
+              usage: {
+                prompt_tokens: Math.max(1, Math.round(promptBytes / 4)),
+                completion_tokens: tokens,
+                ...(cachedTokens !== undefined
+                  ? { prompt_tokens_details: { cached_tokens: cachedTokens } }
+                  : {}),
+              },
+            })}\n\n`,
+          );
+        res.end("data: [DONE]\n\n");
+        return;
       }
 
       const plan = respondTo(body, defects);

@@ -1,4 +1,8 @@
-import type { ConcurrentRung } from "../core/outcome";
+import type {
+  ConcurrentRung,
+  DecodeWindow,
+  DecodeWindowSummary,
+} from "../core/outcome";
 
 /**
  * Pure statistics for the mini benchmark.
@@ -204,6 +208,107 @@ export function deliveryRate(
     firstFrameShare,
     coalesced,
     note,
+  };
+}
+
+/**
+ * Usage-calibrated windows of client-observed delivery. Equal-time arrivals
+ * stay together, and boundaries fall on real arrivals rather than interpolated
+ * token timestamps. The opening arrival's tokens are outside the timed span.
+ */
+export function decodeWindows(
+  frames: DeliveryFrame[],
+  outputTokens: number | null,
+  windowTokens: number,
+): {
+  windows: DecodeWindow[];
+  summary: DecodeWindowSummary | null;
+  decodeTokPerSec: number | null;
+  note: string | null;
+} {
+  const none = (note: string) => ({
+    windows: [],
+    summary: null,
+    decodeTokPerSec: null,
+    note,
+  });
+  if (!Number.isFinite(windowTokens) || windowTokens <= 0)
+    return none("invalid window size");
+  if (
+    outputTokens === null ||
+    !Number.isFinite(outputTokens) ||
+    outputTokens < 2
+  )
+    return none("no usable output-token usage");
+  const arrivals: DeliveryFrame[] = [];
+  for (const frame of frames) {
+    if (frame.chars <= 0) continue;
+    const previous = arrivals.at(-1);
+    if (previous && frame.timeMs < previous.timeMs)
+      return none("frame timestamps are not monotonic");
+    if (previous && frame.timeMs === previous.timeMs)
+      previous.chars += frame.chars;
+    else arrivals.push({ ...frame });
+  }
+  if (arrivals.length < 2)
+    return none(
+      "fewer than two distinct text arrivals — decode windows unmeasurable",
+    );
+  const totalChars = arrivals.reduce((sum, frame) => sum + frame.chars, 0);
+  const tokensPerChar = outputTokens / totalChars;
+  const windows: DecodeWindow[] = [];
+  let cursorTokens = arrivals[0]!.chars * tokensPerChar;
+  let startTokens = cursorTokens;
+  let startMs = arrivals[0]!.timeMs;
+  for (const [i, arrival] of arrivals.entries()) {
+    if (i === 0) continue;
+    cursorTokens += arrival.chars * tokensPerChar;
+    const tokens = cursorTokens - startTokens;
+    const complete = tokens >= windowTokens - 1e-8;
+    if (!complete && i !== arrivals.length - 1) continue;
+    const rate = tokensPerSecond(tokens, arrival.timeMs - startMs);
+    if (rate === null) continue;
+    windows.push({
+      startTokens: round(startTokens),
+      endTokens: round(cursorTokens),
+      startMs,
+      endMs: arrival.timeMs,
+      tokPerSec: rate,
+      complete,
+    });
+    startTokens = cursorTokens;
+    startMs = arrival.timeMs;
+  }
+  const rates = windows
+    .filter((window) => window.complete)
+    .map((window) => window.tokPerSec);
+  const first = rates[0];
+  const last = rates.at(-1);
+  const summary: DecodeWindowSummary | null =
+    first !== undefined && last !== undefined
+      ? {
+          completeWindows: rates.length,
+          firstTokPerSec: round(first),
+          lastTokPerSec: round(last),
+          meanTokPerSec: round(
+            rates.reduce((sum, rate) => sum + rate, 0) / rates.length,
+          ),
+          medianTokPerSec: round(median(rates)),
+          minTokPerSec: round(Math.min(...rates)),
+          maxTokPerSec: round(Math.max(...rates)),
+          changePct:
+            rates.length > 1 ? round(((last - first) / first) * 100) : null,
+        }
+      : null;
+  return {
+    windows,
+    summary,
+    decodeTokPerSec: tokensPerSecond(
+      outputTokens - arrivals[0]!.chars * tokensPerChar,
+      arrivals.at(-1)!.timeMs - arrivals[0]!.timeMs,
+    ),
+    note:
+      summary === null ? "no complete decode window — output too short" : null,
   };
 }
 

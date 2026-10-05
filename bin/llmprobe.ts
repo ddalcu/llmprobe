@@ -134,6 +134,11 @@ interface Args {
   rungs?: number[];
   /** --runs: measured runs per scenario and rung (after the warmup). */
   runs?: number;
+  longDecode?: boolean;
+  decodeTokens?: number;
+  decodeContext?: number;
+  decodeWindow?: number;
+  prefixSeed?: string;
   timeoutSec: number;
   budget?: number;
   baseline?: string;
@@ -240,6 +245,25 @@ function parseArgs(argv: string[]): Args {
       case "--bench-only":
         args.bench = true;
         args.benchOnly = true;
+        break;
+      case "--long-decode":
+        args.longDecode = true;
+        break;
+      case "--decode-tokens":
+      case "--decode-context":
+      case "--decode-window": {
+        const n = numberValue();
+        if (!Number.isInteger(n)) {
+          console.error(`${arg} needs a positive integer`);
+          process.exit(1);
+        }
+        if (arg === "--decode-tokens") args.decodeTokens = n;
+        else if (arg === "--decode-context") args.decodeContext = n;
+        else args.decodeWindow = n;
+        break;
+      }
+      case "--prefix-seed":
+        args.prefixSeed = value();
         break;
       case "--language-only":
         args.languageOnly = true;
@@ -408,6 +432,32 @@ function parseArgs(argv: string[]): Args {
     }
   }
 
+  if (args.longDecode) {
+    if (
+      args.eval ||
+      args.evalOnly ||
+      args.languageOnly ||
+      !args.bench ||
+      args.rungs ||
+      (args.concurrency ?? 1) > 1
+    ) {
+      console.error(
+        "--long-decode is a serial benchmark; incompatible with --eval, --eval-only, --language-only, --no-bench, --rungs or --concurrency above 1",
+      );
+      process.exit(2);
+    }
+    args.benchOnly = true;
+  } else if (
+    args.decodeTokens !== undefined ||
+    args.decodeContext !== undefined ||
+    args.decodeWindow !== undefined ||
+    args.prefixSeed !== undefined
+  ) {
+    console.error(
+      "--decode-tokens, --decode-context, --decode-window and --prefix-seed require --long-decode",
+    );
+    process.exit(2);
+  }
   return args;
 }
 
@@ -457,6 +507,14 @@ Options:
                         prefill, MTP/speculative probe), which runs by default
       --bench-only      Run only the benchmark — no conformance, evals, agentic
                         or fidelity. Surface discovery still runs; it is free.
+      --long-decode     Shared-prefix long-output benchmark only (code, prose, counting).
+                        Reports estimated decode windows; no scored tests or mini benchmark.
+      --decode-tokens <n> Output cap for --long-decode (default: 4096)
+      --decode-context <n> Approximate shared-prefix tokens (default: 4096);
+                        measured input usage recorded separately
+      --decode-window <n> Estimated tokens per window (default: 256)
+      --prefix-seed <s>  Stable prefix identity for --long-decode. Same seed and
+                        context size allow reuse across runs; default: unique per run
       --language-only   Collect 100 multilingual responses for offline review (12 languages).
                         Requires --model and --save (new JSONL file). Defaults: concurrency 4,
                         max output 500, greedy sampling, thinking off. Uses --concurrency,
@@ -784,6 +842,16 @@ async function probeModel(
     ...(args.rungs ? { benchRungs: args.rungs } : {}),
     ...(args.runs !== undefined ? { benchRuns: args.runs } : {}),
     ...((args.concurrency ?? 1) > 1 ? { benchStreams: args.concurrency } : {}),
+    ...(args.longDecode
+      ? {
+          longDecode: {
+            contextTokens: args.decodeContext ?? 4096,
+            maxTokens: args.decodeTokens ?? 4096,
+            windowTokens: args.decodeWindow ?? 256,
+            prefixSeed: args.prefixSeed,
+          },
+        }
+      : {}),
   };
 
   const client = new EngineClient(baseConfig);
@@ -1102,7 +1170,13 @@ async function probeModel(
   let bench: RunReport["bench"];
   if (args.bench && !budgetHit && !incomplete && ctx.evalSurface) {
     log();
-    log(`${c.gray(`benchmarking (warmup + median of ${args.runs ?? 3})...`)}`);
+    log(
+      c.gray(
+        args.longDecode
+          ? `long decode (shared prefix, warmup + ${args.runs ?? 3} runs per workload)...`
+          : `benchmarking (warmup + median of ${args.runs ?? 3})...`,
+      ),
+    );
     const benchStart = {
       input: client.usage.inputTokens,
       output: client.usage.outputTokens,
