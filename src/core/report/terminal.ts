@@ -13,6 +13,8 @@ import type {
   RunReport,
 } from "../outcome";
 import { type Palette, paletteFor } from "./colors";
+import { longDecodeLines } from "./long-decode";
+import { agentSessionLines } from "./agent-session";
 
 const WIDTH = 74;
 
@@ -406,6 +408,18 @@ function renderBench(bench: BenchReport, c: Palette): string[] {
   if (bench.reasoningNote) {
     caveatLines.push(`  ${c.yellow(`⚠ ${bench.reasoningNote}`)}`);
   }
+
+  if (bench.longDecode || bench.agentSession)
+    return [
+      c.bold("PERFORMANCE"),
+      `  ${c.gray("informational — not scored; hardware-dependent, same-machine comparisons only")}`,
+      `  ${c.gray(`machine: ${machine}`)}`,
+      ...caveatLines,
+      ...(bench.agentSession
+        ? agentSessionLines(bench.agentSession)
+        : longDecodeLines(bench.longDecode!)
+      ).map((line) => `  ${line}`),
+    ];
 
   const lines = [
     c.bold("PERFORMANCE"),

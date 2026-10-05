@@ -183,6 +183,40 @@ Two honesty guardrails: the report states it's **hardware-dependent** (cross-eng
 
 The bench runs at the run-wide thinking effort (`--reasoning`, default `medium`; see Reasoning models above), so two engines serving the same reasoning model bench with the same thinking budget. Anything other than medium is noted in the report as a custom setup, not comparable to default runs, and a rejected effort or a vendor-toggle fallback is named in the report's caveats. The startup banner shows thinking, effort, sampling, concurrency, rungs and runs before the first request.
 
+### Long-output decode (`--long-decode`)
+
+An opt-in benchmark for slowdown within one long generation, separate from the cold-cache mini benchmark and scored tests:
+
+```sh
+llmprobe localhost:11234 --long-decode --reasoning off --prefix-seed before-after --save runs/long.json --html runs/long.html
+llmprobe localhost:11234 --long-decode --decode-context 8192 --decode-tokens 4096 --decode-window 256 --runs 2
+```
+
+Defaults: approximately 4096 tokens of shared TypeScript context, a 4096-token output cap, approximately 256 tokens per window, and three measured runs each for code, prose and predictable counting. Each workload has its own discarded warmup. The prefix is warmed once and remains identical from token zero across tasks; sample markers follow it. `--prefix-seed` preserves its identity across invocations at the same context size. Without it, a fresh seed is generated once and saved in the report. Identical prefixes permit reuse but do not guarantee it: cache eviction, restarts and engine settings still matter. Reported cached tokens and actual input usage are recorded for each measured request. Context size is a byte-based approximation; the discarded prefix warmup's input usage gives the measured size including chat-template overhead.
+
+Output tokens are apportioned to chunks by character share, calibrated against final output usage. Equal-time arrivals stay together; windows end on real arrivals rather than invented token timestamps. The first arrival lies outside the decode timing span. Window sizes and token positions are estimates, not tokenizer measurements, and changes in characters per token can distort local rates. A single buffered blob cannot support a decode curve. Reasoning is included when streamed; use `--reasoning off` for visible-output comparisons.
+
+JSON, terminal, HTML and Markdown report whole-generation decode throughput, end-to-end throughput, first/last complete-window rates, arithmetic mean, median, min–max and first-to-last change. The window sequence includes elapsed arrival times and a separately marked partial tail; the partial tail is excluded from summary statistics. Mean window rate is not the time-weighted whole-generation rate. Missing usage or unusable stream timing leaves window statistics unavailable.
+
+Prompts request much more output than the cap. A short length-forcing probe requests `ignore_eos` and `min_tokens`; when supported, those options are requested for measured generations too. Rejections fall back visibly to natural stops. Actual output counts, cap attainment and finish reasons remain visible even when an engine silently ignores the options. Generation beyond a model's natural stop can change its output distribution; compare runs using the same length mode. Decoding methods are selected on the server and compared through separately labelled runs, not changed by this benchmark.
+
+### Growing coding session (`--agent-session`)
+
+One serial conversation alternates coding generations with appended source and prerecorded diagnostic bundles. This measures serving performance, not agent correctness; no filesystem tools, subprocesses, or model-selected tool calls run.
+
+```sh
+llmprobe localhost:11234 --agent-session --model tiel --reasoning off --prefix-seed session-comparison --save runs/session.json --html runs/session.html
+llmprobe localhost:11234 --agent-session --session-base 30000 --session-target 100000 --session-max-turns 128
+llmprobe localhost:11234 --agent-session --session-caps long --reasoning default
+llmprobe localhost:11234 --agent-session --session-caps 2048,8192
+```
+
+The `queue-maintenance-v1` recipe cycles through validation, retry implementation, review and tests on fresh synthetic TypeScript modules. Small/large source bundles alternate at approximately 256/2048 tokens. `--session-caps short` (default) uses output ceilings of 256/1024; `long` uses 4096/16384. An arbitrary positive-integer pair such as `--session-caps 2048,8192` sets custom ceilings. The first applies to validation/review, the second to retry/test implementation. Caps include reasoning and visible answers; generation may stop naturally before the cap, and no exact-length forcing is requested. Task prompts and input bundles stay identical across disciplines; only output allowances change. Selected discipline and effective caps are recorded in reports. Scripted diagnostics are explicitly fixtures, not claims that generated code was tested. Actual replies and available reasoning are appended unchanged; task success does not gate the next turn. The stable initial prefix is fitted once against warmup input usage, then kept intact. `--prefix-seed` preserves its identity for matching settings/tokenizers; no turn starts with a cache-busting tag. Cache reuse is reported rather than assumed.
+
+Defaults: approximately 30000 tokens of initial context, a 100000-token target and a 128-turn safety limit. The target is **input context of a measured request**, not cumulative token usage or the size of an unsubmitted history. Measurement ends after the target-crossing request completes, with overshoot recorded. There is no history truncation, context reset or compaction. Missing input usage, context overflow, token budget exhaustion and the turn limit stop explicitly; they never claim the target was reached. Prefix calibration and a coding warmup using the first output ceiling are excluded from measured time and totals.
+
+Reports include elapsed time to the target, aggregate actual output tokens divided by measured wall time (including all measured prefills), completed turns/s, TTFT and turn-latency p50/p95, stream-gap p50/p95/max, and per-turn context growth, output counts, cached input, finish reason and estimated decode windows. Generated replies and reasoning are saved in JSON for inspection. TTFT includes queueing; input/TTFT is not labelled prefill throughput. Cumulative input usage resubmits history repeatedly and can greatly exceed the context target. The recipe and seed repeat; model output and realized traffic may differ across runs. This is single-session prefill/decode alternation, not concurrent scheduler-interference testing. `--runs`, `--rungs` and concurrency above one are rejected for this mode; repeat the command for separate comparisons.
+
 ## Reasoning eval (`--eval`)
 
 Off by default and never scored. 92 fixed questions: 25 GPQA Diamond, 25 SuperGPQA, 25 AIME 2025 and 17 COMPSEC (single-function C/C++ vulnerability localization). The model gets the question, a strict `Answer: <letter|integer|line numbers>` format instruction, and up to `--eval-max-tokens` (16000) to think. The grader reads the last `Answer:` line, with fallbacks for bold markers, "the answer is F", `m+n = 256+37 = 293` and "not B, so D". A question that hits the token cap without an answer line counts as _out of tokens_, reported apart from wrong: that is a budget fact, not a wrong answer.
