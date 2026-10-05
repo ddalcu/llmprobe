@@ -134,6 +134,10 @@ interface Args {
   rungs?: number[];
   /** --runs: measured runs per scenario and rung (after the warmup). */
   runs?: number;
+  agentSession?: boolean;
+  sessionBase?: number;
+  sessionTarget?: number;
+  sessionMaxTurns?: number;
   longDecode?: boolean;
   decodeTokens?: number;
   decodeContext?: number;
@@ -249,6 +253,22 @@ function parseArgs(argv: string[]): Args {
         args.bench = true;
         args.benchOnly = true;
         break;
+      case "--agent-session":
+        args.agentSession = true;
+        break;
+      case "--session-base":
+      case "--session-target":
+      case "--session-max-turns": {
+        const n = numberValue();
+        if (!Number.isSafeInteger(n)) {
+          console.error(`${arg} needs a positive integer`);
+          process.exit(1);
+        }
+        if (arg === "--session-base") args.sessionBase = n;
+        else if (arg === "--session-target") args.sessionTarget = n;
+        else args.sessionMaxTurns = n;
+        break;
+      }
       case "--long-decode":
         args.longDecode = true;
         break;
@@ -435,6 +455,39 @@ function parseArgs(argv: string[]): Args {
     }
   }
 
+  if (args.agentSession) {
+    if (
+      args.longDecode ||
+      args.eval ||
+      args.evalOnly ||
+      args.languageOnly ||
+      !args.bench ||
+      args.rungs ||
+      args.runs !== undefined ||
+      (args.concurrency ?? 1) > 1 ||
+      args.decodeTokens !== undefined ||
+      args.decodeContext !== undefined
+    ) {
+      console.error(
+        "--agent-session runs one serial conversation; incompatible with other run modes, --runs, --rungs, --decode-tokens, --decode-context or concurrency above 1",
+      );
+      process.exit(2);
+    }
+    if ((args.sessionTarget ?? 100000) <= (args.sessionBase ?? 30000)) {
+      console.error("--session-target must exceed --session-base");
+      process.exit(2);
+    }
+    args.benchOnly = true;
+  } else if (
+    args.sessionBase !== undefined ||
+    args.sessionTarget !== undefined ||
+    args.sessionMaxTurns !== undefined
+  ) {
+    console.error(
+      "--session-base, --session-target and --session-max-turns require --agent-session",
+    );
+    process.exit(2);
+  }
   if (args.longDecode) {
     if (
       args.eval ||
@@ -451,13 +504,14 @@ function parseArgs(argv: string[]): Args {
     }
     args.benchOnly = true;
   } else if (
-    args.decodeTokens !== undefined ||
-    args.decodeContext !== undefined ||
-    args.decodeWindow !== undefined ||
-    args.prefixSeed !== undefined
+    !args.agentSession &&
+    (args.decodeTokens !== undefined ||
+      args.decodeContext !== undefined ||
+      args.decodeWindow !== undefined ||
+      args.prefixSeed !== undefined)
   ) {
     console.error(
-      "--decode-tokens, --decode-context, --decode-window and --prefix-seed require --long-decode",
+      "--decode-tokens and --decode-context require --long-decode; --decode-window and --prefix-seed require --long-decode or --agent-session",
     );
     process.exit(2);
   }
@@ -509,13 +563,18 @@ Options:
                         On by default; --no-bench skips it
       --bench-only      Run only the benchmark — no conformance, evals, agentic
                         or fidelity. Surface discovery still runs; it is free.
+      --agent-session   One growing coding-session benchmark, with scripted source
+                        and diagnostic bundles; no real tools or scored tests
+      --session-base <n> Approximate starting context (default: 30000 tokens)
+      --session-target <n> Stop after request input reaches this size (default: 100000)
+      --session-max-turns <n> Safety turn limit (default: 128); no history truncation
       --long-decode     Shared-prefix long-output benchmark only (code, prose, counting).
                         Reports estimated decode windows; no scored tests or mini benchmark.
       --decode-tokens <n> Output cap for --long-decode (default: 4096)
       --decode-context <n> Approximate shared-prefix tokens (default: 4096);
                         measured input usage recorded separately
-      --decode-window <n> Estimated tokens per window (default: 256)
-      --prefix-seed <s>  Stable prefix identity for --long-decode. Same seed and
+      --decode-window <n> Estimated decode tokens per window for either workload (default: 256)
+      --prefix-seed <s>  Stable prefix identity for --long-decode or --agent-session. Same seed and
                         context size allow reuse across runs; default: unique per run
       --language-only   Collect 100 multilingual responses for offline review (12 languages).
                         Requires --model and --save (new JSONL file). Defaults: concurrency 4,
@@ -844,6 +903,17 @@ async function probeModel(
     ...(args.rungs ? { benchRungs: args.rungs } : {}),
     ...(args.runs !== undefined ? { benchRuns: args.runs } : {}),
     ...((args.concurrency ?? 1) > 1 ? { benchStreams: args.concurrency } : {}),
+    ...(args.agentSession
+      ? {
+          agentSession: {
+            baseTokens: args.sessionBase ?? 30000,
+            targetTokens: args.sessionTarget ?? 100000,
+            maxTurns: args.sessionMaxTurns ?? 128,
+            windowTokens: args.decodeWindow ?? 256,
+            prefixSeed: args.prefixSeed,
+          },
+        }
+      : {}),
     ...(args.longDecode
       ? {
           longDecode: {
@@ -932,17 +1002,28 @@ async function probeModel(
       ["reasoning", args.reasoning === "none" ? "off" : args.reasoning],
       ["sampling", sampling],
       ["concurrency", String(args.concurrency ?? 1)],
-      ...(args.bench
+      ...(args.agentSession
         ? [
             [
-              "rungs",
-              args.rungs
-                ? args.rungs.map(fmtTokens).join(", ")
-                : `${args.depth} ladder`,
+              "context",
+              `~${args.sessionBase ?? 30000} to ${args.sessionTarget ?? 100000} input tokens`,
             ],
-            ["runs", `warmup + ${args.runs ?? 3} per scenario`],
+            [
+              "session",
+              `one conversation, up to ${args.sessionMaxTurns ?? 128} turns`,
+            ],
           ]
-        : []),
+        : args.bench
+          ? [
+              [
+                "rungs",
+                args.rungs
+                  ? args.rungs.map(fmtTokens).join(", ")
+                  : `${args.depth} ladder`,
+              ],
+              ["runs", `warmup + ${args.runs ?? 3} per scenario`],
+            ]
+          : []),
     ];
     for (const [k, v] of rows) log(`  ${c.gray(`${k}:`.padEnd(13))}${v}`);
   }
@@ -1174,9 +1255,11 @@ async function probeModel(
     log();
     log(
       c.gray(
-        args.longDecode
-          ? `long decode (shared prefix, warmup + ${args.runs ?? 3} runs per workload)...`
-          : `benchmarking (warmup + median of ${args.runs ?? 3})...`,
+        args.agentSession
+          ? `agent session (one conversation, ~${args.sessionBase ?? 30000} to ${args.sessionTarget ?? 100000} input tokens)...`
+          : args.longDecode
+            ? `long decode (shared prefix, warmup + ${args.runs ?? 3} runs per workload)...`
+            : `benchmarking (warmup + median of ${args.runs ?? 3})...`,
       ),
     );
     const benchStart = {
@@ -1262,6 +1345,8 @@ async function probeModel(
         );
       }
     }
+
+    if (bench?.agentSession?.stop === "budget") budgetHit = true;
 
     // What the benchmark itself cost. The run footer totals everything; this
     // is the only place the ladder's own bill is visible, and at --full it is
@@ -1521,24 +1606,30 @@ async function probeModel(
                   : "fidelity phase did not produce a score",
       ),
       performance: phase(
-        bench
-          ? "measured"
-          : !args.bench
-            ? "not-run"
-            : budgetHit
-              ? "interrupted"
-              : !ctx.evalSurface
-                ? "unavailable"
-                : "failed",
-        bench
-          ? undefined
-          : !args.bench
-            ? "benchmark not requested"
-            : budgetHit
-              ? "token budget exhausted"
-              : !ctx.evalSurface
-                ? "no chat-shaped evaluation surface"
-                : "benchmark did not produce a report",
+        bench?.agentSession && bench.agentSession.stop !== "target"
+          ? bench.agentSession.stop === "budget"
+            ? "interrupted"
+            : "partial"
+          : bench
+            ? "measured"
+            : !args.bench
+              ? "not-run"
+              : budgetHit
+                ? "interrupted"
+                : !ctx.evalSurface
+                  ? "unavailable"
+                  : "failed",
+        bench?.agentSession && bench.agentSession.stop !== "target"
+          ? (bench.agentSession.note ?? bench.agentSession.stop)
+          : bench
+            ? undefined
+            : !args.bench
+              ? "benchmark not requested"
+              : budgetHit
+                ? "token budget exhausted"
+                : !ctx.evalSurface
+                  ? "no chat-shaped evaluation surface"
+                  : "benchmark did not produce a report",
       ),
       reasoning: phase(
         reasoning

@@ -196,6 +196,21 @@ JSON, terminal, HTML and Markdown report whole-generation decode throughput, end
 
 Prompts request much more output than the cap. A short length-forcing probe requests `ignore_eos` and `min_tokens`; when supported, those options are requested for measured generations too. Rejections fall back visibly to natural stops. Actual output counts, cap attainment and finish reasons remain visible even when an engine silently ignores the options. Generation beyond a model's natural stop can change its output distribution; compare runs using the same length mode. Decoding methods are selected on the server and compared through separately labelled runs, not changed by this benchmark.
 
+### Growing coding session (`--agent-session`)
+
+One serial conversation alternates coding generations with appended source and prerecorded diagnostic bundles. This measures serving performance, not agent correctness; no filesystem tools, subprocesses, or model-selected tool calls run.
+
+```sh
+llmprobe localhost:11234 --agent-session --model tiel --reasoning off --prefix-seed session-comparison --save runs/session.json --html runs/session.html
+llmprobe localhost:11234 --agent-session --session-base 30000 --session-target 100000 --session-max-turns 128
+```
+
+The `queue-maintenance-v1` recipe cycles through validation, retry implementation, review and tests on fresh synthetic TypeScript modules. Small/large source bundles alternate at approximately 256/2048 tokens, with output caps of 256/1024. Scripted diagnostics are explicitly fixtures, not claims that generated code was tested. Actual replies and available reasoning are appended unchanged; task success does not gate the next turn. The stable initial prefix is fitted once against warmup input usage, then kept intact. `--prefix-seed` preserves its identity for matching settings/tokenizers; no turn starts with a cache-busting tag. Cache reuse is reported rather than assumed.
+
+Defaults: approximately 30000 tokens of initial context, a 100000-token target and a 128-turn safety limit. The target is **input context of a measured request**, not cumulative token usage or the size of an unsubmitted history. Measurement ends after the target-crossing request completes, with overshoot recorded. There is no history truncation, context reset or compaction. Missing input usage, context overflow, token budget exhaustion and the turn limit stop explicitly; they never claim the target was reached. Prefix calibration and a short coding warmup are excluded from measured time and totals.
+
+Reports include elapsed time to the target, aggregate actual output tokens divided by measured wall time (including all measured prefills), completed turns/s, TTFT and turn-latency p50/p95, stream-gap p50/p95/max, and per-turn context growth, output counts, cached input, finish reason and estimated decode windows. Generated replies and reasoning are saved in JSON for inspection. TTFT includes queueing; input/TTFT is not labelled prefill throughput. Cumulative input usage resubmits history repeatedly and can greatly exceed the context target. The recipe and seed repeat; model output and realized traffic may differ across runs. This is single-session prefill/decode alternation, not concurrent scheduler-interference testing. `--runs`, `--rungs` and concurrency above one are rejected for this mode; repeat the command for separate comparisons.
+
 ## Reasoning eval (`--eval`)
 
 Off by default and never scored. 92 fixed questions: 25 GPQA Diamond, 25 SuperGPQA, 25 AIME 2025 and 17 COMPSEC (single-function C/C++ vulnerability localization). The model gets the question, a strict `Answer: <letter|integer|line numbers>` format instruction, and up to `--eval-max-tokens` (16000) to think. The grader reads the last `Answer:` line, with fallbacks for bold markers, "the answer is F", `m+n = 256+37 = 293` and "not B, so D". A question that hits the token cap without an answer line counts as _out of tokens_, reported apart from wrong: that is a budget fact, not a wrong answer.

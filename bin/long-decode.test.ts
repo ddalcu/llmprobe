@@ -10,7 +10,7 @@ beforeAll(() =>
   execFileSync("npm", ["run", "build:cli"], { cwd, stdio: "pipe" }),
 );
 
-describe("long-decode CLI", () => {
+describe("workload benchmark CLI", () => {
   test.each([
     ["--decode-tokens", "1024"],
     ["--long-decode", "--decode-window", "1.5"],
@@ -18,13 +18,87 @@ describe("long-decode CLI", () => {
     ["--long-decode", "--concurrency", "2"],
     ["--long-decode", "--eval"],
     ["--long-decode", "--no-bench"],
+    ["--session-base", "30000"],
+    ["--agent-session", "--runs", "2"],
+    ["--agent-session", "--long-decode"],
+    ["--agent-session", "--session-base", "2000", "--session-target", "1000"],
+    ["--agent-session", "--concurrency", "2"],
   ])("rejects invalid settings %j", (...args) => {
     const result = spawnSync(process.execPath, [cli, "localhost:1", ...args], {
       cwd,
       encoding: "utf8",
     });
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toMatch(/needs|require|incompatible/);
+    expect(result.stderr).toMatch(/needs|require|incompatible|must exceed/);
+  });
+
+  test("agent session CLI leaves scored phases unrun and reaches measured context", async () => {
+    engine = await startMockEngine({
+      promptCache: true,
+      longDecode: { maxOutputTokens: 64, frameDelayMs: 3 },
+    });
+    const output = await new Promise<string>((resolve, reject) =>
+      execFile(
+        process.execPath,
+        [
+          cli,
+          engine!.url,
+          "--model",
+          "mock-model-12b",
+          "--agent-session",
+          "--session-base",
+          "512",
+          "--session-target",
+          "5000",
+          "--decode-window",
+          "16",
+          "--prefix-seed",
+          "cli-session",
+          "--reasoning",
+          "off",
+          "--no-save",
+          "--json",
+        ],
+        { cwd },
+        (error, stdout) => (error ? reject(error) : resolve(stdout)),
+      ),
+    );
+    const report = JSON.parse(output);
+    expect(report.bench.agentSession.stop).toBe("target");
+    expect(report.bench.agentSession.prefixSeed).toBe("cli-session");
+    expect(report.run.phases.conformance.status).toBe("not-run");
+    expect(report.bench.longDecode).toBeUndefined();
+  });
+
+  test("an unfinished session records partial performance rather than target success", async () => {
+    engine = await startMockEngine({
+      longDecode: { maxOutputTokens: 32, frameDelayMs: 3 },
+    });
+    const output = await new Promise<string>((resolve, reject) =>
+      execFile(
+        process.execPath,
+        [
+          cli,
+          engine!.url,
+          "--model",
+          "mock-model-12b",
+          "--agent-session",
+          "--session-base",
+          "512",
+          "--session-target",
+          "5000",
+          "--session-max-turns",
+          "1",
+          "--no-save",
+          "--json",
+        ],
+        { cwd },
+        (error, stdout) => (error ? reject(error) : resolve(stdout)),
+      ),
+    );
+    const report = JSON.parse(output);
+    expect(report.bench.agentSession.stop).toBe("turn-limit");
+    expect(report.run.phases.performance.status).toBe("partial");
   });
 
   test("runs only long decode, saves window data in JSON, leaves scored phases unrun", async () => {

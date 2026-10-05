@@ -1,5 +1,6 @@
 import type { EvalCategory, RunReport } from "../outcome";
 import { longDecodeLines } from "./long-decode";
+import { agentSessionLines } from "./agent-session";
 
 const CATEGORY_LABELS: Record<EvalCategory, string> = {
   "tool-selection": "Tool selection",
@@ -193,6 +194,18 @@ export function renderMarkdown(report: RunReport): string {
     }
   }
 
+  if (report.bench?.agentSession) {
+    lines.push(
+      "",
+      "## Agent-session performance",
+      "",
+      "_Informational, not scored; same-machine comparisons only._",
+      "",
+      ...agentSessionLines(report.bench.agentSession).map(
+        (line) => `    ${line}`,
+      ),
+    );
+  }
   if (report.bench?.longDecode) {
     lines.push(
       "",

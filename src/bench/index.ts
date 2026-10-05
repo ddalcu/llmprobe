@@ -1,4 +1,6 @@
 import { runLongDecode } from "./long-decode";
+import { runAgentSession } from "./agent-session";
+import type { Turn } from "../core/adapter";
 import { tryParseJson } from "../core/assert";
 import { machineInfo } from "../core/machine";
 import {
@@ -301,6 +303,7 @@ interface RunSample {
   wallMs: number;
   /** What the model said — needed to check an echo actually echoed. */
   text: string;
+  reasoningText: string | null;
   /** Tokens per decode step, read off when the stream's frames arrived. */
   stepProfile: StepProfile;
   /** True when frame sizes say the server coalesced its deltas. */
@@ -322,6 +325,7 @@ const failedSample = (error: string): RunSample => ({
   cachedInputTokens: null,
   wallMs: 0,
   text: "",
+  reasoningText: null,
   stepProfile: { tokensPerStep: null, steps: null, frames: 0, note: error },
   streamCoalesced: false,
   streamNote: null,
@@ -354,7 +358,7 @@ function errorFromBody(status: number, raw: string): string {
 async function timedRun(
   ctx: RunContext,
   surface: string,
-  text: string,
+  text: string | Turn[],
   maxTokens: number,
   extra?: Record<string, unknown>,
   system?: string,
@@ -365,7 +369,7 @@ async function timedRun(
     ...adapter.buildBody(
       {
         ...(system !== undefined ? { system } : {}),
-        turns: [{ type: "user", text }],
+        turns: typeof text === "string" ? [{ type: "user", text }] : text,
         temperature: sampling?.temperature ?? 0,
         ...(sampling?.topP !== undefined ? { topP: sampling.topP } : {}),
         maxTokens,
@@ -454,6 +458,7 @@ async function timedRun(
     cachedInputTokens: reply.usage.cachedInputTokens ?? null,
     wallMs: timed.endMs - timed.startMs,
     text: reply.text,
+    reasoningText: reply.reasoningText,
     stepProfile: analyzeStepProfile(textFrameTimes, reply.usage.outputTokens),
     streamCoalesced: delivery.coalesced,
     streamNote: delivery.note,
@@ -874,15 +879,26 @@ export async function runBenchmark(
 ): Promise<BenchReport | null> {
   const surface = outerCtx.evalSurface;
   if (!surface) return null;
-  if (outerCtx.config.longDecode) {
-    const longDecode = await runLongDecode(
-      outerCtx,
-      timedRun,
-      onProgress,
-      onSample,
-    );
+  if (outerCtx.config.longDecode || outerCtx.config.agentSession) {
+    const workload = outerCtx.config.agentSession
+      ? {
+          agentSession: await runAgentSession(
+            outerCtx,
+            timedRun,
+            onProgress,
+            onSample,
+          ),
+        }
+      : {
+          longDecode: await runLongDecode(
+            outerCtx,
+            timedRun,
+            onProgress,
+            onSample,
+          ),
+        };
     return {
-      longDecode,
+      ...workload,
       decodeTokPerSec: null,
       streamCaveat: null,
       samplingNote: outerCtx.config.benchSampling

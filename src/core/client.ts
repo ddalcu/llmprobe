@@ -50,6 +50,14 @@ export interface RunConfig {
   benchSettleMs?: number;
   /** --concurrency above 1: each context rung also runs as a burst this wide. */
   benchStreams?: number;
+  /** A single scripted coding conversation grows from base context to target. */
+  agentSession?: {
+    baseTokens: number;
+    targetTokens: number;
+    maxTurns: number;
+    windowTokens: number;
+    prefixSeed?: string;
+  };
   /** --long-decode selects the shared-prefix, long-output benchmark. */
   longDecode?: {
     contextTokens: number;

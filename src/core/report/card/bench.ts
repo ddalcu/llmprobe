@@ -2,6 +2,7 @@ import type { BenchReport, BenchStat } from "../../outcome";
 import { describeConcurrent } from "../../../bench/stats";
 import { esc, statusPill } from "./shared";
 import { longDecodeLines } from "../long-decode";
+import { agentSessionLines } from "../agent-session";
 
 /** 16384 → "16.4k". Matches the terminal report's context ladder. */
 function fmtTokensK(n: number): string {
@@ -327,13 +328,13 @@ export function benchSection(bench: BenchReport): string {
     bench.reasoningNote ? `⚠ ${bench.reasoningNote}` : null,
   ].filter(Boolean) as string[];
 
-  if (bench.longDecode)
+  if (bench.longDecode || bench.agentSession)
     return `<section class="section" id="performance">
     <div class="section-head"><h2>Performance <span class="tag engine">engine</span></h2></div>
     <p class="lede">Informational — never scored and never part of the exit code. Hardware-dependent: only comparable against runs on the same machine.</p>
     <div class="fine">machine: ${esc(machine)}</div>
     ${caveats.map((line) => `<div class="missing">${esc(line)}</div>`).join("")}
-    <pre style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(longDecodeLines(bench.longDecode).join("\n"))}</pre>
+    <pre style="white-space:pre-wrap;overflow-wrap:anywhere">${esc((bench.agentSession ? agentSessionLines(bench.agentSession) : longDecodeLines(bench.longDecode!)).join("\n"))}</pre>
   </section>`;
 
   const ladder =

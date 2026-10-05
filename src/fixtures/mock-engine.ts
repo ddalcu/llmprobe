@@ -146,6 +146,7 @@ export interface MockDefects {
     slowFrameDelayMs?: number;
     omitUsage?: boolean;
     rejectLengthForcing?: boolean;
+    omitInputUsage?: boolean;
   };
   /** Which surfaces exist. Defaults to models + chat. */
   surfaces?: string[];
@@ -747,7 +748,7 @@ export async function startMockEngine(
         (body.messages ?? []).some(
           (m: any) =>
             typeof m.content === "string" &&
-            m.content.startsWith("[long-decode prefix "),
+            /^(\[long-decode prefix |\[agent-session prefix )/.test(m.content),
         )
       ) {
         if (longDecode.rejectLengthForcing && body.ignore_eos) {
@@ -780,7 +781,14 @@ export async function startMockEngine(
             `data: ${JSON.stringify({
               choices: [],
               usage: {
-                prompt_tokens: Math.max(1, Math.round(promptBytes / 4)),
+                ...(longDecode.omitInputUsage
+                  ? {}
+                  : {
+                      prompt_tokens: Math.max(
+                        1,
+                        Math.round(promptBytes / (defects.bytesPerToken ?? 4)),
+                      ),
+                    }),
                 completion_tokens: tokens,
                 ...(cachedTokens !== undefined
                   ? { prompt_tokens_details: { cached_tokens: cachedTokens } }

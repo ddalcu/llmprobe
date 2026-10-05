@@ -536,7 +536,58 @@ export interface LongDecodeReport {
   }>;
 }
 
+export interface AgentSessionTurn {
+  turn: number;
+  task: string;
+  text: string;
+  reasoningText: string | null;
+  bundleTokens: number;
+  maxTokens: number;
+  startMs: number;
+  endMs: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cachedInputTokens: number | null;
+  ttftMs: number | null;
+  wallMs: number;
+  decodeTokPerSec: number | null;
+  finishReason: string | null;
+  windows: DecodeWindow[];
+  summary: DecodeWindowSummary | null;
+  note: string | null;
+  error?: string;
+}
+
+export interface AgentSessionReport {
+  scenario: string;
+  prefixSeed: string;
+  baseTokens: number;
+  targetTokens: number;
+  prefixInputTokens: number | null;
+  reachedInputTokens: number | null;
+  overshootTokens: number | null;
+  maxTurns: number;
+  windowTokens: number;
+  elapsedMs: number;
+  /** Measured request usage only; repeated input is not unique context growth. */
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cachedInputTokens: number | null;
+  aggregateTokPerSec: number | null;
+  turnsPerSec: number | null;
+  ttftMs: { p50: number; p95: number } | null;
+  latencyMs: { p50: number; p95: number } | null;
+  streamGapMs: { p50: number; p95: number; max: number } | null;
+  stop: "target" | "turn-limit" | "missing-usage" | "engine-error" | "budget";
+  note: string | null;
+  sampling: { temperature: number; topP?: number };
+  reasoningEffort: string | null;
+  turns: AgentSessionTurn[];
+}
+
 export interface BenchReport {
+  /** Opt-in single-session coding replay, not an agent correctness evaluation. */
+  agentSession?: AgentSessionReport;
   /** Opt-in long-output workload; separate from the cold-cache mini benchmark. */
   longDecode?: LongDecodeReport;
   /**
