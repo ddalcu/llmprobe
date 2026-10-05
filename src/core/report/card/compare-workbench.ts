@@ -2,7 +2,6 @@ import type { JsonReport } from "../json";
 import { fmtTokensK } from "../html";
 import { normalizeJsonReport } from "../json";
 import { CARD_STYLE } from "./style.css";
-import { THEME_BOOT, THEME_SCRIPT, themeSwitcherHtml } from "./theme";
 import { COMPARE_SCRIPT } from "./compare-script";
 import { COMPARE_PICKER_STYLE } from "./compare-style";
 import {
@@ -161,12 +160,11 @@ export function renderCompareWorkbenchHtml(
     : "";
 
   return `<!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>llmprobe · compare models</title>
-<script>${THEME_BOOT}</script>
 <style>${CARD_STYLE}</style>
 <style>${COMPARE_PICKER_STYLE}</style>
 </head>
@@ -183,7 +181,6 @@ export function renderCompareWorkbenchHtml(
     </div>
     <nav class="nav-links" aria-label="Compare navigation">
       ${libraryNav}
-      ${themeSwitcherHtml()}
     </nav>
   </header>
 
@@ -212,7 +209,6 @@ export function renderCompareWorkbenchHtml(
 </div>
 <script>window.__COMPARE__=${embedJson(catalog)};window.__CAT_LABELS__=${embedJson(CATEGORY_LABELS)};window.__SERIES__=${embedJson(SERIES)};</script>
 <script>${COMPARE_SCRIPT}</script>
-<script>${THEME_SCRIPT}</script>
 </body>
 </html>`;
 }

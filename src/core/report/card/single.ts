@@ -1,9 +1,8 @@
 import type { JsonReport, ReportRunScope } from "../json";
 import { normalizeJsonReport } from "../json";
 import { benchSection } from "./bench";
-import { reasoningCard, reasoningSection } from "./reasoning";
+import { reasoningSection } from "./reasoning";
 import { CARD_STYLE } from "./style.css";
-import { THEME_BOOT, THEME_SCRIPT, themeSwitcherHtml } from "./theme";
 import { engineSettingsSummary } from "../../engine-settings";
 import { REPORT_SCRIPT } from "./report-script";
 import {
@@ -17,7 +16,6 @@ import {
   embedJson,
   fmtDuration,
   fmtTokens,
-  miniTiers,
   mustFailures,
   outcomeCounts,
   shortModel,
@@ -118,7 +116,7 @@ function tierBlocks(report: JsonReport): string {
 }
 
 /**
- * Self-contained intent-based report card HTML (themes, drill-downs, filters).
+ * Self-contained intent-based report card HTML (drill-downs, filters).
  * Replaces the older perspective-based product HTML.
  */
 export function renderCardHtml(
@@ -265,41 +263,33 @@ export function renderCardHtml(
       : "";
 
   const tasks = agentic
-    ? agentic.tasks
-        .map((t) => {
-          const icon = t.passed
-            ? `<span class="icon ok">✓</span>`
-            : `<span class="icon bad">✗</span>`;
-          const chip =
-            !t.passed && t.failure
-              ? `<span class="chip">${esc(t.failure)}</span>`
+    ? `<table class="drill-table task-table">
+        <thead><tr><th></th><th>Task</th><th>Steps</th><th>Result</th></tr></thead>
+        <tbody>${agentic.tasks
+          .map((t) => {
+            const gloss =
+              !t.passed && t.failure ? AGENTIC_FAILURE_GLOSS[t.failure] : null;
+            const result = t.passed
+              ? ""
+              : `<span class="chip">${esc(t.failure ?? "failed")}</span> ${esc([gloss, t.detail].filter(Boolean).join(" — "))}`;
+            const violations = (t.violations ?? [])
+              .map(
+                (v) =>
+                  `<div class="detail">${v.severity === "must" ? "✗" : "!"} ${esc(`${v.rule}${v.step !== null ? ` (step ${v.step})` : ""}: ${v.detail}`)}</div>`,
+              )
+              .join("");
+            const calls = t.calls
+              ? ` · ${t.calls.valid}/${t.calls.total} valid`
               : "";
-          const gloss =
-            !t.passed && t.failure && AGENTIC_FAILURE_GLOSS[t.failure]
-              ? AGENTIC_FAILURE_GLOSS[t.failure]
-              : null;
-          const detail = !t.passed
-            ? `<div class="detail">→ ${esc([gloss, t.detail].filter(Boolean).join(" — ") || "failed")}</div>`
-            : "";
-          const violations = (t.violations ?? [])
-            .map(
-              (v) =>
-                `<div class="detail">${v.severity === "must" ? "✗" : "!"} ${esc(`${v.rule}${v.step !== null ? ` (step ${v.step})` : ""}: ${v.detail}`)}</div>`,
-            )
-            .join("");
-          const calls = t.calls
-            ? ` · ${t.calls.valid}/${t.calls.total} valid calls`
-            : "";
-          return `<div class="task">
-            ${icon}
-            <div>
-              <div class="name">${esc(t.name)}${chip}</div>
-            </div>
-            <div class="steps">${t.steps} steps${calls}</div>
-            ${detail}${violations}
-          </div>`;
-        })
-        .join("")
+            return `<tr>
+              <td class="${t.passed ? "ok" : "bad"}">${t.passed ? "✓" : "✗"}</td>
+              <td>${esc(t.name)}</td>
+              <td class="steps">${t.steps}${calls}</td>
+              <td>${result}${violations}</td>
+            </tr>`;
+          })
+          .join("")}</tbody>
+      </table>`
     : `<p class="fine">Agentic not measured in this run.</p>`;
 
   const fidSlices = fidelity
@@ -381,100 +371,137 @@ export function renderCardHtml(
     options.label ? `file: ${options.label}` : null,
   ].filter(Boolean);
 
-  const coverageCard = `<article class="card engine">
-      <div class="card-kicker">Surface coverage</div>
-      <div class="card-value ${covTone}">${esc(coreHeadline)}</div>
-      <div class="card-sub">
-        <span>Core ${core ? `${core.supported}/${core.total}` : "—"}</span>
-        ${core?.missing?.length ? `<span class="badge critical">${core.missing.length} core gap${core.missing.length > 1 ? "s" : ""}</span>` : `<span class="badge good">core complete</span>`}
-      </div>
-      ${miniTiers(report)}
-      <div class="card-note">How much of the standard API surface exists. Missing features are listed on purpose.</div>
-    </article>`;
-
-  const conformanceCard = `<article class="card engine">
-      <div class="card-kicker">Engine conformance</div>
-      <div class="card-value ${confToneStrict}">${esc(confHeadline)}</div>
-      <div class="card-sub">
-        ${confMeasured ? `<span>${conf.passed}/${conf.total} MUST</span>` : `<span>not measured</span>`}
-        ${must.length ? `<span class="badge critical">${must.length} violation${must.length > 1 ? "s" : ""}</span>` : confMeasured ? `<span class="badge good">no MUST fails</span>` : ""}
-      </div>
-      <div class="card-note">Of the surfaces that exist, how correct are the MUST behaviors. Unsupported ≠ fail.</div>
-    </article>`;
-
-  const capabilityCard = `<article class="card model">
-      <div class="card-kicker">Model capability</div>
-      <div class="card-value ${capTone}">${esc(capHeadline)}</div>
-      <div class="card-sub">
-        ${capMeasured ? `<span class="badge ${capTone}">${esc(cap.verdict)}</span>` : `<span>not measured</span>`}
-        ${capMeasured ? `<span>${cap.categories.length} categories</span>` : ""}
-      </div>
-      <div class="card-note">Practical floor for tools, JSON, instructions — graded below floor / capable / strong.</div>
-    </article>`;
-
-  // Only when the benchmark ran: a headline rate belongs beside the scores it
-  // is not, rather than buried under the section that explains it.
-  const performanceCard = bench
-    ? `<article class="card neutral">
-      <div class="card-kicker">Performance</div>
-      <div class="card-value">${bench.decodeTokPerSec ? `${Math.round(bench.decodeTokPerSec.median * 10) / 10}` : "—"}</div>
-      <div class="card-sub">
-        <span>tok/s decode</span>
-        ${bench.ttftMs ? `<span class="badge">${Math.round(bench.ttftMs.median)} ms first token</span>` : ""}
-      </div>
-      <div class="card-note">Informational — hardware-dependent and never scored. Same-machine comparisons only.</div>
-    </article>`
+  const tierPct = (name: string) => tier(report, name)?.pct;
+  const agenticTone = agentic
+    ? agentic.passed === agentic.total
+      ? "good"
+      : agentic.passed === 0
+        ? "critical"
+        : "caution"
     : "";
+  const reasoning = report.reasoning;
+  const reasoningPct =
+    reasoning && reasoning.total > 0
+      ? Math.round((100 * reasoning.passed) / reasoning.total)
+      : 0;
 
-  const heroCards = [
-    coverageCard,
-    ran("conformance") ? conformanceCard : "",
-    ran("capability") ? capabilityCard : "",
-    performanceCard,
-    report.reasoning ? reasoningCard(report.reasoning) : "",
-  ].filter(Boolean);
-
-  const outcomeHonesty = `<div class="outcome-lines">
-    <div class="outcome-line good"><span class="ol-label">Pass</span><span class="ol-n">${outcomes.pass}</span></div>
-    <div class="outcome-line critical"><span class="ol-label">Fail</span><span class="ol-n">${outcomes.fail}</span></div>
-    <div class="outcome-line critical"><span class="ol-label">Unsupported</span><span class="ol-n">${outcomes.unsupported}</span></div>
-    <div class="outcome-line caution"><span class="ol-label">Inconclusive</span><span class="ol-n">${outcomes.inconclusive}</span></div>
-    <div class="outcome-line muted"><span class="ol-label">Skipped</span><span class="ol-n">${outcomes.skipped}</span></div>
-  </div>
-  <div class="card-note">Unsupported and inconclusive are not zeros and not fails.</div>`;
-
-  const secondaryCards = [
-    ran("agentic")
-      ? `<div class="sec-card">
-      <div class="card-kicker">Agentic</div>
-      <div class="card-value ${agentic ? (agentic.passed === agentic.total ? "good" : agentic.passed === 0 ? "critical" : "caution") : ""}">${agentic ? `${agentic.passed}/${agentic.total}` : "—"}</div>
-      <div class="card-note">Harder multi-step bar. Never blended into capability.</div>
-    </div>`
-      : "",
-    ran("fidelity")
-      ? `<div class="sec-card">
-      <div class="card-kicker">Engine fidelity</div>
-      <div class="card-value ${fidelity ? toneForPct(fidelity.pct) : ""}">${fidelity ? `${fidelity.pct}%` : "—"}</div>
-      <div class="card-note">Same-model only — holds the model constant so the number is the engine.</div>
-    </div>`
-      : "",
-    ran("conformance")
-      ? `<div class="sec-card">
-      <div class="card-kicker">Outcomes honesty</div>
-      ${outcomeHonesty}
-    </div>`
-      : "",
-  ].filter(Boolean);
-
-  const secondaryRow =
-    secondaryCards.length > 0
-      ? `<div class="secondary" aria-label="Secondary signals">${secondaryCards.join("\n")}</div>`
-      : "";
+  // One line per independent score, each linking to its section below.
+  const summaryRows: Array<[string, string, string, string, string, string]> = [
+    [
+      "coverage",
+      "Surface coverage",
+      covTone,
+      `Core ${coreHeadline}`,
+      `core ${core ? `${core.supported}/${core.total}` : "—"}${core?.missing?.length ? ` <span class="badge critical">${core.missing.length} core gap${core.missing.length > 1 ? "s" : ""}</span>` : ""} · extended ${tierPct("extended") ?? "—"}% · frontier ${tierPct("frontier") ?? "—"}%`,
+      "How much of the standard API surface exists; missing features are listed",
+    ],
+    ...(ran("conformance")
+      ? ([
+          [
+            "conformance",
+            "Engine conformance",
+            confToneStrict,
+            confHeadline,
+            confMeasured
+              ? `${conf.passed}/${conf.total} MUST${must.length ? ` <span class="badge critical">${must.length} violation${must.length > 1 ? "s" : ""}</span>` : ""}`
+              : "not measured",
+            "How correct the MUST behaviors are on surfaces that exist; unsupported ≠ fail",
+          ],
+          [
+            "conformance",
+            "Outcomes",
+            "",
+            "",
+            `pass ${outcomes.pass} · <span class="critical">fail ${outcomes.fail}</span> · unsupported ${outcomes.unsupported} · <span class="caution">inconclusive ${outcomes.inconclusive}</span> · <span class="muted">skipped ${outcomes.skipped}</span>`,
+            "Unsupported and inconclusive are neither zeros nor fails",
+          ],
+        ] as Array<[string, string, string, string, string, string]>)
+      : []),
+    ...(ran("capability")
+      ? ([
+          [
+            "capability",
+            "Model capability",
+            capTone,
+            capHeadline,
+            capMeasured
+              ? `${esc(cap.verdict)} · ${cap.categories.length} categories`
+              : "not measured",
+            "Practical floor for tools, JSON and instructions",
+          ],
+        ] as Array<[string, string, string, string, string, string]>)
+      : []),
+    ...(ran("agentic")
+      ? ([
+          [
+            "agentic",
+            "Agentic",
+            agenticTone,
+            agentic ? `${agentic.passed}/${agentic.total}` : "—",
+            agentic ? "tasks passed" : "not measured",
+            "Harder multi-step bar, never blended into capability",
+          ],
+        ] as Array<[string, string, string, string, string, string]>)
+      : []),
+    ...(ran("fidelity")
+      ? ([
+          [
+            "fidelity",
+            "Engine fidelity",
+            fidelity ? toneForPct(fidelity.pct) : "",
+            fidelity ? `${fidelity.pct}%` : "—",
+            fidelity
+              ? `${fidelity.slices.filter((x) => x.measured).length}/${fidelity.slices.length} slices measured`
+              : "not measured",
+            "Same model only: holds the model constant so the number is the engine",
+          ],
+        ] as Array<[string, string, string, string, string, string]>)
+      : []),
+    ...(bench
+      ? ([
+          [
+            "performance",
+            "Performance",
+            "",
+            bench.decodeTokPerSec
+              ? `${Math.round(bench.decodeTokPerSec.median * 10) / 10} tok/s`
+              : "—",
+            `decode${bench.ttftMs ? ` · ${Math.round(bench.ttftMs.median)} ms first token` : ""}`,
+            "Informational, hardware-dependent, never scored",
+          ],
+        ] as Array<[string, string, string, string, string, string]>)
+      : []),
+    ...(reasoning
+      ? ([
+          [
+            "reasoning",
+            "Reasoning",
+            "",
+            `${reasoningPct}%`,
+            `${reasoning.passed}/${reasoning.total} correct${reasoning.stopped ? ` · ${reasoning.stopped} out of tokens` : ""}`,
+            "GPQA Diamond, SuperGPQA, AIME 2025, COMPSEC subsets; never scored",
+          ],
+        ] as Array<[string, string, string, string, string, string]>)
+      : []),
+  ];
+  const summaryTable = `<table class="summary" aria-label="Scores">
+    <thead><tr><th>Score</th><th>Value</th><th>Detail</th><th>What it means</th></tr></thead>
+    <tbody>${summaryRows
+      .map(
+        ([id, label, tone, value, detail, meaning]) => `<tr>
+        <td><a href="#${id}">${esc(label)}</a></td>
+        <td class="score-cell ${tone}">${esc(value)}</td>
+        <td>${detail}</td>
+        <td class="note">${esc(meaning)}</td>
+      </tr>`,
+      )
+      .join("")}</tbody>
+  </table>`;
 
   const baselineSection = options.baseline
     ? `<section class="section" id="baseline">
       <div class="section-head">
-        <h2>Baseline changes <span class="tag engine">diff</span></h2>
+        <h2>Baseline changes <span class="tag">diff</span></h2>
         <div class="score">${esc(options.baseline.label)}</div>
       </div>
       ${
@@ -503,7 +530,7 @@ export function renderCardHtml(
   const conformanceSection = ran("conformance")
     ? `    <section class="section" id="conformance">
       <div class="section-head">
-        <h2>Engine conformance <span class="tag engine">engine</span></h2>
+        <h2>Engine conformance <span class="tag">engine</span></h2>
         <div class="score ${confToneStrict}">${esc(confHeadline)}</div>
       </div>
       <p class="lede">MUST assertions on implemented surfaces only. Click a surface tile to filter the table. Default view: failures only.</p>
@@ -540,11 +567,10 @@ export function renderCardHtml(
   const capabilitySection = ran("capability")
     ? `    <section class="section" id="capability">
       <div class="section-head">
-        <h2>Model capability <span class="tag model">model</span></h2>
+        <h2>Model capability <span class="tag">model</span></h2>
         <div class="score ${capTone}">${capMeasured ? `${esc(capHeadline)} · ${esc(cap.verdict)}` : "—"}</div>
       </div>
-      <p class="lede">Floor check — not an intelligence rank. Category floor is ${CATEGORY_FLOOR_PCT}%. Click a category to expand its evals (failures first).</p>
-      <p class="hint-click">Click a category row to expand evals</p>
+      <p class="lede">Floor check — not an intelligence rank. Category floor is ${CATEGORY_FLOOR_PCT}% (dashed line). Click a category to expand its evals (failures first).</p>
       ${capMeasured ? cats : `<p class="fine">Capability not measured.</p>`}
       ${weakNote}${unmeasNote}
     </section>`
@@ -553,7 +579,7 @@ export function renderCardHtml(
   const agenticSection = ran("agentic")
     ? `    <section class="section" id="agentic">
       <div class="section-head">
-        <h2>Agentic <span class="tag model">model</span></h2>
+        <h2>Agentic <span class="tag">model</span></h2>
         <div class="score ${agentic ? (agentic.passed === agentic.total ? "good" : "caution") : ""}">${agentic ? `${agentic.passed}/${agentic.total} tasks` : "—"}</div>
       </div>
       <p class="lede">Multi-step tool use in a simulated workspace — harder than the capability floor, never blended into it.</p>
@@ -564,7 +590,7 @@ export function renderCardHtml(
   const fidelitySection = ran("fidelity")
     ? `    <section class="section" id="fidelity">
       <div class="section-head">
-        <h2>Engine fidelity <span class="tag engine">engine</span></h2>
+        <h2>Engine fidelity <span class="tag">engine</span></h2>
         <div class="score ${fidelity ? toneForPct(fidelity.pct) : ""}">${fidelity ? `${fidelity.pct}%` : "—"}</div>
       </div>
       <p class="lede">Same-model comparisons only. Click a slice to see what was measured. Unmeasured slices are named — never zeroed.</p>
@@ -583,12 +609,11 @@ export function renderCardHtml(
     : "";
 
   return `<!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>llmprobe · ${esc(shortModel(model))}</title>
-<script>${THEME_BOOT}</script>
 <style>${CARD_STYLE}</style>
 </head>
 <body>
@@ -609,7 +634,7 @@ export function renderCardHtml(
       </div>
       ${scopeNote}
     </div>
-    <nav class="nav-links" aria-label="Reports">${nav}${themeSwitcherHtml()}</nav>
+    <nav class="nav-links" aria-label="Reports">${nav}</nav>
   </header>
 
   <div class="overview-label">
@@ -620,29 +645,25 @@ export function renderCardHtml(
         : "Only what this run measured — the scores stay independent"
     }</p>
   </div>
-  <div class="hero" aria-label="Primary scores">
-    ${heroCards.join("\n")}
-  </div>
-
-  ${secondaryRow}
+  ${summaryTable}
 
   <div class="story">
     ${baselineSection}
+    <div class="trio">
     <section class="section" id="coverage">
       <div class="section-head">
-        <h2>Surface coverage <span class="tag engine">engine</span></h2>
+        <h2>Surface coverage <span class="tag">engine</span></h2>
         <div class="score ${covTone}">Core ${esc(coreHeadline)}</div>
       </div>
-      <p class="lede">Per tier, never averaged. Click Core / Extended / Frontier to expand every feature under that tier.</p>
-      <p class="hint-click">Click a tier row to expand · missing features sort first</p>
+      <p class="lede">Per tier, never averaged. Click a tier to expand every feature under it; missing features sort first.</p>
       ${tierBlocks(report)}
       ${credits}
     </section>
-
-    ${conformanceSection}
     ${capabilitySection}
-    ${agenticSection}
     ${fidelitySection}
+    </div>
+    ${conformanceSection}
+    ${agenticSection}
     ${performanceSection}
     ${reasoningSectionHtml}
   </div>
@@ -654,7 +675,6 @@ export function renderCardHtml(
 </div>
 <script>window.__LLMPROBE__=${embedJson(boot)};</script>
 <script>${REPORT_SCRIPT}</script>
-<script>${THEME_SCRIPT}</script>
 </body>
 </html>`;
 }

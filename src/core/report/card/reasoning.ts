@@ -8,19 +8,6 @@ const STATUS_LABEL: Record<string, string> = {
   error: "error",
 };
 
-export function reasoningCard(r: ReasoningReport): string {
-  const pct = r.total > 0 ? Math.round((100 * r.passed) / r.total) : 0;
-  return `<article class="card neutral">
-      <div class="card-kicker">Reasoning</div>
-      <div class="card-value">${pct}%</div>
-      <div class="card-sub">
-        <span>${r.passed}/${r.total} correct</span>
-        ${r.stopped ? `<span class="badge">${r.stopped} out of tokens</span>` : ""}
-      </div>
-      <div class="card-note">GPQA Diamond, SuperGPQA, AIME 2025, COMPSEC subsets. Informational — never scored.</div>
-    </article>`;
-}
-
 export function reasoningSection(r: ReasoningReport): string {
   const rows = r.bySource
     .map(
@@ -50,7 +37,7 @@ export function reasoningSection(r: ReasoningReport): string {
     .join("\n");
   return `    <section class="section" id="reasoning">
       <div class="section-head">
-        <h2>Reasoning <span class="tag model">model</span></h2>
+        <h2>Reasoning <span class="tag">model</span></h2>
         <div class="score">${r.passed}/${r.total}</div>
       </div>
       <p class="lede">Hard-question accuracy, informational and never scored. The ${r.suite} suite, up to ${r.maxTokens} tokens per question at temperature ${r.temperature}${effortNote(r)}. "Out of tokens" means the answer line never came, which is a budget fact, not a wrong answer.</p>

@@ -256,18 +256,5 @@ export function confTableRows(report: JsonReport): ConfTableRow[] {
   return rows;
 }
 
-export function miniTiers(report: JsonReport): string {
-  return `<div class="mini-tiers">${(report.coverage?.byTier ?? [])
-    .map((t) => {
-      const tone = toneForPct(t.pct);
-      return `<div class="mini-tier">
-        <span class="name">${esc(t.tier)}</span>
-        ${barFill(t.pct)}
-        <span class="n ${tone}">${t.pct}%</span>
-      </div>`;
-    })
-    .join("")}</div>`;
-}
-
 /** Optional eval category type re-export for callers. */
 export type { EvalCategory };

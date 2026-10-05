@@ -1,7 +1,7 @@
 /**
  * Product HTML report entry point.
  *
- * Intent-based report cards (overview, drill-downs, themes) live in ./card/.
+ * Intent-based report cards (overview, drill-downs) live in ./card/.
  * Chart.js helpers remain exported for bench comparison tooling.
  */
 import { readFileSync } from "node:fs";

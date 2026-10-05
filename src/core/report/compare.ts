@@ -27,8 +27,7 @@ export interface ComparisonInput {
 }
 
 /**
- * Okabe-Ito, minus the two that fail against one of the themes (yellow washes
- * out on light, black disappears on dark). Distinguishable under the common
+ * Okabe-Ito, minus yellow (washes out on white) and black (reads as text). Distinguishable under the common
  * forms of colour blindness, which a hue ramp would not be — these are distinct
  * series, not an ordinal scale.
  */

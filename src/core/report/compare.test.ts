@@ -81,7 +81,7 @@ describe("renderComparisonHtml", () => {
     expect(html).toContain("compare-pickers");
     expect(html).toContain("compare-sticky");
     expect(html).toContain("__COMPARE__");
-    expect(html).toContain("data-theme-select");
+    expect(html).not.toContain("data-theme");
     expect(html).toContain('href="index.html"');
     expect(html).toContain("Library");
     expect(html).toContain("alpha-model");

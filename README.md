@@ -242,8 +242,9 @@ Each model gets its own card, library row and exit-code verdict; the command exi
 
 Every probe is recorded in `~/.llmprobe` — no flag needed. That directory is
 your **model library**: a ranking table of every run, a compare workbench, and a
-self-contained **report card** per run (Coverage / Conformance / Capability
-first, plus Agentic and Fidelity, with drill-downs and Light/Dark/Cyber themes).
+self-contained **report card** per run: one dense page with a summary table of
+every score up top, then Coverage, Capability, Fidelity, Conformance, Agentic
+and Performance with drill-downs and charts.
 
 ```bash
 llmprobe 127.0.0.1:8080 -k pass --model <id> --open

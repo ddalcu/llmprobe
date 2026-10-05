@@ -112,7 +112,7 @@ describe("renderHtml", () => {
   test("renders the intent-based report card with overview and drill-downs", () => {
     const html = renderHtml(sampleReport());
 
-    expect(html).toContain("data-theme-select");
+    expect(html).not.toContain("data-theme");
     expect(html).toContain("Surface coverage");
     expect(html).toContain("Engine conformance");
     expect(html).toContain("Model capability");

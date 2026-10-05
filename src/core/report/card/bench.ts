@@ -102,8 +102,8 @@ export function thinLabels<T extends { x: number; text: string }>(
 
 /**
  * Small inline SVG line chart: log-x (prompt tokens), linear-y. No external
- * libraries so the file stays self-contained; colors come from CSS vars so the
- * chart follows the theme.
+ * libraries so the file stays self-contained; colors come from the page's CSS
+ * vars.
  */
 export function lineChartSvg(
   title: string,
@@ -348,7 +348,7 @@ export function benchSection(bench: BenchReport): string {
 
   return `<section class="section" id="performance">
       <div class="section-head">
-        <h2>Performance <span class="tag engine">engine</span></h2>
+        <h2>Performance <span class="tag">engine</span></h2>
         <div class="score">${headline ? esc(headline) : "—"}</div>
       </div>
       <p class="lede">Informational — never scored and never part of the exit code. Hardware-dependent: only comparable against runs on the same machine.</p>

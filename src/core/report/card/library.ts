@@ -15,7 +15,6 @@ import { normalizeJsonReport } from "../json";
 import { renderCardHtml } from "./single";
 import { renderCompareWorkbenchHtml } from "./compare-workbench";
 import { CARD_STYLE } from "./style.css";
-import { THEME_BOOT, THEME_SCRIPT, themeSwitcherHtml } from "./theme";
 import { engineSettingsSummary } from "../../engine-settings";
 import { LIBRARY_SCRIPT } from "./library-script";
 import {
@@ -247,12 +246,11 @@ export function renderLibraryHtml(
   const dirLabel = options.dirLabel ?? "this directory";
 
   return `<!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>llmprobe · model library</title>
-<script>${THEME_BOOT}</script>
 <style>${CARD_STYLE}</style>
 </head>
 <body>
@@ -274,7 +272,6 @@ export function renderLibraryHtml(
           ? `<a class="btn primary" href="compare.html">Quick compare</a>`
           : ""
       }
-      ${themeSwitcherHtml()}
     </nav>
   </header>
 
@@ -372,7 +369,6 @@ export function renderLibraryHtml(
 
 <script>window.__LIBRARY__=${embedJson(catalog)};</script>
 <script>${LIBRARY_SCRIPT}</script>
-<script>${THEME_SCRIPT}</script>
 </body>
 </html>`;
 }

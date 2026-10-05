@@ -39,7 +39,3 @@ node runs/report-card/generate.mjs
 # Export a standalone card somewhere (touches no library)
 llmprobe localhost:8080 --model <id> --html runs/out.html
 ```
-
-## Themes
-
-Light (default) · Dark · Cyber — header dropdown (`localStorage`).
