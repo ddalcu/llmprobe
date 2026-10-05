@@ -3,7 +3,7 @@ export const COMPARE_SCRIPT = `
 (function () {
   const catalog = window.__COMPARE__;
   const CAT_LABELS = window.__CAT_LABELS__ || {};
-  const SERIES = window.__SERIES__ || ["#1f6feb", "#0d7a45", "#c98a00", "#9b59b6", "#e05a3c"];
+  const seriesColor = (i) => "var(--s" + ((i % 5) + 1) + ")";
   if (!catalog || !catalog.length) return;
 
   const MAX = 4;
@@ -134,7 +134,7 @@ export const COMPARE_SCRIPT = `
 
   function pickerCard(col) {
     const row = bySlug(selected[col] || "");
-    const color = SERIES[col % SERIES.length];
+    const color = seriesColor(col);
     const link =
       row && row.href
         ? '<a class="open-report" href="' + esc(row.href) + '">open report →</a>'
@@ -159,7 +159,7 @@ export const COMPARE_SCRIPT = `
 
   function stickyLabel(col) {
     const row = bySlug(selected[col] || "");
-    const color = SERIES[col % SERIES.length];
+    const color = seriesColor(col);
     const name = row ? runLabel(row) : "—";
     return (
       '<div class="sticky-col">' +
@@ -323,6 +323,9 @@ export const COMPARE_SCRIPT = `
   function fmtTokensK(n) {
     return n >= 1000 ? Math.round(n / 100) / 10 + "k" : String(n);
   }
+  function fmtNum(n) {
+    return n.toLocaleString(undefined, { maximumFractionDigits: 1 });
+  }
   function fmtAxisK(n) {
     return n >= 1000 ? Math.round(n / 1000) + "k" : String(n);
   }
@@ -389,9 +392,9 @@ export const COMPARE_SCRIPT = `
         const dots = pts
           .map(
             (p) =>
-              '<circle cx="' + r1(sx(p.x)) + '" cy="' + r1(sy(p.y)) + '" r="3" fill="' +
-              s.color + '"><title>' + esc(s.label) + " · " + fmtTokensK(p.x) +
-              " tok → " + r1(p.y) + " " + esc(unit) + "</title></circle>",
+              '<circle class="pt" cx="' + r1(sx(p.x)) + '" cy="' + r1(sy(p.y)) + '" r="3" fill="' +
+              s.color + '" data-run="' + esc(s.label) + '" data-sub="' + fmtTokensK(p.x) +
+              ' tokens" data-val="' + esc(fmtNum(p.y) + " " + unit) + '"/>',
           )
           .join("");
         return (
@@ -447,8 +450,8 @@ export const COMPARE_SCRIPT = `
         const y = r1(sy(v));
         bars +=
           '<rect x="' + x + '" y="' + y + '" width="' + r1(barW) + '" height="' +
-          r1(sy(0) - y) + '" rx="2" fill="' + run.color + '"><title>' +
-          esc(runLabel(run.r)) + " · " + esc(m.label) + " " + v + "%</title></rect>";
+          r1(sy(0) - y) + '" rx="2" fill="' + run.color + '" class="pt" data-run="' +
+          esc(runLabel(run.r)) + '" data-sub="' + esc(m.label) + '" data-val="' + v + '%"/>';
       });
       bars +=
         '<text x="' + r1(cx) + '" y="' + (H - pad.b + 16) +
@@ -480,14 +483,12 @@ export const COMPARE_SCRIPT = `
   function chartsHtml(rows) {
     const picked = [];
     rows.forEach((r, i) => {
-      if (r) picked.push({ r, color: SERIES[i % SERIES.length] });
+      if (r) picked.push({ r, color: seriesColor(i) });
     });
     if (picked.length < 2) return "";
-    // Two columns: timing curves on the left, score bars on the right.
-    const timing = [];
-    const scores = [];
-    scores.push(
-      scoreBarsSvg(
+    // One 2-column grid, filled row by row: decode | scores, first token | prefill.
+    const charts = {};
+    charts.primary = scoreBarsSvg(
         [
           { label: "Core", value: (r) => r.core },
           { label: "Conformance", value: (r) => r.conformance },
@@ -495,7 +496,6 @@ export const COMPARE_SCRIPT = `
           { label: "Fidelity", value: (r) => r.fidelity },
         ],
         picked,
-      ),
     );
     const decodeSeries = picked
       .map((run) => ({
@@ -507,7 +507,7 @@ export const COMPARE_SCRIPT = `
       }))
       .filter((s) => s.points.length > 0);
     if (decodeSeries.some((s) => s.points.length >= 2) || decodeSeries.length >= 2) {
-      timing.push(lineChartSvg("Decode vs context", "tok/s", decodeSeries));
+      charts.decode = (lineChartSvg("Decode vs context", "tok/s", decodeSeries));
     }
     const burstSeries = picked
       .map((run) => ({
@@ -519,7 +519,7 @@ export const COMPARE_SCRIPT = `
       }))
       .filter((s) => s.points.length > 0);
     if (burstSeries.length) {
-      timing.push(lineChartSvg("Decode per stream under --concurrency", "tok/s", burstSeries));
+      charts.burst = (lineChartSvg("Decode per stream under --concurrency", "tok/s", burstSeries));
     }
     const ttftSeries = picked
       .map((run) => ({
@@ -531,7 +531,7 @@ export const COMPARE_SCRIPT = `
       }))
       .filter((s) => s.points.length > 0);
     if (ttftSeries.some((s) => s.points.length >= 2) || ttftSeries.length >= 2) {
-      timing.push(lineChartSvg("First token vs context", "ms", ttftSeries));
+      charts.ttft = (lineChartSvg("First token vs context", "ms", ttftSeries));
     }
     const prefillSeries = picked
       .map((run) => ({
@@ -543,7 +543,7 @@ export const COMPARE_SCRIPT = `
       }))
       .filter((s) => s.points.length > 0);
     if (prefillSeries.some((s) => s.points.length >= 2) || prefillSeries.length >= 2) {
-      timing.push(lineChartSvg("Prefill vs context", "tok/s", prefillSeries));
+      charts.prefill = (lineChartSvg("Prefill vs context", "tok/s", prefillSeries));
     }
     // Reasoning accuracy per source. Sources are the natural axis: core and
     // hard suites share none, so a mixed pick just shows more groups.
@@ -561,13 +561,15 @@ export const COMPARE_SCRIPT = `
           return hit && hit.total > 0 ? Math.round((100 * hit.passed) / hit.total) : null;
         },
       }));
-      scores.push(scoreBarsSvg(metrics, picked, "Reasoning eval accuracy"));
+      charts.reasoning = scoreBarsSvg(metrics, picked, "Reasoning eval accuracy");
     }
-    if (!timing.length && !scores.length) return "";
-    const col = (items) => '<div class="chart-col">' + items.join("") + "</div>";
+    const items = ["decode", "primary", "ttft", "prefill", "burst", "reasoning"]
+      .map((k) => charts[k])
+      .filter(Boolean);
+    if (!items.length) return "";
     return (
       '<div class="overview-label"><h2>Charts</h2><p>Scores and context scaling — hardware-dependent timings only compare across runs on the same machine</p></div>' +
-      '<div class="ctx-charts">' + col(timing) + col(scores) + "</div>" +
+      '<div class="ctx-charts">' + items.join("") + "</div>" +
       legendHtml(picked)
     );
   }

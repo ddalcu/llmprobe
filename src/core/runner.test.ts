@@ -375,6 +375,34 @@ describe("runEvals", () => {
     ]);
   });
 
+  test("k=1 evals overlap each other and results keep eval order", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const slowFirst = (id: string, ms: number) =>
+      evalDef({
+        id,
+        run: async () => {
+          inFlight += 1;
+          peak = Math.max(peak, inFlight);
+          await new Promise((r) => setTimeout(r, ms));
+          inFlight -= 1;
+          return { passed: true };
+        },
+      });
+    const done: string[] = [];
+    const results = await runEvals(
+      [slowFirst("a", 40), slowFirst("b", 5), slowFirst("c", 5)],
+      ctx(),
+      support({}),
+      (r) => done.push(r.id),
+      { concurrency: 3 },
+    );
+
+    expect(peak).toBe(3);
+    expect(results.map((r) => r.id)).toEqual(["a", "b", "c"]);
+    expect(done[2]).toBe("a");
+  });
+
   test("a parallel abort stops new dispatch and still propagates", async () => {
     let calls = 0;
     const evals = [

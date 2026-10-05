@@ -192,6 +192,31 @@ describe("the driver loop", () => {
   });
 });
 
+describe("concurrent runs", () => {
+  test("tasks overlap under --concurrency and the score keeps every task", async () => {
+    const { ctx } = scriptedCtx([{ text: "8443" }]);
+    ctx.client = {
+      reserveOutput: () => {},
+      releaseOutput: () => {},
+    } as unknown as RunContext["client"];
+    const send = ctx.send;
+    let inFlight = 0;
+    let peak = 0;
+    ctx.send = async (...args) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight -= 1;
+      return send(...args);
+    };
+
+    const score = await runAgentic(ctx, undefined, { concurrency: 3 });
+
+    expect(peak).toBe(3);
+    expect(score.total).toBe(TASKS.length);
+  });
+});
+
 describe("grading the edit task", () => {
   const edit = () => task("agentic-edit");
   const solved = () => {

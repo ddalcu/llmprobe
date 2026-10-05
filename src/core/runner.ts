@@ -271,7 +271,7 @@ export async function runConformance(
 }
 
 export interface RunEvalsOptions {
-  /** Samples of one eval in flight at once. 1 (default) is sequential. */
+  /** Samples in flight at once, across all evals. 1 (default) is sequential. */
   concurrency?: number;
 }
 
@@ -282,95 +282,89 @@ export async function runEvals(
   onProgress?: (result: EvalResult) => void,
   opts?: RunEvalsOptions,
 ): Promise<EvalResult[]> {
-  const results: EvalResult[] = [];
+  // Results keep the order of `evals`; progress fires as each eval completes.
+  const results: EvalResult[] = new Array(evals.length);
+  const emit = (index: number, result: EvalResult) => {
+    results[index] = result;
+    onProgress?.(result);
+  };
 
-  for (const def of evals) {
-    const emit = (result: EvalResult) => {
-      results.push(result);
-      onProgress?.(result);
-    };
+  // Every sample of every runnable eval goes through one pool, so a k=1 eval
+  // no longer leaves the other workers idle.
+  const jobs: { index: number; sample: number }[] = [];
+  const samples = new Map<number, (EvalSample | null)[]>();
+  const pending = new Map<number, number>();
 
-    // An eval the engine can't host says nothing about the model, so it is
-    // excluded rather than counted as a model failure.
-    const needed = def.requiresFeature;
-    if (needed && featureSupport.get(needed)?.supported !== true) {
-      emit({
-        id: def.id,
-        name: def.name,
-        category: def.category,
-        samples: [],
-        outcome: "unsupported",
-      });
-      continue;
-    }
-
-    if (!ctx.evalSurface) {
-      emit({
-        id: def.id,
-        name: def.name,
-        category: def.category,
-        samples: [],
-        outcome: "unsupported",
-      });
-      continue;
-    }
-
-    if (def.slow && ctx.depth !== "full") {
-      emit({
-        id: def.id,
-        name: def.name,
-        category: def.category,
-        samples: [],
-        outcome: "skipped",
-      });
-      continue;
-    }
-
-    const k = def.k ?? 1;
-    // Samples go through the pool even sequentially: one at a time, in
-    // order, with the same abort and grading semantics as a plain loop. An
-    // abort error stops new dispatch, in-flight samples settle, then the
-    // first abort error is rethrown exactly as the loop used to throw it.
-    let abortErr: unknown = null;
-    const settled = await runConcurrent<EvalSample | null>(
-      k,
-      opts?.concurrency ?? 1,
-      async () => {
-        try {
-          return await def.run(ctx);
-        } catch (err) {
-          if (
-            err instanceof BudgetExceededError ||
-            err instanceof TargetUnreachableError
-          ) {
-            abortErr ??= err;
-            return null;
-          }
-          // An engine error during an eval is a failed sample for the model's
-          // purposes; the engine's own card records the fault separately.
-          return {
-            passed: false,
-            message: err instanceof Error ? err.message : String(err),
-          };
-        }
-      },
-      { shouldStop: () => abortErr !== null },
-    );
-    if (abortErr !== null) throw abortErr;
-    // A dead target says nothing about the model. Grading it would print
-    // "below floor" for a model that was never asked anything — that verdict
-    // belongs to the rethrown abort error above, not to these samples.
-    const samples: EvalSample[] = settled.filter(
-      (s): s is EvalSample => s !== null,
-    );
-
-    emit({
+  evals.forEach((def, index) => {
+    const base = {
       id: def.id,
       name: def.name,
       category: def.category,
-      samples,
-    });
-  }
+      samples: [],
+    };
+    // An eval the engine can't host says nothing about the model, so it is
+    // excluded rather than counted as a model failure.
+    const needed = def.requiresFeature;
+    if (
+      (needed && featureSupport.get(needed)?.supported !== true) ||
+      !ctx.evalSurface
+    ) {
+      emit(index, { ...base, outcome: "unsupported" });
+    } else if (def.slow && ctx.depth !== "full") {
+      emit(index, { ...base, outcome: "skipped" });
+    } else {
+      const k = def.k ?? 1;
+      samples.set(index, new Array(k).fill(null));
+      pending.set(index, k);
+      for (let sample = 0; sample < k; sample++) jobs.push({ index, sample });
+    }
+  });
+
+  // An abort error stops new dispatch, in-flight samples settle, then the
+  // first abort error is rethrown.
+  let abortErr: unknown = null;
+  await runConcurrent<void>(
+    jobs.length,
+    opts?.concurrency ?? 1,
+    async (j) => {
+      const { index, sample } = jobs[j]!;
+      const def = evals[index]!;
+      try {
+        samples.get(index)![sample] = await def.run(ctx);
+      } catch (err) {
+        if (
+          err instanceof BudgetExceededError ||
+          err instanceof TargetUnreachableError
+        ) {
+          abortErr ??= err;
+          return;
+        }
+        // An engine error during an eval is a failed sample for the model's
+        // purposes; the engine's own card records the fault separately.
+        samples.get(index)![sample] = {
+          passed: false,
+          message: err instanceof Error ? err.message : String(err),
+        };
+      }
+      const left = pending.get(index)! - 1;
+      pending.set(index, left);
+      // A dead target says nothing about the model. Grading it would print
+      // "below floor" for a model that was never asked anything — that
+      // verdict belongs to the rethrown abort error, not to these samples.
+      if (left === 0 && abortErr === null) {
+        emit(index, {
+          id: def.id,
+          name: def.name,
+          category: def.category,
+          samples: samples
+            .get(index)!
+            .filter((s): s is EvalSample => s !== null),
+        });
+      }
+    },
+    { shouldStop: () => abortErr !== null },
+  );
+  if (abortErr !== null) throw abortErr;
 
   return results;
 }

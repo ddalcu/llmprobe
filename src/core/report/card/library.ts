@@ -233,6 +233,7 @@ function runSummary(run: LibraryRun) {
     decode: r.bench?.decodeTokPerSec?.median ?? null,
     prefill: r.bench?.prefillTokPerSec?.median ?? null,
     ttft: r.bench?.ttftMs?.median ?? null,
+    durationMs: r.durationMs ?? null,
   };
 }
 
@@ -306,6 +307,7 @@ export function renderLibraryHtml(
         <option value="decode">Decode tok/s</option>
         <option value="prefill">Prefill tok/s</option>
         <option value="ttft">Time to first token</option>
+        <option value="time">Total time</option>
         <option value="capability">Model capability</option>
         <option value="conformance">Engine conformance</option>
         <option value="coverage">Coverage (Core→Ext→Front)</option>
@@ -337,6 +339,7 @@ export function renderLibraryHtml(
           <th scope="col" data-sort="decode" title="Steady-state decode throughput, tok/s — hardware-dependent">Decode <span class="sort-ind">↕</span></th>
           <th scope="col" data-sort="prefill" title="Prompt ingestion rate, tok/s — hardware-dependent">Prefill <span class="sort-ind">↕</span></th>
           <th scope="col" data-sort="ttft" title="Time to first token — lower is better">TTFT <span class="sort-ind">↕</span></th>
+          <th scope="col" data-sort="time" title="Wall-clock time of the whole probe — lower is faster">Total time <span class="sort-ind">↕</span></th>
           <th scope="col" data-sort="date" class="active">Last run <span class="sort-ind">▼</span></th>
           <th scope="col">Actions</th>
         </tr>

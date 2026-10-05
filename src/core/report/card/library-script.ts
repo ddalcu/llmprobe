@@ -89,6 +89,7 @@ export const LIBRARY_SCRIPT = `
       case "decode": return row.decode;
       case "prefill": return row.prefill;
       case "ttft": return row.ttft;
+      case "time": return row.durationMs;
       case "date": {
         const t = row.recordedAt ? Date.parse(row.recordedAt) : NaN;
         return Number.isNaN(t) ? null : t;
@@ -135,6 +136,14 @@ export const LIBRARY_SCRIPT = `
   function fmtLatency(ms) {
     if (ms == null || Number.isNaN(ms)) return "—";
     return ms >= 1000 ? Math.round(ms / 100) / 10 + "s" : Math.round(ms) + "ms";
+  }
+
+  /** 569000 → "9m 29s"; a long run reads "1h 2m". */
+  function fmtTotal(ms) {
+    if (ms == null || Number.isNaN(ms)) return "—";
+    const s = Math.round(ms / 1000);
+    if (s >= 3600) return Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m";
+    return s >= 60 ? Math.floor(s / 60) + "m " + (s % 60) + "s" : s + "s";
   }
 
   /** "3h ago" for a fresh run, a plain date once it stops being news. */
@@ -201,7 +210,7 @@ export const LIBRARY_SCRIPT = `
 
     if (rows.length === 0) {
       tbody.innerHTML =
-        '<tr><td colspan="11"><div class="empty-filter">No models match your search. Clear the filter to see the full library.</div></td></tr>';
+        '<tr><td colspan="12"><div class="empty-filter">No models match your search. Clear the filter to see the full library.</div></td></tr>';
       return;
     }
 
@@ -237,6 +246,7 @@ export const LIBRARY_SCRIPT = `
         '<td class="perf-cell">' + fmtRate(row.decode) + "</td>" +
         '<td class="perf-cell">' + fmtRate(row.prefill) + "</td>" +
         '<td class="perf-cell">' + fmtLatency(row.ttft) + "</td>" +
+        '<td class="perf-cell">' + fmtTotal(row.durationMs) + "</td>" +
         '<td class="when-cell" title="' + escText(row.recordedAt || "") + '">' +
           escText(fmtWhen(row.recordedAt)) + "</td>" +
         '<td><div class="row-actions">' +
@@ -343,7 +353,7 @@ export const LIBRARY_SCRIPT = `
    * is a latency, so both want ascending. Every score wants the high end first.
    */
   function defaultDir(key) {
-    return key === "model" || key === "ttft" ? "asc" : "desc";
+    return key === "model" || key === "ttft" || key === "time" ? "asc" : "desc";
   }
 
   function setSort(key, dir) {

@@ -1,5 +1,5 @@
 import type { ResponseFormat, ToolDef, Turn } from "../core/adapter";
-import { tryParseJson } from "../core/assert";
+import { runConcurrent, tryParseJson } from "../core/assert";
 import { BudgetExceededError, TargetUnreachableError } from "../core/client";
 import type { RunContext } from "../core/context";
 import type {
@@ -354,17 +354,45 @@ export function scoreAgentic(tasks: AgenticTaskResult[]): AgenticScore {
 export async function runAgentic(
   ctx: RunContext,
   onProgress?: (result: AgenticTaskResult) => void,
+  opts?: { concurrency?: number },
 ): Promise<AgenticScore> {
-  const results: AgenticTaskResult[] = [];
   // The tool-use scenarios are many short tasks; --full only.
   const tasks =
     ctx.depth === "full"
       ? [...TASKS, ...SCENARIO_TASKS, ...HARD_SCENARIO_TASKS]
       : TASKS;
-  for (const task of tasks) {
-    const result = await runAgenticTask(ctx, task);
-    results.push(result);
-    onProgress?.(result);
-  }
-  return scoreAgentic(results);
+  const concurrency = opts?.concurrency ?? 1;
+  // Tasks share nothing (each copies its own workspace), so they run through
+  // the pool; an in-flight task holds one step's output budget, as in the
+  // reasoning evals. The first abort stops new dispatch, in-flight tasks
+  // settle, then it is rethrown.
+  let abortErr: unknown = null;
+  const results = await runConcurrent<AgenticTaskResult | null>(
+    tasks.length,
+    concurrency,
+    async (i) => {
+      if (concurrency > 1) ctx.client.reserveOutput(STEP_MAX_TOKENS);
+      try {
+        const result = await runAgenticTask(ctx, tasks[i]!);
+        onProgress?.(result);
+        return result;
+      } catch (err) {
+        if (
+          err instanceof BudgetExceededError ||
+          err instanceof TargetUnreachableError
+        ) {
+          abortErr ??= err;
+          return null;
+        }
+        throw err;
+      } finally {
+        if (concurrency > 1) ctx.client.releaseOutput(STEP_MAX_TOKENS);
+      }
+    },
+    { shouldStop: () => abortErr !== null },
+  );
+  if (abortErr !== null) throw abortErr;
+  return scoreAgentic(
+    results.filter((r): r is AgenticTaskResult => r !== null),
+  );
 }

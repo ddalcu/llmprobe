@@ -23,7 +23,7 @@ export const COMPARE_PICKER_STYLE = `
 /* Spreadsheet-style freeze row once pickers scroll away */
 .compare-sticky {
   position: fixed; left: 0; right: 0; top: 0; z-index: 40; display: none;
-  padding: 0 16px; background: rgba(255,255,255,.94); border-bottom: 1px solid var(--line);
+  padding: 0 16px; background: var(--sticky-bg); border-bottom: 1px solid var(--line);
 }
 .compare-sticky.visible { display: block; }
 .compare-sticky-inner {
@@ -39,8 +39,8 @@ export const COMPARE_PICKER_STYLE = `
 @media (max-width: 720px) {
   .compare-sticky-inner { grid-template-columns: 72px repeat(var(--n, 2), minmax(0, 1fr)); }
 }
-/* Compare page: timing curves left, score bars right. */
+/* Compare page: charts fill a 2-column grid row by row; legend one run per line. */
 .ctx-charts { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
-.chart-col { display: grid; gap: 6px; min-width: 0; }
+.chart-legend { flex-direction: column; gap: 2px; }
 @media (max-width: 720px) { .ctx-charts { grid-template-columns: 1fr; } }
 `;

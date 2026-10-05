@@ -1,6 +1,7 @@
 import type { JsonReport } from "../json";
 import { fmtTokensK } from "../html";
 import { normalizeJsonReport } from "../json";
+import { CHART_TIP_SCRIPT } from "./chart-tip";
 import { CARD_STYLE } from "./style.css";
 import { COMPARE_SCRIPT } from "./compare-script";
 import { COMPARE_PICKER_STYLE } from "./compare-style";
@@ -15,8 +16,6 @@ import {
   shortModel,
   tier,
 } from "./shared";
-
-const SERIES = ["#1f6feb", "#0d7a45", "#c98a00", "#9b59b6", "#e05a3c"];
 
 export interface CompareWorkbenchInput {
   label: string;
@@ -167,6 +166,7 @@ export function renderCompareWorkbenchHtml(
 <title>llmprobe · compare models</title>
 <style>${CARD_STYLE}</style>
 <style>${COMPARE_PICKER_STYLE}</style>
+<script>${CHART_TIP_SCRIPT}</script>
 </head>
 <body>
 <div class="wrap">
@@ -207,7 +207,7 @@ export function renderCompareWorkbenchHtml(
     <span>Never a blended overall score</span>
   </footer>
 </div>
-<script>window.__COMPARE__=${embedJson(catalog)};window.__CAT_LABELS__=${embedJson(CATEGORY_LABELS)};window.__SERIES__=${embedJson(SERIES)};</script>
+<script>window.__COMPARE__=${embedJson(catalog)};window.__CAT_LABELS__=${embedJson(CATEGORY_LABELS)};</script>
 <script>${COMPARE_SCRIPT}</script>
 </body>
 </html>`;

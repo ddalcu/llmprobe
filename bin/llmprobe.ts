@@ -1012,16 +1012,20 @@ async function probeModel(
         `${c.gray("agentic (multi-step tool tasks in a simulated workspace)...")}`,
       );
       try {
-        agentic = await runAgentic(ctx, (result) => {
-          const icon = result.passed ? c.green("✓") : c.red("✗");
-          const steps = c.gray(
-            `${result.steps} step${result.steps === 1 ? "" : "s"}`,
-          );
-          log(`  ${icon} ${result.name} ${steps}`);
-          if (!result.passed && result.detail) {
-            log(`      ${c.red("→")} ${c.gray(result.detail)}`);
-          }
-        });
+        agentic = await runAgentic(
+          ctx,
+          (result) => {
+            const icon = result.passed ? c.green("✓") : c.red("✗");
+            const steps = c.gray(
+              `${result.steps} step${result.steps === 1 ? "" : "s"}`,
+            );
+            log(`  ${icon} ${result.name} ${steps}`);
+            if (!result.passed && result.detail) {
+              log(`      ${c.red("→")} ${c.gray(result.detail)}`);
+            }
+          },
+          { concurrency: args.concurrency },
+        );
       } catch (err) {
         if (err instanceof BudgetExceededError) {
           budgetHit = true;

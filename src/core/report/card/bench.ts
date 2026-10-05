@@ -152,7 +152,7 @@ export function lineChartSvg(
       const dots = pts
         .map(
           (p) =>
-            `<circle cx="${r1(sx(p.x))}" cy="${r1(sy(p.y))}" r="3" fill="${s.color}"><title>${esc(s.label)} · ${fmtTokensK(p.x)} tok → ${r1(p.y)} ${esc(unit)}</title></circle>`,
+            `<circle class="pt" cx="${r1(sx(p.x))}" cy="${r1(sy(p.y))}" r="3" fill="${s.color}" data-run="${esc(s.label)}" data-sub="${fmtTokensK(p.x)} tokens" data-val="${esc(`${r1(p.y).toLocaleString("en-US")} ${unit}`)}"/>`,
         )
         .join("");
       return `<polyline points="${d}" fill="none" stroke="${s.color}" stroke-width="2"/>${dots}`;

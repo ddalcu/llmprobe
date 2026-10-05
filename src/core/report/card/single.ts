@@ -2,6 +2,7 @@ import type { JsonReport, ReportRunScope } from "../json";
 import { normalizeJsonReport } from "../json";
 import { benchSection } from "./bench";
 import { reasoningSection } from "./reasoning";
+import { CHART_TIP_SCRIPT } from "./chart-tip";
 import { CARD_STYLE } from "./style.css";
 import { engineSettingsSummary } from "../../engine-settings";
 import { REPORT_SCRIPT } from "./report-script";
@@ -153,6 +154,15 @@ export function renderCardHtml(
   const notRunReasons = [
     ...new Set(notRun.map((key) => phases?.[key]?.reason).filter(Boolean)),
   ] as string[];
+  // A phase the run started but never finished (the target died mid-run)
+  // scores 0 and says so, instead of vanishing as "not measured".
+  const failedWhy = (key: keyof ReportRunScope["phases"]): string | null =>
+    phases?.[key]?.status === "failed"
+      ? `failed — ${report.incomplete ?? phases[key]!.reason ?? "no result"}`
+      : null;
+  const incompleteBanner = report.incomplete
+    ? `<div class="incomplete" role="alert">✗ Incomplete run — ${esc(report.incomplete)}. Phases that did not finish are marked failed and count as 0.</div>`
+    : "";
   const scopeNote =
     notRun.length > 0
       ? `<p class="fine scope-note">Not run in this probe: ${notRun.join(", ")}${
@@ -290,7 +300,9 @@ export function renderCardHtml(
           })
           .join("")}</tbody>
       </table>`
-    : `<p class="fine">Agentic not measured in this run.</p>`;
+    : failedWhy("agentic")
+      ? `<p class="fine critical">✗ ${esc(failedWhy("agentic")!)}</p>`
+      : `<p class="fine">Agentic not measured in this run.</p>`;
 
   const fidSlices = fidelity
     ? fidelity.slices
@@ -358,7 +370,9 @@ export function renderCardHtml(
           </div>`;
         })
         .join("")
-    : `<p class="fine">Fidelity not measured in this run.</p>`;
+    : failedWhy("fidelity")
+      ? `<p class="fine critical">✗ ${esc(failedWhy("fidelity")!)}</p>`
+      : `<p class="fine">Fidelity not measured in this run.</p>`;
 
   const confRows = confTableRows(report);
   const boot = { confRows };
@@ -436,9 +450,13 @@ export function renderCardHtml(
           [
             "agentic",
             "Agentic",
-            agenticTone,
-            agentic ? `${agentic.passed}/${agentic.total}` : "—",
-            agentic ? "tasks passed" : "not measured",
+            agentic ? agenticTone : failedWhy("agentic") ? "critical" : "",
+            agentic
+              ? `${agentic.passed}/${agentic.total}`
+              : failedWhy("agentic")
+                ? "0"
+                : "—",
+            agentic ? "tasks passed" : (failedWhy("agentic") ?? "not measured"),
             "Harder multi-step bar, never blended into capability",
           ],
         ] as Array<[string, string, string, string, string, string]>)
@@ -448,11 +466,15 @@ export function renderCardHtml(
           [
             "fidelity",
             "Engine fidelity",
-            fidelity ? toneForPct(fidelity.pct) : "",
-            fidelity ? `${fidelity.pct}%` : "—",
+            fidelity
+              ? toneForPct(fidelity.pct)
+              : failedWhy("fidelity")
+                ? "critical"
+                : "",
+            fidelity ? `${fidelity.pct}%` : failedWhy("fidelity") ? "0%" : "—",
             fidelity
               ? `${fidelity.slices.filter((x) => x.measured).length}/${fidelity.slices.length} slices measured`
-              : "not measured",
+              : (failedWhy("fidelity") ?? "not measured"),
             "Same model only: holds the model constant so the number is the engine",
           ],
         ] as Array<[string, string, string, string, string, string]>)
@@ -471,6 +493,18 @@ export function renderCardHtml(
           ],
         ] as Array<[string, string, string, string, string, string]>)
       : []),
+    ...(!bench && failedWhy("performance")
+      ? ([
+          [
+            "performance",
+            "Performance",
+            "critical",
+            "0 tok/s",
+            failedWhy("performance")!,
+            "Informational, hardware-dependent, never scored",
+          ],
+        ] as Array<[string, string, string, string, string, string]>)
+      : []),
     ...(reasoning
       ? ([
           [
@@ -483,6 +517,16 @@ export function renderCardHtml(
           ],
         ] as Array<[string, string, string, string, string, string]>)
       : []),
+    [
+      "overview",
+      "Total time",
+      "",
+      fmtDuration(report.durationMs) ?? "—",
+      report.usage
+        ? `${fmtTokens(report.usage.inputTokens + report.usage.outputTokens)} tokens (${fmtTokens(report.usage.inputTokens)} in · ${fmtTokens(report.usage.outputTokens)} out)`
+        : "wall-clock",
+      "Wall-clock time of the whole probe, all phases",
+    ],
   ];
   const summaryTable = `<table class="summary" aria-label="Scores">
     <thead><tr><th>Score</th><th>Value</th><th>Detail</th><th>What it means</th></tr></thead>
@@ -580,7 +624,7 @@ export function renderCardHtml(
     ? `    <section class="section" id="agentic">
       <div class="section-head">
         <h2>Agentic <span class="tag">model</span></h2>
-        <div class="score ${agentic ? (agentic.passed === agentic.total ? "good" : "caution") : ""}">${agentic ? `${agentic.passed}/${agentic.total} tasks` : "—"}</div>
+        <div class="score ${agentic ? (agentic.passed === agentic.total ? "good" : "caution") : failedWhy("agentic") ? "critical" : ""}">${agentic ? `${agentic.passed}/${agentic.total} tasks` : failedWhy("agentic") ? "0 tasks" : "—"}</div>
       </div>
       <p class="lede">Multi-step tool use in a simulated workspace — harder than the capability floor, never blended into it.</p>
       ${tasks}
@@ -591,7 +635,7 @@ export function renderCardHtml(
     ? `    <section class="section" id="fidelity">
       <div class="section-head">
         <h2>Engine fidelity <span class="tag">engine</span></h2>
-        <div class="score ${fidelity ? toneForPct(fidelity.pct) : ""}">${fidelity ? `${fidelity.pct}%` : "—"}</div>
+        <div class="score ${fidelity ? toneForPct(fidelity.pct) : failedWhy("fidelity") ? "critical" : ""}">${fidelity ? `${fidelity.pct}%` : failedWhy("fidelity") ? "0%" : "—"}</div>
       </div>
       <p class="lede">Same-model comparisons only. Click a slice to see what was measured. Unmeasured slices are named — never zeroed.</p>
       ${fidSlices}
@@ -603,7 +647,17 @@ export function renderCardHtml(
     </section>`
     : "";
 
-  const performanceSection = bench ? benchSection(bench) : "";
+  const performanceSection = bench
+    ? benchSection(bench)
+    : failedWhy("performance")
+      ? `    <section class="section" id="performance">
+      <div class="section-head">
+        <h2>Performance <span class="tag">engine</span></h2>
+        <div class="score critical">0 tok/s</div>
+      </div>
+      <p class="fine critical">✗ ${esc(failedWhy("performance")!)}</p>
+    </section>`
+      : "";
   const reasoningSectionHtml = report.reasoning
     ? reasoningSection(report.reasoning)
     : "";
@@ -615,6 +669,7 @@ export function renderCardHtml(
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>llmprobe · ${esc(shortModel(model))}</title>
 <style>${CARD_STYLE}</style>
+<script>${CHART_TIP_SCRIPT}</script>
 </head>
 <body>
 <div class="wrap">
@@ -636,8 +691,9 @@ export function renderCardHtml(
     </div>
     <nav class="nav-links" aria-label="Reports">${nav}</nav>
   </header>
+  ${incompleteBanner}
 
-  <div class="overview-label">
+  <div class="overview-label" id="overview">
     <h2>Overview</h2>
     <p>${
       ran("conformance") && ran("capability")

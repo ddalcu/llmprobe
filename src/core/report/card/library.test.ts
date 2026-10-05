@@ -222,6 +222,20 @@ describe("library auto-sync", () => {
     );
   });
 
+  test("the index shows each run's total time", () => {
+    const dir = mkdtempSync(join(tmpdir(), "llmprobe-time-"));
+    const run = sample("timed-model", "http://localhost:1/v1");
+    run.durationMs = 569000;
+    writeFileSync(join(dir, "timed.json"), `${JSON.stringify(run)}\n`);
+
+    syncLibrary(dir);
+    const html = readFileSync(join(dir, "index.html"), "utf8");
+    const catalog = JSON.parse(readFileSync(join(dir, "library.json"), "utf8"));
+
+    expect(html).toContain("Total time");
+    expect(catalog.runs[0].durationMs).toBe(569000);
+  });
+
   test("performance columns read null, not zero, when a run had no benchmark", () => {
     const dir = mkdtempSync(join(tmpdir(), "llmprobe-bench-"));
 

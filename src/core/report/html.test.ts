@@ -342,6 +342,33 @@ describe("renderHtml — benchmark runs", () => {
     expect(html).toContain("benchmark-only run");
   });
 
+  test("a run the target died in is flagged, with unfinished phases scored 0", () => {
+    const report = sampleReport();
+    report.version = 2;
+    report.incomplete = "target unreachable at /chat/completions: terminated";
+    delete report.agentic;
+    delete report.fidelity;
+    const failed = { status: "failed" as const, reason: "no score" };
+    report.run = {
+      ...benchOnlyReport().run!,
+      mode: "probe",
+      phases: {
+        ...benchOnlyReport().run!.phases,
+        agentic: failed,
+        fidelity: failed,
+        performance: failed,
+      },
+    };
+    const html = renderHtml(report);
+
+    expect(html).toContain("Incomplete run");
+    expect(html).toContain("target unreachable at /chat/completions");
+    expect(html).toContain('id="agentic"');
+    expect(html).toContain("0 tasks");
+    expect(html).toContain("0 tok/s");
+    expect(html).toMatch(/✗ failed — target unreachable/);
+  });
+
   test("a full run keeps every measured section", () => {
     const html = renderHtml(sampleReport());
 
