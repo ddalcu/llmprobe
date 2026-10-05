@@ -204,7 +204,7 @@ describe("renderBenchmarkComparisonHtml", () => {
   });
 
   test("runs with no benchmark still compare on the scored cards", () => {
-    // --compare must not require --bench: coverage and conformance are the
+    // --compare must not require benchmark data: coverage and conformance are the
     // hardware-independent half and are worth comparing on their own.
     const html = renderBenchmarkComparisonHtml([
       { label: "A", report: report() },

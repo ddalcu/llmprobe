@@ -22,7 +22,7 @@ export interface RunConfig {
    */
   reasoningHeadroom: number;
   /**
-   * Sampling for --bench requests. Absent means greedy (temperature 0). Set
+   * Sampling for benchmark requests. Absent means greedy (temperature 0). Set
    * from a --sampling preset so the benchmark can exercise the engine's real
    * sampling path instead of the greedy shortcut.
    */

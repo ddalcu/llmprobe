@@ -110,7 +110,7 @@ export interface JsonReport {
   agentic?: RunReport["agentic"];
   /** Engine-fidelity card; present unless the run was --quick. */
   fidelity?: RunReport["fidelity"];
-  /** Informational performance numbers; present only when --bench ran. */
+  /** Informational performance numbers; present only when the benchmark ran. */
   bench?: RunReport["bench"];
   /** Reasoning accuracy; present only when --eval ran. */
   reasoning?: RunReport["reasoning"];

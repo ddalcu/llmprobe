@@ -125,7 +125,7 @@ Engines also differ on whether thinking is on by default (mlx-serve ships it off
 
 Engine defaults are not what llmprobe measures, though. Every request in the run, conformance, capability, agentic, fidelity, bench and eval alike, carries the same thinking effort, `medium` unless `--reasoning off|low|high|default` says otherwise (or a vendor level such as `xhigh`, passed through as-is on chat and Responses and budgeted like high on Messages), in the surface's own vocabulary (`reasoning_effort` on chat, `reasoning.effort` on Responses, a `thinking` budget on Messages). Two engines serving the same model are then compared at one thinking setting instead of at whatever each template ships. The effort is settled once at startup: an engine that 400s the param runs bare and the banner and report say so; `off` on a thinking model is verified, and if the engine accepts `reasoning_effort: "none"` but keeps thinking (mlx-serve, MTPLX) the run falls back to the vendor `chat_template_kwargs: {enable_thinking: false}` and says so, or flags the run as still thinking when nothing works. Only the probes that measure the engine's own default, the reasoning-channel probe's first rung and the `chat_template_kwargs` probe, run without it. `--reasoning default` restores engine-as-shipped for the whole run.
 
-## Performance benchmark (`--bench`)
+## Performance benchmark
 
 On by default (skip with `--no-bench`), informational, and **never scored** — a slow engine isn't a non-conformant one, so this is a fourth section that never touches the three cards or the exit code.
 
@@ -263,7 +263,7 @@ other.
 
 The table sorts newest-first by default — the run you just did is row 1 — and
 every column is sortable: coverage, conformance, capability, agentic, and the
-`--bench` numbers (decode tok/s, prefill tok/s, TTFT). Picking a metric sorts it
+benchmark numbers (decode tok/s, prefill tok/s, TTFT). Picking a metric sorts it
 best-first, which for TTFT means ascending. Runs with no benchmark read `—` and
 sink to the bottom rather than ranking as the slowest engine you own. Click a
 model name (or **View**) to open its report card.
@@ -286,7 +286,7 @@ model name (or **View**) to open its report card.
 `--html` is a pure export: it writes that one file and touches nothing else.
 
 ```bash
-llmprobe localhost:8080 --bench --html report.html
+llmprobe localhost:8080 --html report.html
 ```
 
 `--bench-only` runs the benchmark and nothing else — no conformance, evals, agentic or fidelity. Surface discovery still runs, because it costs no tokens and the benchmark needs to know which chat-shaped surface to measure through. The terminal prints the PERFORMANCE block alone rather than three empty cards, and a saved report from such a run reports its unrun sections as _not measured_ rather than as zero, so a comparison never crowns the run that simply did more of the suite.

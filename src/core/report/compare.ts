@@ -684,7 +684,7 @@ export function renderBenchmarkComparisonHtml(
     </section>`
       : `<section>
       <h2>Performance vs context</h2>
-      <div class="fineprint">No run carries benchmark data — re-run with <code>--bench</code> to compare curves.</div>
+      <div class="fineprint">No run carries benchmark data — re-run without <code>--no-bench</code> to compare curves.</div>
     </section>`;
 
   const runs = inputs

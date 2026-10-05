@@ -108,7 +108,7 @@ interface Args {
   bench: boolean;
   /** Run the benchmark and nothing else — no conformance, evals, agentic or fidelity. */
   benchOnly: boolean;
-  /** Named --sampling preset for --bench; absent means greedy (temperature 0). */
+  /** Named --sampling preset for the benchmark; absent means greedy (temperature 0). */
   sampling?: string;
   /** Reasoning accuracy eval (GPQA / SuperGPQA / AIME / COMPSEC subsets); opt-in. */
   eval: boolean;
@@ -233,9 +233,6 @@ function parseArgs(argv: string[]): Args {
         break;
       case "--markdown":
         args.markdown = true;
-        break;
-      case "--bench":
-        args.bench = true;
         break;
       case "--no-bench":
         args.bench = false;
@@ -456,9 +453,8 @@ Options:
       --quick           Surface probe + core smoke tests only
       --full            Everything, including the slow tests (long context,
                         caching) and the tool-use scenarios
-      --bench           Performance benchmark: decode tok/s, TTFT, prefill,
-                        and an MTP/speculative-decoding probe (informational).
-                        On by default; --no-bench skips it
+      --no-bench        Skip the performance benchmark (decode tok/s, TTFT,
+                        prefill, MTP/speculative probe), which runs by default
       --bench-only      Run only the benchmark — no conformance, evals, agentic
                         or fidelity. Surface discovery still runs; it is free.
       --language-only   Collect 100 multilingual responses for offline review (12 languages).
@@ -494,7 +490,7 @@ Options:
                         back to their default and the report says so
       --concurrency <n> Questions / eval samples in flight at once (default: 1).
                         Speeds up --eval on engines that serve in parallel.
-                        With --bench, each context rung also runs as a burst
+                        In the benchmark, each context rung also runs as a burst
                         of n streams; the rest of the timing stays serial
       --sampling <p>    Sampling preset for benchmark and eval requests, to check the
                         engine off the greedy path. Not comparable to greedy
@@ -531,7 +527,7 @@ Options:
                         top-1 agreement and KL divergence of every run
                         against the first (same model weights only).
       --budget <n>      Hard ceiling on total tokens (paid endpoints)
-      --timeout <sec>   Per-request timeout (default: 60; --bench and --eval requests are
+      --timeout <sec>   Per-request timeout (default: 60; benchmark and --eval requests are
                         never timed out — a cold prefill takes what it takes)
       --no-color        Disable ANSI colour
   -v, --version         Print the llmprobe version

@@ -88,7 +88,7 @@ const PREFILL_PROMPT_BYTES = 40960;
 export const CONTEXT_RUNGS = [512, 4096, 8192, 16384, 32768, 65536];
 const rungName = (n: number): string =>
   n >= 1024 && n % 1024 === 0 ? `${n / 1024}k` : String(n);
-/** Context ladder — kept deliberately short so --bench stays quick. */
+/** Context ladder — kept deliberately short so the benchmark stays quick. */
 const CONTEXT_LADDER = CONTEXT_RUNGS.slice(0, 4);
 /** --full climbs higher — the interesting cliffs often appear past 16k. */
 const CONTEXT_LADDER_FULL = CONTEXT_RUNGS;

@@ -229,7 +229,7 @@ function runSummary(run: LibraryRun) {
         ? r.agentic.passed / r.agentic.total
         : null,
     fidelity: r.fidelity?.pct ?? null,
-    // Only present when --bench ran. Null, never zero: a run nobody
+    // Only present when the benchmark ran. Null, never zero: a run nobody
     // benchmarked must not rank as the slowest engine in the library.
     decode: r.bench?.decodeTokPerSec?.median ?? null,
     prefill: r.bench?.prefillTokPerSec?.median ?? null,
@@ -284,7 +284,7 @@ export function renderLibraryHtml(
     <ul>
       <li><strong>Surface coverage</strong> shows Core | Extended | Frontier (green ≥90%, yellow ≥70%, red below).</li>
       <li><strong>Conformance</strong> and <strong>Capability</strong> stay separate — never averaged into one score.</li>
-      <li><strong>Decode</strong>, <strong>Prefill</strong> and <strong>TTFT</strong> come from <code>--bench</code> runs only, and are hardware-dependent: compare them across engines on one machine, never across machines.</li>
+      <li><strong>Decode</strong>, <strong>Prefill</strong> and <strong>TTFT</strong> come only from runs that benchmarked (not <code>--no-bench</code>), and are hardware-dependent: compare them across engines on one machine, never across machines.</li>
       <li>Use <strong>Compare</strong> on two rows, then <strong>Compare models</strong> in the dock — or open <strong>Quick compare</strong>.</li>
       <li>Each probe with <code>--library</code> (or a save into this folder) refreshes the table automatically.</li>
     </ul>
