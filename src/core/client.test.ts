@@ -1,5 +1,5 @@
 import { createServer, type ServerResponse } from "node:http";
-import { AddressInfo } from "node:net";
+import { AddressInfo, createServer as createTcpServer } from "node:net";
 
 import { describe, expect, test } from "vitest";
 import { Agent, fetch as undiciFetch } from "undici";
@@ -134,6 +134,40 @@ describe("the no-deadline dispatcher", () => {
       }
       const response = await patient;
       expect(response.status).toBe(200);
+    } finally {
+      server.close();
+    }
+  });
+});
+
+describe("a large Connection: close body", () => {
+  test("read late is still read whole instead of crashing the process", async () => {
+    // undici 7's parser asserted `!paused` when the server's FIN landed on a
+    // body bigger than the stream buffer that nobody had drained yet — an
+    // uncatchable throw from a socket handler that killed the CLI on a 70 KB
+    // /v1/models. A raw socket server because node:http would never send the
+    // unframed close this needs; the pause before reading is the slow consumer.
+    const body = JSON.stringify({ data: "x".repeat(70_000) });
+    const server = createTcpServer((socket) => {
+      socket.once("data", () =>
+        socket.end(
+          `HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${body.length}\r\nConnection: close\r\n\r\n${body}`,
+        ),
+      );
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1/models`;
+
+    try {
+      for (let i = 0; i < 5; i++) {
+        const response = await undiciFetch(url, {
+          dispatcher: new Agent({ headersTimeout: 0, bodyTimeout: 0 }),
+        });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(await response.text()).toBe(body);
+      }
     } finally {
       server.close();
     }

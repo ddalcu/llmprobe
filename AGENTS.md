@@ -6,7 +6,7 @@
 
 ## Build, Test, and Development Commands
 
-- `npm ci` installs the lockfile-pinned dependencies (Node 20 or newer).
+- `npm ci` installs the lockfile-pinned dependencies (Node 22.19 or newer).
 - `npm test` runs all Vitest unit and end-to-end tests offline.
 - `npm run typecheck` checks strict TypeScript without emitting files.
 - `npm run prettier --write .` formats the repository; use `npx prettier --check . --ignore-unknown` to mirror CI.

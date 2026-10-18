@@ -30,7 +30,7 @@
     "NOTICE"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.19.0"
   },
   "scripts": {
     "prettier": "prettier",
@@ -54,6 +54,6 @@
   },
   "dependencies": {
     "chart.js": "^4.5.1",
-    "undici": "^7.29.0"
+    "undici": "^8.12.2"
   }
 }
