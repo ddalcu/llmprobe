@@ -47,6 +47,10 @@ export interface MockDefects {
   brokenUsageTotal?: boolean;
   /** Serialize tool-call arguments as an object rather than a JSON string. */
   toolArgsNotString?: boolean;
+  /** Leave an object argument declared as a oneOf union as its JSON text. */
+  unionArgsStringified?: boolean;
+  /** Relax any object reached through `$ref` to free-form output. */
+  refsNotEnforced?: boolean;
   /** Never emit a tool call, even under `tool_choice: "required"`. */
   neverCallsTools?: boolean;
   /** Accept a malformed body with 200 instead of rejecting it. */
@@ -331,6 +335,24 @@ function respondTo(body: any, defects: MockDefects) {
       };
     }
 
+    if (name === "run_command") {
+      const request = { action: "run", command: "ls" };
+      return {
+        toolCalls: [
+          {
+            name,
+            args: {
+              request: defects.unionArgsStringified
+                ? JSON.stringify(request)
+                : request,
+            },
+          },
+        ],
+        finishReason: "tool_calls",
+        outputTokens: 16,
+      };
+    }
+
     // The defect: a request that disabled parallel calls gets two anyway.
     if (defects.ignoresParallelDisable && body.parallel_tool_calls === false) {
       return {
@@ -373,6 +395,15 @@ function respondTo(body: any, defects: MockDefects) {
         content: JSON.stringify({ note }),
         finishReason: "stop",
         outputTokens: 40,
+      };
+    }
+    const pin = schema?.$defs?.Pin?.properties?.code?.enum?.[0];
+    if (typeof pin === "string") {
+      const code = defects.refsNotEnforced ? "free-form" : pin;
+      return {
+        content: JSON.stringify({ plain: { code }, nullable: { code } }),
+        finishReason: "stop",
+        outputTokens: 20,
       };
     }
     return {

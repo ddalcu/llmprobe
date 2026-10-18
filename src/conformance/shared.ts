@@ -19,10 +19,13 @@ import {
   DELIMITER_FILE_CONTENT,
   MARKER_SCHEMA,
   MARKER_STRING,
+  REF_CODE,
+  REF_SCHEMA,
   PERSON_SCHEMA,
   TIME_TOOL,
   TINY_PNG_DATA_URL,
   WEATHER_TOOL,
+  UNION_TOOL,
   WRITE_FILE_TOOL,
 } from "./fixtures";
 
@@ -1112,6 +1115,51 @@ export function sharedTests(
     });
 
     tests.push({
+      id: `${s}-structured-ref-enforced`,
+      name: `${adapter.label}: constrained output enforces schemas behind $ref`,
+      surface: s,
+      tier: "extended",
+      async run(ctx, a) {
+        const res = await ctx.send(s, {
+          turns: [
+            {
+              type: "user" as const,
+              text: "Return the JSON object required by the schema, with every field filled in.",
+            },
+          ],
+          responseFormat: {
+            type: "json_schema" as const,
+            name: "refs",
+            schema: REF_SCHEMA as unknown as Record<string, unknown>,
+          },
+          temperature: 0,
+          maxTokens: 256,
+        });
+        if (res.status >= 400) {
+          throw new Unsupported(`rejects json_schema with HTTP ${res.status}`);
+        }
+        const out = tryParseJson(res.reply.text).value as {
+          plain?: { code?: unknown };
+          nullable?: { code?: unknown } | null;
+        } | null;
+        // An engine that cannot follow a ref relaxes that node to free-form
+        // rather than failing, so the answer is valid JSON with the wrong code.
+        a.should(
+          `${s}-structured-ref-plain`,
+          "an object reached by $ref honours its enum",
+          out?.plain?.code === REF_CODE,
+          `content was: ${res.reply.text.slice(0, 160)}`,
+        );
+        a.should(
+          `${s}-structured-ref-nullable`,
+          "an object reached by anyOf [$ref, null] is null or honours its enum",
+          out?.nullable === null || out?.nullable?.code === REF_CODE,
+          `content was: ${res.reply.text.slice(0, 160)}`,
+        );
+      },
+    });
+
+    tests.push({
       id: `${s}-structured-terminates`,
       name: `${adapter.label}: constrained output terminates, cold and warm`,
       surface: s,
@@ -1164,6 +1212,47 @@ export function sharedTests(
             `content was: ${res.reply.text.slice(0, 160)}`,
           );
         }
+      },
+    });
+  }
+
+  if (adapter.capabilities.tools) {
+    tests.push({
+      id: `${s}-tool-args-union-object`,
+      name: `${adapter.label}: an object argument declared as a oneOf union arrives as an object`,
+      surface: s,
+      tier: "extended",
+      async run(ctx, a) {
+        const res = await ctx.send(s, {
+          turns: [
+            {
+              type: "user" as const,
+              text: "Call run_command to run the shell command `ls`.",
+            },
+          ],
+          tools: [UNION_TOOL],
+          toolChoice: { name: UNION_TOOL.name },
+          temperature: 0,
+          maxTokens: 128,
+        });
+        if (res.status >= 400) {
+          throw new Unsupported(`rejects the request with HTTP ${res.status}`);
+        }
+        const call = res.reply.toolCalls.find(
+          (c) => c.name === UNION_TOOL.name,
+        );
+        if (!call) throw new Inconclusive("no run_command call");
+        const args = tryParseJson(call.argsJson).value as {
+          request?: { command?: unknown } | string;
+        } | null;
+        // An engine that types text arguments from the schema leaves a union
+        // as the string it was written in, so the caller gets JSON inside JSON.
+        a.should(
+          `${s}-tool-args-union-object`,
+          "a oneOf-typed object argument is an object, not its JSON text",
+          typeof args?.request === "object" && args.request?.command === "ls",
+          `request was ${JSON.stringify(args?.request)}`,
+        );
       },
     });
   }

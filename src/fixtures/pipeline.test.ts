@@ -226,6 +226,36 @@ describe("pipeline against planted defects", () => {
     expect(failedIds(run.results)).toContain("chat-tool-args-string");
   });
 
+  test("catches a oneOf-typed object argument left as its JSON text", async () => {
+    // The engine types text arguments from the schema, and a union has no
+    // top-level `type` to type them by.
+    const bad = await probeAndRun({ unionArgsStringified: true });
+    const flagged = find(bad.results, "chat-tool-args-union-object")!;
+    expect(
+      flagged.assertions.filter((a) => !a.passed).map((a) => a.id),
+    ).toEqual(["chat-tool-args-union-object"]);
+
+    const good = await probeAndRun();
+    expect(find(good.results, "chat-tool-args-union-object")!.outcome).toBe(
+      "pass",
+    );
+  });
+
+  test("catches an object behind $ref relaxed to free-form", async () => {
+    // The engine accepts the schema and then enforces nothing under the ref,
+    // so the answer is valid JSON with a value the schema forbids.
+    const bad = await probeAndRun({ refsNotEnforced: true });
+    const flagged = find(bad.results, "chat-structured-ref-enforced")!;
+    expect(
+      flagged.assertions.filter((a) => !a.passed).map((a) => a.id),
+    ).toEqual(["chat-structured-ref-plain", "chat-structured-ref-nullable"]);
+
+    const good = await probeAndRun();
+    expect(find(good.results, "chat-structured-ref-enforced")!.outcome).toBe(
+      "pass",
+    );
+  });
+
   test("catches an engine that accepts a malformed body", async () => {
     const run = await probeAndRun({ acceptsMalformedBodies: true });
     expect(failedIds(run.results)).toContain("chat-error-status");

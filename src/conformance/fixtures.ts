@@ -79,6 +79,31 @@ export const MARKER_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+export const REF_CODE = "PIN-7Q";
+
+/**
+ * One enum behind `$ref`, reached plainly and through the nullable shape
+ * Pydantic and the OpenAI SDK emit for `Optional[Model]`. The enum pins the
+ * value, so any other code means the engine relaxed the referenced object.
+ */
+export const REF_SCHEMA = {
+  type: "object",
+  properties: {
+    plain: { $ref: "#/$defs/Pin" },
+    nullable: { anyOf: [{ $ref: "#/$defs/Pin" }, { type: "null" }] },
+  },
+  required: ["plain", "nullable"],
+  additionalProperties: false,
+  $defs: {
+    Pin: {
+      type: "object",
+      properties: { code: { type: "string", enum: [REF_CODE] } },
+      required: ["code"],
+      additionalProperties: false,
+    },
+  },
+} as const;
+
 export const WRITE_FILE_TOOL: ToolDef = {
   name: "write_file",
   description: "Write a text file.",
@@ -90,6 +115,38 @@ export const WRITE_FILE_TOOL: ToolDef = {
     },
     required: ["path", "content"],
     additionalProperties: false,
+  },
+};
+
+/**
+ * `request` is a discriminated union with no top-level `type`, so an engine
+ * that coerces text arguments by declared type has nothing to go on.
+ */
+export const UNION_TOOL: ToolDef = {
+  name: "run_command",
+  description: "Run or cancel a shell command.",
+  parameters: {
+    type: "object",
+    properties: {
+      request: {
+        oneOf: [
+          {
+            type: "object",
+            properties: {
+              action: { const: "run" },
+              command: { type: "string" },
+            },
+            required: ["action", "command"],
+          },
+          {
+            type: "object",
+            properties: { action: { const: "cancel" } },
+            required: ["action"],
+          },
+        ],
+      },
+    },
+    required: ["request"],
   },
 };
 
