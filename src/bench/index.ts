@@ -1,3 +1,6 @@
+import { runLongDecode } from "./long-decode";
+import { runAgentSession } from "./agent-session";
+import type { Turn } from "../core/adapter";
 import { tryParseJson } from "../core/assert";
 import { machineInfo } from "../core/machine";
 import {
@@ -26,6 +29,7 @@ import {
 } from "./corpus";
 import {
   type BenchStat,
+  type DeliveryFrame,
   type StepProfile,
   analyzeStepProfile,
   classifyBatching,
@@ -286,6 +290,8 @@ const cacheBust = (text: string): string =>
   `[probe ${CACHE_BUST_TAG}-${(cacheBustSeq++).toString(36)}] ${text}`;
 
 interface RunSample {
+  textFrames: DeliveryFrame[];
+  finishReason: string | null;
   ttftMs: number | null;
   decodeTokPerSec: number | null;
   prefillTokPerSec: number | null;
@@ -297,6 +303,7 @@ interface RunSample {
   wallMs: number;
   /** What the model said — needed to check an echo actually echoed. */
   text: string;
+  reasoningText: string | null;
   /** Tokens per decode step, read off when the stream's frames arrived. */
   stepProfile: StepProfile;
   /** True when frame sizes say the server coalesced its deltas. */
@@ -308,6 +315,8 @@ interface RunSample {
 }
 
 const failedSample = (error: string): RunSample => ({
+  textFrames: [],
+  finishReason: null,
   ttftMs: null,
   decodeTokPerSec: null,
   prefillTokPerSec: null,
@@ -316,6 +325,7 @@ const failedSample = (error: string): RunSample => ({
   cachedInputTokens: null,
   wallMs: 0,
   text: "",
+  reasoningText: null,
   stepProfile: { tokensPerStep: null, steps: null, frames: 0, note: error },
   streamCoalesced: false,
   streamNote: null,
@@ -348,7 +358,7 @@ function errorFromBody(status: number, raw: string): string {
 async function timedRun(
   ctx: RunContext,
   surface: string,
-  text: string,
+  text: string | Turn[],
   maxTokens: number,
   extra?: Record<string, unknown>,
   system?: string,
@@ -359,7 +369,7 @@ async function timedRun(
     ...adapter.buildBody(
       {
         ...(system !== undefined ? { system } : {}),
-        turns: [{ type: "user", text }],
+        turns: typeof text === "string" ? [{ type: "user", text }] : text,
         temperature: sampling?.temperature ?? 0,
         ...(sampling?.topP !== undefined ? { topP: sampling.topP } : {}),
         maxTokens,
@@ -432,6 +442,11 @@ async function timedRun(
   const delivery = deliveryRate(textFrames, reply.usage.outputTokens);
 
   return {
+    textFrames: textFrames.map((frame) => ({
+      ...frame,
+      timeMs: frame.timeMs - timed.startMs,
+    })),
+    finishReason: reply.finishReason,
     ttftMs,
     decodeTokPerSec: delivery.rate,
     // Prefill: prompt tokens divided by time-to-first-token — the standard
@@ -443,11 +458,14 @@ async function timedRun(
     cachedInputTokens: reply.usage.cachedInputTokens ?? null,
     wallMs: timed.endMs - timed.startMs,
     text: reply.text,
+    reasoningText: reply.reasoningText,
     stepProfile: analyzeStepProfile(textFrameTimes, reply.usage.outputTokens),
     streamCoalesced: delivery.coalesced,
     streamNote: delivery.note,
   };
 }
+
+export type TimedRun = typeof timedRun;
 
 /** How `--reasoning` was enforced, when it took more than sending the param. */
 export function reasoningNoteFor(config: RunConfig): string | null {
@@ -861,6 +879,43 @@ export async function runBenchmark(
 ): Promise<BenchReport | null> {
   const surface = outerCtx.evalSurface;
   if (!surface) return null;
+  if (outerCtx.config.longDecode || outerCtx.config.agentSession) {
+    const workload = outerCtx.config.agentSession
+      ? {
+          agentSession: await runAgentSession(
+            outerCtx,
+            timedRun,
+            onProgress,
+            onSample,
+          ),
+        }
+      : {
+          longDecode: await runLongDecode(
+            outerCtx,
+            timedRun,
+            onProgress,
+            onSample,
+          ),
+        };
+    return {
+      ...workload,
+      decodeTokPerSec: null,
+      streamCaveat: null,
+      samplingNote: outerCtx.config.benchSampling
+        ? `sampled with the "${outerCtx.config.benchSampling.name}" preset — not comparable to greedy runs`
+        : null,
+      reasoningNote: reasoningNoteFor(outerCtx.config),
+      ttftMs: null,
+      prefillTokPerSec: null,
+      prefillPromptTokens: null,
+      speculative: null,
+      prefixCache: null,
+      batching: null,
+      loadDrift: null,
+      machine: machineInfo(),
+      contextScaling: null,
+    };
+  }
 
   // Can the engine be made to generate to exactly the cap? A model that stops
   // at 40 tokens and one that runs to 192 are otherwise compared on different
