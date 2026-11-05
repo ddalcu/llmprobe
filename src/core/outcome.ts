@@ -477,7 +477,68 @@ export interface MachineInfo {
   memGB: number;
 }
 
+export interface DecodeWindow {
+  /** Estimated output-token positions; chunks are never split into fake arrivals. */
+  startTokens: number;
+  endTokens: number;
+  /** Arrival times relative to the request start, including its prefill. */
+  startMs: number;
+  endMs: number;
+  tokPerSec: number;
+  complete: boolean;
+}
+
+export interface DecodeWindowSummary {
+  completeWindows: number;
+  firstTokPerSec: number;
+  lastTokPerSec: number;
+  meanTokPerSec: number;
+  medianTokPerSec: number;
+  minTokPerSec: number;
+  maxTokPerSec: number;
+  /** Last versus first complete window; null unless at least two exist. */
+  changePct: number | null;
+}
+
+export interface LongDecodeSample {
+  run: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cachedInputTokens: number | null;
+  ttftMs: number | null;
+  wallMs: number;
+  decodeTokPerSec: number | null;
+  endToEndTokPerSec: number | null;
+  finishReason: string | null;
+  reachedCap: boolean | null;
+  windows: DecodeWindow[];
+  summary: DecodeWindowSummary | null;
+  note: string | null;
+  error?: string;
+}
+
+export interface LongDecodeReport {
+  prefixSeed: string;
+  contextTokens: number;
+  /** Input usage from the discarded prefix warmup, including chat-template overhead. */
+  prefixInputTokens: number | null;
+  maxTokens: number;
+  windowTokens: number;
+  runs: number;
+  tokenMethod: string;
+  lengthNote: string;
+  sampling: { temperature: number; topP?: number };
+  reasoningEffort: string | null;
+  workloads: Array<{
+    id: "code" | "prose" | "predictable";
+    prompt: string;
+    samples: LongDecodeSample[];
+  }>;
+}
+
 export interface BenchReport {
+  /** Opt-in long-output workload; separate from the cold-cache mini benchmark. */
+  longDecode?: LongDecodeReport;
   /**
    * Steady-state decode throughput, tokens/sec, measured while generating code
    * — the workload these engines are actually asked to serve.

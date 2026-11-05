@@ -1,4 +1,5 @@
 import type { EvalCategory, RunReport } from "../outcome";
+import { longDecodeLines } from "./long-decode";
 
 const CATEGORY_LABELS: Record<EvalCategory, string> = {
   "tool-selection": "Tool selection",
@@ -190,6 +191,19 @@ export function renderMarkdown(report: RunReport): string {
         "> Reasoning model — Confidence reads the post-thinking distribution, so the score is a floor.",
       );
     }
+  }
+
+  if (report.bench?.longDecode) {
+    lines.push(
+      "",
+      "## Long-decode performance",
+      "",
+      "_Informational, not scored; same-machine comparisons only._",
+      "",
+    );
+    lines.push(
+      ...longDecodeLines(report.bench.longDecode).map((line) => `    ${line}`),
+    );
   }
 
   lines.push("");

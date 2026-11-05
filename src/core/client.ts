@@ -50,6 +50,13 @@ export interface RunConfig {
   benchSettleMs?: number;
   /** --concurrency above 1: each context rung also runs as a burst this wide. */
   benchStreams?: number;
+  /** --long-decode selects the shared-prefix, long-output benchmark. */
+  longDecode?: {
+    contextTokens: number;
+    maxTokens: number;
+    windowTokens: number;
+    prefixSeed?: string;
+  };
 }
 
 export interface BenchSampling {
