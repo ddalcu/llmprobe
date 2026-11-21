@@ -1,3 +1,5 @@
+import { describeCacheReuse, unseenPrefillRatio } from "../../../bench/stats";
+import type { CacheReuse } from "../../outcome";
 import type { JsonReport } from "../json";
 import { fmtTokensK } from "../html";
 import { normalizeJsonReport } from "../json";
@@ -50,6 +52,12 @@ function burstSummary(
     .replace(/^(x\d+) · /, "$1 ");
 }
 
+/** A cache-chain cell as the workbench ranks and words it. */
+const cacheCell = (c: CacheReuse | null | undefined) =>
+  c && c.ttftMs !== null
+    ? { ms: Math.round(c.ttftMs), text: describeCacheReuse(c) }
+    : null;
+
 function compareEntry(input: CompareWorkbenchInput, index: number) {
   const r = normalizeJsonReport(input.report);
   const core = tier(r, "core");
@@ -85,6 +93,17 @@ function compareEntry(input: CompareWorkbenchInput, index: number) {
       perStream: p.concurrent?.perStreamTokPerSec ?? null,
     })),
     burst: burstSummary(points),
+    prefillUnseen: r.bench?.prefillUnseenTokPerSec
+      ? {
+          tokPerSec: r.bench.prefillUnseenTokPerSec.median,
+          ratio: unseenPrefillRatio(
+            r.bench.prefillTokPerSec?.median,
+            r.bench.prefillUnseenTokPerSec.median,
+          ),
+        }
+      : null,
+    cacheOther: cacheCell(r.bench?.prefixCache?.otherQuestion),
+    cacheNext: cacheCell(r.bench?.prefixCache?.nextTurn),
     durationMs: r.durationMs ?? null,
     reasoning: r.reasoning
       ? {

@@ -1,5 +1,10 @@
 import type { BenchReport, BenchStat } from "../../outcome";
-import { describeConcurrent } from "../../../bench/stats";
+import {
+  describeCacheReuse,
+  describeConcurrent,
+  UNSEEN_PREFILL_SLOWER,
+  unseenPrefillRatio,
+} from "../../../bench/stats";
 import { esc, statusPill } from "./shared";
 
 /** 16384 → "16.4k". Matches the terminal report's context ladder. */
@@ -222,6 +227,21 @@ function contextChartsHtml(
   return charts ? `<div class="ctx-charts">${charts}</div>` : "";
 }
 
+/** Prefill of text the engine has not seen, against the repeated-text figure. */
+function unseenPrefillRow(bench: BenchReport): string {
+  const unseen = bench.prefillUnseenTokPerSec;
+  if (!unseen) return "";
+  const ratio = unseenPrefillRatio(
+    bench.prefillTokPerSec?.median,
+    unseen.median,
+  );
+  const against =
+    ratio === null
+      ? ""
+      : `; ${ratio}× the repeated text${ratio < UNSEEN_PREFILL_SLOWER ? " — prefill depends on content" : ""}`;
+  return `<tr><td>Prefill, unseen text</td><td>${statCell(unseen, "tok/s")}</td><td>${esc(`a new word sequence every run${against}`)}</td></tr>`;
+}
+
 /**
  * The four probes that answer yes/no questions about the engine rather than
  * producing a rate: does the prefix cache work, does it batch, does speculation
@@ -239,9 +259,18 @@ function signalRows(bench: BenchReport): string {
           (cache.cachedTokens != null
             ? `; usage reports ${cache.cachedTokens} of ${cache.promptTokens ?? "?"} prompt tokens cached`
             : "");
-    rows.push(
-      `<tr><td>Prefix cache</td><td>${statusPill(cache.verdict === "active" ? "pass" : cache.verdict === "none" ? "fail" : "not-probed")} ${esc(cache.verdict === "none" ? "not detected" : cache.verdict)}</td><td>${esc(detail)}</td></tr>`,
-    );
+    const row = (name: string, verdict: string, detail: string): string =>
+      `<tr><td>${name}</td><td>${statusPill(verdict === "active" ? "pass" : verdict === "none" ? "fail" : "not-probed")} ${esc(verdict === "none" ? "not detected" : verdict)}</td><td>${esc(detail)}</td></tr>`;
+    rows.push(row("Prefix cache", cache.verdict, detail));
+    for (const [name, cell] of [
+      ["another question", cache.otherQuestion],
+      ["next turn", cache.nextTurn],
+    ] as const) {
+      if (cell)
+        rows.push(
+          row(`Prefix cache: ${name}`, cell.verdict, describeCacheReuse(cell)),
+        );
+    }
   }
 
   const batch = bench.batching;
@@ -259,6 +288,12 @@ function signalRows(bench: BenchReport): string {
       .join(" · ");
     rows.push(
       `<tr><td>Concurrency (${batch.streams} streams)</td><td>${statusPill(batch.verdict === "batched" ? "pass" : batch.verdict === "unknown" ? "not-probed" : "partial")} ${esc(batch.verdict)}</td><td>${esc(detail || "no aggregate measured")}</td></tr>`,
+    );
+  }
+
+  for (const rung of bench.batchingSweep ?? []) {
+    rows.push(
+      `<tr><td>Concurrency x${rung.streams}</td><td>${statusPill(rung.note !== null ? "fail" : rung.verdict === "batched" ? "pass" : rung.verdict === "unknown" ? "not-probed" : "partial")} ${esc(rung.verdict)}</td><td>${esc(describeConcurrent(rung))}</td></tr>`,
     );
   }
 
@@ -365,6 +400,7 @@ export function benchSection(bench: BenchReport): string {
           <tr><td>Decode throughput</td><td>${statCell(bench.decodeTokPerSec, "tok/s")}</td><td>steady-state generation while writing code</td></tr>
           <tr><td>Time to first token</td><td>${statCell(bench.ttftMs, "ms")}</td><td>latency before the first generated token</td></tr>
           <tr><td>Prefill throughput</td><td>${statCell(bench.prefillTokPerSec, "tok/s")}</td><td>${bench.prefillPromptTokens ? `measured on a ${bench.prefillPromptTokens}-token prompt` : "prompt ingestion rate"}</td></tr>
+          ${unseenPrefillRow(bench)}
         </tbody>
       </table>
       ${signalTable}

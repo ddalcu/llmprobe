@@ -6,10 +6,12 @@ import {
   type RunConfig,
   TargetUnreachableError,
 } from "../core/client";
+import type { Turn } from "../core/adapter";
 import type { RunContext } from "../core/context";
 import type {
   BatchingResult,
   BenchReport,
+  ConcurrentRung,
   ContextPoint,
   ContextSpeculative,
   LoadDriftResult,
@@ -21,6 +23,7 @@ import {
   PLANTED_CONSTANT,
   PREDICTABLE_PASSAGE,
   buildCodeContextWithConstant,
+  buildUnseenText,
   echoedPassage,
   usedPlantedConstant,
 } from "./corpus";
@@ -29,6 +32,7 @@ import {
   type StepProfile,
   analyzeStepProfile,
   classifyBatching,
+  classifyCacheReuse,
   deliveryRate,
   classifyLoadDrift,
   classifyPrefixCache,
@@ -141,16 +145,35 @@ const TEMPLATE_TOKENS = 10;
 const CALIBRATION_FILLER_BYTES = 2048;
 
 /**
- * Server-feature checks: two probes, seven requests, no ladder. Both answer a
- * yes/no about the engine rather than charting a curve, so neither earns the
- * minutes a second ladder would cost.
+ * Server-feature checks: two probes, no ladder. Both answer yes/no questions
+ * about the engine rather than charting a curve, so neither earns the minutes
+ * a second ladder would cost.
+ *
+ * The cache chain's document is as long as the prefill prompt: a cache that
+ * restores at checkpoints some thousands of tokens apart resumes nothing on a
+ * short one, and would read as absent.
  */
-const PREFIX_CACHE_PROMPT_BYTES = 6144;
+const PREFIX_CACHE_PROMPT_BYTES = PREFILL_PROMPT_BYTES;
 /** Names the one probe that repeats a prompt deliberately. */
 export const PREFIX_CACHE_SEED =
   "Operations handbook, section on shift handover.";
-const BATCH_STREAMS = 4;
+const OK_INSTRUCTION = "\n\nReply with just the word: OK.";
+/** The chain's second question: long enough an answer to be worth not re-reading. */
+const CACHE_OTHER_QUESTION =
+  "\n\nIn three sentences, describe what the text above consists of.";
+const CACHE_FOLLOW_UP = "Now say the same in five words.";
+const CACHE_ANSWER_TOKENS = 96;
+/** Burst widths swept; the 4-wide entry is also the headline `batching`. */
+const BATCH_WIDTHS = [2, 4, 6, 8];
+const BATCH_HEADLINE = 4;
 const BATCH_GEN_TOKENS = 96;
+/**
+ * Framed as normalisation, not "repeat this": the latter reads as a
+ * verbatim-reproduction request and gets refused. The echo is the most
+ * speculation-friendly output there is, so a draft path shows at every width.
+ */
+const ECHO_SYSTEM =
+  "You are a text normaliser. Output the user's text unchanged.";
 
 /** One measured run, reported as it completes so the terminal is never blank. */
 export interface BenchSample {
@@ -293,6 +316,9 @@ interface RunSample {
   inputTokens: number | null;
   /** What usage said was served from cache, when the engine reports it. */
   cachedInputTokens: number | null;
+  reasoningTokens: number | null;
+  /** The reply carried reasoning, on its own channel or in the token count. */
+  reasoned: boolean;
   /** Whole-request wall clock — what concurrent throughput divides by. */
   wallMs: number;
   /** What the model said — needed to check an echo actually echoed. */
@@ -314,6 +340,8 @@ const failedSample = (error: string): RunSample => ({
   outputTokens: null,
   inputTokens: null,
   cachedInputTokens: null,
+  reasoningTokens: null,
+  reasoned: false,
   wallMs: 0,
   text: "",
   stepProfile: { tokensPerStep: null, steps: null, frames: 0, note: error },
@@ -341,14 +369,15 @@ function errorFromBody(status: number, raw: string): string {
 /**
  * One timed generation, reduced to the metrics we care about.
  *
- * Sends `text` exactly as given. Keeping prompts distinct from a prefix cache
- * is the caller's job, because only the caller knows whether a shared prefix
- * is an accident or the point — the context rungs share one deliberately.
+ * Sends `text` exactly as given: one user message, or a whole conversation.
+ * Keeping prompts distinct from a prefix cache is the caller's job, because
+ * only the caller knows whether a shared prefix is an accident or the point —
+ * the context rungs share one deliberately.
  */
 async function timedRun(
   ctx: RunContext,
   surface: string,
-  text: string,
+  text: string | Turn[],
   maxTokens: number,
   extra?: Record<string, unknown>,
   system?: string,
@@ -359,7 +388,7 @@ async function timedRun(
     ...adapter.buildBody(
       {
         ...(system !== undefined ? { system } : {}),
-        turns: [{ type: "user", text }],
+        turns: typeof text === "string" ? [{ type: "user", text }] : text,
         temperature: sampling?.temperature ?? 0,
         ...(sampling?.topP !== undefined ? { topP: sampling.topP } : {}),
         maxTokens,
@@ -441,6 +470,10 @@ async function timedRun(
     outputTokens: reply.usage.outputTokens,
     inputTokens: reply.usage.inputTokens,
     cachedInputTokens: reply.usage.cachedInputTokens ?? null,
+    reasoningTokens: reply.usage.reasoningTokens ?? null,
+    reasoned:
+      (reply.reasoningText ?? "") !== "" ||
+      (reply.usage.reasoningTokens ?? 0) > 0,
     wallMs: timed.endMs - timed.startMs,
     text: reply.text,
     stepProfile: analyzeStepProfile(textFrameTimes, reply.usage.outputTokens),
@@ -714,17 +747,8 @@ async function contextScaling(
         CONTEXT_GEN_TOKENS,
         single > 0 ? single : null,
       );
-      const failed = runs.filter((s) => s.error !== undefined);
-      const perStream = medianDecode(runs);
-      point.concurrent = {
-        ...result,
-        perStreamTokPerSec: perStream > 0 ? round1(perStream) : null,
-        note:
-          failed.length > 0
-            ? `${failed.length} of ${streams} streams failed: ${failed[0]!.error}`
-            : null,
-      };
-      burstAlive = failed.length === 0;
+      point.concurrent = concurrentRung(result, runs);
+      burstAlive = point.concurrent.note === null;
     } else if (streams > 1) {
       point.concurrent = null;
     }
@@ -739,21 +763,29 @@ async function contextScaling(
 }
 
 /**
- * Does the prefix cache save work? Same prompt twice, cold TTFT versus warm.
+ * Does the prefix cache save work? One document, four requests: cold, the same
+ * prompt again, another question under the document, then that conversation's
+ * next turn. Time to first token of each against the cold one.
+ *
+ * An exact repeat is the easy case. The other two are what a chat or an agent
+ * sends all day, and where engines differ: a prompt that leaves a cached one
+ * near its end, which state that cannot be truncated has to be rebuilt for,
+ * and a history carrying the answer the engine itself just generated.
  *
  * The one place in the suite that deliberately *wants* a cache hit — the rest
  * of the benchmark busts the cache on every request. Busted once and reused, so
- * the first request is genuinely cold even across llmprobe invocations while
- * the second is an exact repeat.
+ * the first request is genuinely cold even across llmprobe invocations.
  */
 async function prefixCacheProbe(
   ctx: RunContext,
   surface: string,
+  reasoningModel: boolean,
   onProgress?: (label: string) => void,
 ): Promise<PrefixCacheResult | null> {
-  const prompt =
-    cacheBust(buildLongPrefix(PREFIX_CACHE_SEED, PREFIX_CACHE_PROMPT_BYTES)) +
-    "\n\nReply with just the word: OK.";
+  const document = cacheBust(
+    buildLongPrefix(PREFIX_CACHE_SEED, PREFIX_CACHE_PROMPT_BYTES),
+  );
+  const prompt = document + OK_INSTRUCTION;
 
   onProgress?.("prefix cache cold");
   const cold = await timedRun(ctx, surface, prompt, PREFILL_TOKENS);
@@ -764,7 +796,7 @@ async function prefixCacheProbe(
   if (warm.error !== undefined) return null;
 
   const { speedup, verdict } = classifyPrefixCache(cold.ttftMs, warm.ttftMs);
-  return {
+  const result: PrefixCacheResult = {
     coldTtftMs: cold.ttftMs,
     warmTtftMs: warm.ttftMs,
     speedup,
@@ -772,6 +804,89 @@ async function prefixCacheProbe(
     promptTokens: warm.inputTokens,
     verdict,
   };
+  const reuse = (later: RunSample) => ({
+    ttftMs: later.ttftMs,
+    ...classifyCacheReuse(
+      { ttftMs: cold.ttftMs, promptTokens: cold.inputTokens },
+      { ttftMs: later.ttftMs, promptTokens: later.inputTokens },
+    ),
+    cachedTokens: later.cachedInputTokens,
+    promptTokens: later.inputTokens,
+  });
+
+  onProgress?.("prefix cache another question");
+  const asked = document + CACHE_OTHER_QUESTION;
+  const other = await timedRun(
+    ctx,
+    surface,
+    asked,
+    CACHE_ANSWER_TOKENS + (reasoningModel ? ctx.config.reasoningHeadroom : 0),
+  );
+  if (other.error !== undefined) return result;
+  result.otherQuestion = reuse(other);
+  // Thinking that ate the whole budget leaves no answer to carry forward.
+  if (other.text === "") return result;
+
+  onProgress?.("prefix cache next turn");
+  const next = await timedRun(
+    ctx,
+    surface,
+    [
+      { type: "user", text: asked },
+      { type: "assistant-text", text: other.text },
+      { type: "user", text: CACHE_FOLLOW_UP },
+    ],
+    PREFILL_TOKENS,
+  );
+  if (next.error !== undefined) return result;
+  result.nextTurn = {
+    ...reuse(next),
+    answerTokens:
+      other.outputTokens !== null
+        ? other.outputTokens - (other.reasoningTokens ?? 0)
+        : null,
+    pastAnswer:
+      next.cachedInputTokens !== null && other.inputTokens !== null
+        ? next.cachedInputTokens > other.inputTokens
+        : null,
+    answerHadReasoning: other.reasoned,
+  };
+  return result;
+}
+
+/**
+ * Prefill of text the engine has not seen: the prefill scenario again, with a
+ * new word sequence per run in place of its repeated sentence. No warmup, since
+ * that scenario just ran at this size and a warmup could only warm other text.
+ */
+async function unseenPrefill(
+  ctx: RunContext,
+  surface: string,
+  onSample?: (sample: BenchSample) => void,
+): Promise<RunSample[]> {
+  const k = ctx.config.benchRuns ?? K;
+  const samples: RunSample[] = [];
+  for (let i = 0; i < k; i += 1) {
+    const text = buildUnseenText(
+      `${CACHE_BUST_TAG}-${cacheBustSeq}`,
+      PREFILL_PROMPT_BYTES,
+    );
+    const sample = await timedRun(
+      ctx,
+      surface,
+      cacheBust(text) + OK_INSTRUCTION,
+      PREFILL_TOKENS,
+    );
+    samples.push(sample);
+    onSample?.({
+      label: `unseen prefill ${i + 1}/${k}`,
+      value: sample.prefillTokPerSec,
+      unit: "tok/s",
+      warmup: false,
+      error: sample.error,
+    });
+  }
+  return samples;
 }
 
 const round1 = (v: number | null): number | null =>
@@ -791,11 +906,19 @@ async function burst(
   prompts: string[],
   maxTokens: number,
   singleTokPerSec: number | null,
+  system?: string,
 ): Promise<{ result: BatchingResult; runs: RunSample[] }> {
   const streams = prompts.length;
   const startedMs = Date.now();
   const runs = await runConcurrent(streams, streams, (i) =>
-    timedRun(ctx, surface, prompts[i]!, maxTokens),
+    timedRun(
+      ctx,
+      surface,
+      prompts[i]!,
+      maxTokens,
+      undefined,
+      system !== undefined ? cacheBust(system) : undefined,
+    ),
   );
   const wallMs = Date.now() - startedMs;
 
@@ -824,32 +947,82 @@ async function burst(
   };
 }
 
-/** Batched or queued? One stream alone against a burst of four. */
+/** A burst's totals plus what each stream saw inside it and any failures. */
+function concurrentRung(
+  result: BatchingResult,
+  runs: RunSample[],
+): ConcurrentRung {
+  const failed = runs.filter((s) => s.error !== undefined);
+  const perStream = medianDecode(runs);
+  const rates = runs
+    .map((s) => s.decodeTokPerSec)
+    .filter((v): v is number => v !== null);
+  return {
+    ...result,
+    decodeSumTokPerSec:
+      failed.length === 0 && rates.length > 0
+        ? round1(rates.reduce((a, b) => a + b, 0))
+        : null,
+    perStreamTokPerSec: perStream > 0 ? round1(perStream) : null,
+    perStream: runs
+      .map((s) => s.decodeTokPerSec)
+      .filter((v): v is number => v !== null)
+      .map((v) => Math.round(v * 10) / 10)
+      .sort((a, b) => a - b),
+    note:
+      failed.length > 0
+        ? `${failed.length} of ${result.streams} streams failed: ${failed[0]!.error}`
+        : null,
+  };
+}
+
+/**
+ * Batched or queued? One stream alone, then bursts of 2/4/6/8. A rung is
+ * reported once its burst finishes; the sweep stops at the first failed burst
+ * since wider ones would only fail harder.
+ */
 async function batchingProbe(
   ctx: RunContext,
   surface: string,
   onProgress?: (label: string) => void,
-): Promise<BatchingResult | null> {
-  const ask = (i: number): string =>
-    cacheBust(
-      `Write a short descriptive paragraph. Subject number ${i}: ` +
-        "a harbour at dawn, a kite above a field, a ledger, a paper lantern.",
-    );
-
+  onSample?: (sample: BenchSample) => void,
+): Promise<ConcurrentRung[]> {
   onProgress?.("batching 1 stream");
-  const single = await timedRun(ctx, surface, ask(0), BATCH_GEN_TOKENS);
-  if (single.error !== undefined) return null;
-
-  onProgress?.(`batching ${BATCH_STREAMS} streams`);
-  const prompts = Array.from({ length: BATCH_STREAMS }, (_, i) => ask(i + 1));
-  const { result } = await burst(
+  const single = await timedRun(
     ctx,
     surface,
-    prompts,
+    PREDICTABLE_PASSAGE,
     BATCH_GEN_TOKENS,
-    tokensPerSecond(single.outputTokens, single.wallMs),
+    undefined,
+    cacheBust(ECHO_SYSTEM),
   );
-  return result;
+  if (single.error !== undefined) return [];
+  const singleRate = tokensPerSecond(single.outputTokens, single.wallMs);
+
+  const sweep: ConcurrentRung[] = [];
+  for (const width of BATCH_WIDTHS) {
+    onProgress?.(`batching ${width} streams`);
+    const prompts = Array.from({ length: width }, () => PREDICTABLE_PASSAGE);
+    const { result, runs } = await burst(
+      ctx,
+      surface,
+      prompts,
+      BATCH_GEN_TOKENS,
+      singleRate,
+      ECHO_SYSTEM,
+    );
+    const rung = concurrentRung(result, runs);
+    sweep.push(rung);
+    onSample?.({
+      label: `batching x${width}`,
+      value: rung.aggregateTokPerSec,
+      unit: "tok/s total",
+      warmup: false,
+      ...(rung.note !== null ? { error: rung.note } : {}),
+    });
+    if (rung.note !== null) break;
+  }
+  return sweep;
 }
 
 export async function runBenchmark(
@@ -917,7 +1090,7 @@ export async function runBenchmark(
     buildLongPrefix(
       "The archive records the following entry.",
       PREFILL_PROMPT_BYTES,
-    ) + "\n\nReply with just the word: OK.";
+    ) + OK_INSTRUCTION;
   const prefillSamples = await measure(
     ctx,
     surface,
@@ -927,6 +1100,7 @@ export async function runBenchmark(
     onSample,
     "prefill",
   );
+  const unseenSamples = await unseenPrefill(ctx, surface, onSample);
 
   // Speculative / MTP probe: predictable echo versus novel generation. Framed
   // as normalisation rather than "repeat this word for word": the latter reads
@@ -942,7 +1116,7 @@ export async function runBenchmark(
     onSample,
     "spec:predictable",
     undefined,
-    "You are a text normaliser. Output the user's text unchanged.",
+    ECHO_SYSTEM,
   );
   const predictable = echoRuns.filter(
     (s) => s.error !== undefined || echoedPassage(s.text),
@@ -998,8 +1172,15 @@ export async function runBenchmark(
       .find((v) => typeof v === "number") ?? null;
 
   // Server features: cheap yes/no checks, not curves.
-  const prefixCache = await prefixCacheProbe(ctx, surface, onProgress);
-  const batching = await batchingProbe(ctx, surface, onProgress);
+  const prefixCache = await prefixCacheProbe(
+    ctx,
+    surface,
+    reasoningModel,
+    onProgress,
+  );
+  const batchingSweep = await batchingProbe(ctx, surface, onProgress, onSample);
+  const batching =
+    batchingSweep.find((r) => r.streams === BATCH_HEADLINE) ?? null;
 
   const contextPoints = await contextScaling(ctx, surface, onProgress, onRung);
 
@@ -1078,9 +1259,15 @@ export async function runBenchmark(
     ttftMs: pick(decodeSamples, "ttftMs"),
     prefillTokPerSec: pick(prefillSamples, "prefillTokPerSec"),
     prefillPromptTokens,
+    prefillUnseenTokPerSec: pick(unseenSamples, "prefillTokPerSec"),
+    prefillUnseenPromptTokens:
+      unseenSamples
+        .map((s) => s.inputTokens)
+        .find((v) => typeof v === "number") ?? null,
     speculative,
     prefixCache,
     batching,
+    batchingSweep,
     loadDrift,
     machine: machineInfo(),
     contextScaling: contextPoints.length > 0 ? contextPoints : null,

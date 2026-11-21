@@ -61,6 +61,13 @@ const bench = (
     })),
   }) as JsonReport["bench"];
 
+const stat = (median: number) => ({
+  median,
+  min: median,
+  max: median,
+  samples: [median],
+});
+
 describe("renderComparisonHtml", () => {
   test("renders the interactive model-picker workbench", () => {
     const html = renderComparisonHtml([
@@ -108,6 +115,56 @@ describe("renderComparisonHtml", () => {
     expect(html).toContain("same-model--boxa-1234");
     expect(html).toContain("same-model--boxb-8080");
   });
+});
+
+test("the workbench carries the cache chain and the unseen-text prefill", () => {
+  const b = bench([[4096, 50]])!;
+  b.prefillTokPerSec = stat(4130);
+  b.prefillUnseenTokPerSec = stat(2243);
+  b.prefixCache = {
+    coldTtftMs: 2200,
+    warmTtftMs: 19,
+    speedup: 116.7,
+    cachedTokens: 9150,
+    promptTokens: 9151,
+    verdict: "active",
+    otherQuestion: {
+      ttftMs: 2190,
+      speedup: 1,
+      cachedTokens: 0,
+      promptTokens: 9155,
+      verdict: "none",
+    },
+    nextTurn: {
+      ttftMs: 164,
+      speedup: 13.6,
+      cachedTokens: 9154,
+      promptTokens: 9227,
+      verdict: "active",
+      answerTokens: 60,
+      pastAnswer: false,
+      answerHadReasoning: false,
+    },
+  };
+  const html = renderComparisonHtml([
+    { label: "a", report: report({ bench: b }) },
+    // A run saved before these existed carries nulls, never zeros.
+    { label: "b", report: report({ bench: bench([[4096, 50]]) }) },
+  ]);
+  expect(html).toContain('"prefillUnseen":{"tokPerSec":2243,"ratio":0.54}');
+  expect(html).toContain(
+    '"cacheOther":{"ms":2190,"text":"no reuse seen · 2.2s to first token (1×) · 0 of 9155 tokens cached"}',
+  );
+  expect(html).toMatch(
+    /"cacheNext":\{"ms":164,"text":"resumes[^"]*re-reads its own answer \(60 tokens\)"\}/,
+  );
+  expect(html).toContain(
+    '"prefillUnseen":null,"cacheOther":null,"cacheNext":null',
+  );
+  // The rows that show them.
+  expect(html).toContain("Prefill, unseen text");
+  expect(html).toContain("Cache: another question");
+  expect(html).toContain("Cache: next turn");
 });
 
 test("the workbench carries per-stream decode and where the burst ladder stopped", () => {
@@ -276,6 +333,69 @@ describe("renderBenchmarkComparisonHtml", () => {
       { label: "B", report: slow },
     ]);
     expect(html).toMatch(/510 ms vs best 255 ms[^"]*100% slower/);
+  });
+
+  test("the cache chain and the unseen-text prefill are rows of their own", () => {
+    const a = report({ bench: bench([[512, 44]]) });
+    const b = report({ bench: bench([[512, 44]]) });
+    const cache = {
+      coldTtftMs: 8560,
+      warmTtftMs: 250,
+      speedup: 34.2,
+      cachedTokens: 33_000,
+      promptTokens: 33_140,
+      verdict: "active" as const,
+    };
+    const cell = (ttftMs: number, verdict: "active" | "none") => ({
+      ttftMs,
+      speedup: Math.round((8560 / ttftMs) * 10) / 10,
+      cachedTokens: verdict === "active" ? 33_100 : 0,
+      promptTokens: 33_140,
+      verdict,
+    });
+    const turn = (ttftMs: number, pastAnswer: boolean) => ({
+      ...cell(ttftMs, "active"),
+      answerTokens: 90,
+      pastAnswer,
+      answerHadReasoning: false,
+    });
+    a.bench!.prefixCache = {
+      ...cache,
+      otherQuestion: cell(8560, "none"),
+      nextTurn: turn(250, false),
+    };
+    b.bench!.prefixCache = {
+      ...cache,
+      otherQuestion: cell(250, "active"),
+      nextTurn: turn(50, true),
+    };
+    a.bench!.prefillUnseenTokPerSec = stat(2243);
+    b.bench!.prefillUnseenTokPerSec = stat(3539);
+
+    const html = renderBenchmarkComparisonHtml([
+      { label: "A", report: a },
+      { label: "B", report: b },
+    ]);
+    expect(html).toContain("Prefill tok/s, unseen text");
+    expect(html).toMatch(/2243 tok\/s vs best 3539 tok\/s/);
+    expect(html).toContain("Cache: another question, ms");
+    expect(html).toMatch(/8560 ms vs best 250 ms[^"]*slower/);
+    expect(html).toContain("Cache: next turn, ms");
+    expect(html).toMatch(/250 ms vs best 50 ms[^"]*slower/);
+    expect(html).toMatch(/re-reads its own answer/);
+  });
+
+  test("a run without the chain leaves those rows unmeasured", () => {
+    const html = renderBenchmarkComparisonHtml([
+      { label: "A", report: report({ bench: bench([[512, 44]]) }) },
+      { label: "B", report: report({ bench: bench([[512, 44]]) }) },
+    ]);
+    expect(html).toMatch(
+      /Cache: another question, ms<\/td>(<td[^>]*>n\/a.*?<\/td>){2}<\/tr>/,
+    );
+    expect(html).toMatch(
+      /Prefill tok\/s, unseen text<\/td>(<td[^>]*>n\/a.*?<\/td>){2}<\/tr>/,
+    );
   });
 
   test("a hover on every score says why, and on every label says what", () => {

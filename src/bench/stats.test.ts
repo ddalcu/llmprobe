@@ -3,14 +3,17 @@ import { describe, expect, test } from "vitest";
 import {
   analyzeStepProfile,
   classifyBatching,
+  classifyCacheReuse,
   classifyLoadDrift,
   classifyPrefixCache,
   classifySpeculative,
   computeStat,
   decodeRate,
   deliveryRate,
+  describeCacheReuse,
   median,
   tokensPerSecond,
+  unseenPrefillRatio,
 } from "./stats";
 
 /** Frame arrival times for `steps` server steps of `perStep` frames each. */
@@ -239,6 +242,102 @@ describe("classifyPrefixCache", () => {
     // nothing — there was no prefill for a cache to skip.
     expect(classifyPrefixCache(3, 1).verdict).toBe("unknown");
     expect(classifyPrefixCache(3, 1).speedup).toBeNull();
+  });
+});
+
+describe("classifyCacheReuse", () => {
+  test("a longer prompt is held against the cold time scaled to its size", () => {
+    // Twice the tokens in the cold request's time is half the work per token:
+    // judged against the unscaled cold time it would read as no reuse.
+    const cold = { ttftMs: 2000, promptTokens: 8000 };
+    const { speedup, verdict } = classifyCacheReuse(cold, {
+      ttftMs: 1600,
+      promptTokens: 16000,
+    });
+    expect(speedup).toBe(2.5);
+    expect(verdict).toBe("active");
+  });
+
+  test("without token counts the cold time stands as measured", () => {
+    const cold = { ttftMs: 2000, promptTokens: null };
+    expect(
+      classifyCacheReuse(cold, { ttftMs: 1900, promptTokens: 8100 }).verdict,
+    ).toBe("none");
+    expect(
+      classifyCacheReuse(cold, { ttftMs: null, promptTokens: 8100 }).verdict,
+    ).toBe("unknown");
+  });
+});
+
+describe("describeCacheReuse", () => {
+  const cell = {
+    ttftMs: 310,
+    speedup: 6.5,
+    cachedTokens: 8096,
+    promptTokens: 8139,
+    verdict: "active" as const,
+  };
+
+  test("a resumed prompt reads as one, with the clock and the usage claim", () => {
+    expect(describeCacheReuse(cell)).toBe(
+      "resumes · 310 ms to first token (6.5×) · 8096 of 8139 tokens cached",
+    );
+  });
+
+  test("a prompt prefilled from the start says no reuse was seen", () => {
+    expect(
+      describeCacheReuse({
+        ...cell,
+        ttftMs: 2100,
+        speedup: 1,
+        cachedTokens: null,
+        verdict: "none",
+      }),
+    ).toBe("no reuse seen · 2.1s to first token (1×)");
+  });
+
+  test("the next turn says whether the answer was read again", () => {
+    const turn = { ...cell, answerTokens: 96, answerHadReasoning: false };
+    expect(describeCacheReuse({ ...turn, pastAnswer: true })).toMatch(
+      / · past its own answer$/,
+    );
+    expect(describeCacheReuse({ ...turn, pastAnswer: false })).toMatch(
+      / · re-reads its own answer \(96 tokens\)$/,
+    );
+    // Usage reported no cache counts: nothing to say either way.
+    expect(describeCacheReuse({ ...turn, pastAnswer: null })).not.toMatch(
+      /answer/,
+    );
+  });
+
+  test("an answer that came with reasoning is named as the likely cause", () => {
+    expect(
+      describeCacheReuse({
+        ...cell,
+        answerTokens: 96,
+        answerHadReasoning: true,
+        pastAnswer: false,
+      }),
+    ).toMatch(/reasoning, which most templates drop from history/);
+  });
+
+  test("an unmeasured cell never reads as a verdict", () => {
+    expect(
+      describeCacheReuse({ ...cell, speedup: null, verdict: "unknown" }),
+    ).toBe("not measurable");
+  });
+});
+
+describe("unseenPrefillRatio", () => {
+  test("is the unseen-text rate over the repeated-text rate", () => {
+    expect(unseenPrefillRatio(4130, 2243)).toBe(0.54);
+    expect(unseenPrefillRatio(4000, 4120)).toBe(1.03);
+  });
+
+  test("is null when either side went unmeasured", () => {
+    expect(unseenPrefillRatio(null, 2243)).toBeNull();
+    expect(unseenPrefillRatio(4130, undefined)).toBeNull();
+    expect(unseenPrefillRatio(0, 2243)).toBeNull();
   });
 });
 

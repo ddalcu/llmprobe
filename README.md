@@ -136,9 +136,12 @@ PERFORMANCE
   sustained load: steady — 42.3 → 41.6 tok/s over 3m 57s (-1.7%)
   Decode throughput     42.3 tok/s (39.1–44.0)
   Time to first token   380 ms (310–520)
-  Prefill throughput    910 tok/s  (2048-token prompt)
-  Prefix cache          active  29.3× (7.4s cold → 253 ms warm)
-    usage reports 1510 of 1541 prompt tokens cached
+  Prefill throughput    910 tok/s  (9620-token prompt)
+    unseen text         905 tok/s  0.99× the repeated text
+  Prefix cache          active  41.6× (10.5s cold → 253 ms warm)
+    usage reports 9601 of 9620 prompt tokens cached
+    another question    resumes · 310 ms to first token (33.9×) · 9588 of 9624 tokens cached
+    next turn           resumes · 290 ms to first token (37×) · 9620 of 9722 tokens cached · re-reads its own answer (84 tokens)
   Concurrency (4)       serialized — one slot behind a queue  0.24 efficiency
     38.3 tok/s aggregate vs 39.5 alone · slowest first token 1.5s
   Speculative decode    1.8× — effective (MTP/draft active)
@@ -169,9 +172,17 @@ The filler used to be one sentence repeated to size, and that quietly broke the 
 
 The echo variant this replaced measured nothing. Reproducing a passage buried in the context needs attention work a draft head cannot shortcut, and it came back flat — 1.01 / 0.97 / 1.01 / 0.94 / 0.95 / 1.02 — at every rung of a real 64k run. Its request budget went to the variant that discriminates.
 
-**Two server-feature checks** sit beside the ladder, deliberately kept to a yes/no about the engine rather than a second curve. Seven requests, about twenty seconds.
+**Prefill is measured twice**, because what the prompt says can matter. The headline figure repeats one sentence to size, the same bytes every run. The **unseen text** line under it prefills a word sequence no earlier request carried, a new one per run, and reports its rate against the headline's. On most engines the two agree. They part where reading a prompt depends on its content: rows looked up on disk by token n-gram, experts paged in from an SSD as the router picks them, weights mapped under memory pressure, or a MoE kernel that batches better when few experts fire. Below 0.8× the report says prefill depends on content, and the headline is then the best case rather than the usual one.
 
-**Prefix cache** sends one long prompt twice and times both. Conformance already checks that an engine _reports_ `cached_tokens` and that a warm hit doesn't change the answer; neither catches the engine that reports a hit and re-ingests the prompt anyway. Only the clock sees that. It's also the one probe in the benchmark that _wants_ a cache hit, so the prompt is busted once and reused: cold across llmprobe runs, warm within one.
+**Two server-feature checks** sit beside the ladder, deliberately kept to yes/no questions about the engine rather than a second curve.
+
+**Prefix cache** is a chain of four requests over one document as long as the prefill prompt, each timed to its first token against the cold one. Conformance already checks that an engine _reports_ `cached_tokens` and that a warm hit doesn't change the answer; neither catches the engine that reports a hit and re-ingests the prompt anyway. Only the clock sees that. It's also the one probe in the benchmark that _wants_ a cache hit, so the document is busted once and reused: cold across llmprobe runs, warm within one.
+
+1. **Cold**, then **the same prompt again**. This is the headline verdict, and the easy case.
+2. **Another question** under the same document. The prompt leaves the cached one a few tokens before its end. An engine whose state is plain attention KV truncates and carries on; one with recurrent, convolutional or compressed state cannot, and has to hold a checkpoint near the split or rebuild from one. "No reuse seen" here, beside an active headline, is an engine that only resumes a prompt it has seen whole, which is every edited message and every second question about a file.
+3. **The next turn** of that conversation, with the model's own answer in the history. `cached_tokens` above the answered prompt's size means the engine kept the state its answer left; at or below it, the engine prefilled text it had generated a moment earlier. On a reasoning run the line says so when the answer came with reasoning: most templates drop earlier reasoning from history, and then no engine can resume past the prompt. `--reasoning off` gives the clean reading.
+
+The document is long on purpose: a cache that restores at checkpoints thousands of tokens apart resumes nothing on a short prompt and would read as absent.
 
 **Concurrency** runs one stream alone, then a burst of four, and reports aggregate throughput over what four streams would produce at the single-stream rate. Continuous batching (vLLM, mlx-serve with batching on) holds efficiency near 1; one slot behind a queue pins it at 1/N, because the four requests simply take four times as long. Aggregate is measured over the burst's wall clock, never summed from per-request rates — that would report a queue as perfectly parallel. Each stream gets a distinct prompt, or you'd be measuring the cache instead of the batcher.
 

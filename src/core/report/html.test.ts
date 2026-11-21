@@ -284,6 +284,49 @@ describe("renderHtml — benchmark runs", () => {
     expect(html).toContain("context window exceeded");
   });
 
+  test("shows the cache chain and the unseen-text prefill when a run has them", () => {
+    const report = benchOnlyReport();
+    // A report saved before they existed renders without the rows.
+    const before = renderHtml(report);
+    expect(before).not.toContain("another question");
+    expect(before).not.toContain("unseen text");
+
+    report.bench!.prefillUnseenTokPerSec = {
+      median: 1026,
+      min: 1000,
+      max: 1050,
+      samples: [1000, 1026, 1050],
+    };
+    report.bench!.prefillUnseenPromptTokens = 3900;
+    report.bench!.prefixCache!.otherQuestion = {
+      ttftMs: 905,
+      speedup: 1,
+      cachedTokens: 0,
+      promptTokens: 4100,
+      verdict: "none",
+    };
+    report.bench!.prefixCache!.nextTurn = {
+      ttftMs: 130,
+      speedup: 7.1,
+      cachedTokens: 4096,
+      promptTokens: 4200,
+      verdict: "active",
+      answerTokens: 90,
+      pastAnswer: false,
+      answerHadReasoning: true,
+    };
+    const html = renderHtml(report);
+
+    expect(html).toMatch(/Prefill, unseen text<\/td><td>[^<]*1026/);
+    expect(html).toContain("0.54× the repeated text");
+    expect(html).toMatch(
+      /Prefix cache: another question<\/td><td>.*?not detected.*?no reuse seen · 905 ms/s,
+    );
+    expect(html).toMatch(
+      /Prefix cache: next turn<\/td><td>.*?active.*?re-reads its own answer \(90 tokens\); it came with reasoning/s,
+    );
+  });
+
   test("draws an svg chart when context scaling has two measured rungs", () => {
     const report = benchOnlyReport();
     report.bench!.contextScaling!.splice(1, 0, {

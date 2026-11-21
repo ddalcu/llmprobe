@@ -1,3 +1,5 @@
+import { describeCacheReuse, unseenPrefillRatio } from "../../bench/stats";
+import type { CacheReuse, PrefixCacheResult } from "../outcome";
 import { normalizeJsonReport, type JsonReport } from "./json";
 import { STYLE, chartJsBundle, embedJson, esc, fmtTokensK } from "./html";
 import {
@@ -158,6 +160,30 @@ interface ScoreRow {
   ordinal?: boolean;
 }
 
+/** A later request of the prefix-cache chain, ranked by its time to first token. */
+function cacheReuseRow(
+  label: string,
+  help: string,
+  pick: (c: PrefixCacheResult) => CacheReuse | null | undefined,
+): ScoreRow {
+  const cell = (i: ComparisonInput): CacheReuse | null => {
+    const cache = i.report.bench?.prefixCache;
+    return (cache && pick(cache)) || null;
+  };
+  return {
+    label,
+    help,
+    better: "lower",
+    value: (i) => cell(i)?.ttftMs ?? null,
+    text: (i) => num(cell(i)?.ttftMs),
+    fmt: (v) => `${v} ms`,
+    detail: (i) => {
+      const c = cell(i);
+      return c ? describeCacheReuse(c) : null;
+    },
+  };
+}
+
 /** Ordinal scores so a verdict can be ranked beside the numbers. */
 const CACHE_RANK: Record<string, number> = { active: 2, none: 1 };
 const BATCH_RANK: Record<string, number> = {
@@ -292,6 +318,21 @@ function scoreRows(): ScoreRow[] {
           : null,
     },
     {
+      label: "Prefill tok/s, unseen text",
+      help: "The same prefill on a word sequence no earlier request carried. Lower than the row above means how fast a prompt is read depends on what it says.",
+      better: "higher",
+      value: (i) => i.report.bench?.prefillUnseenTokPerSec?.median ?? null,
+      text: (i) => num(i.report.bench?.prefillUnseenTokPerSec?.median),
+      fmt: (v) => `${v} tok/s`,
+      detail: (i) => {
+        const ratio = unseenPrefillRatio(
+          i.report.bench?.prefillTokPerSec?.median,
+          i.report.bench?.prefillUnseenTokPerSec?.median,
+        );
+        return ratio !== null ? `${ratio}× the repeated text` : null;
+      },
+    },
+    {
       label: "Speculative",
       help: "Decode throughput on predictable output over novel output. Well above 1 means a draft path is paying off.",
       better: "higher",
@@ -337,6 +378,16 @@ function scoreRows(): ScoreRow[] {
         return `${c.coldTtftMs} ms cold → ${c.warmTtftMs} ms warm; usage reported ${c.cachedTokens ?? "no"} cached tokens`;
       },
     },
+    cacheReuseRow(
+      "Cache: another question, ms",
+      "Time to first token for another question under a document the engine just read: the prompt leaves the cached one near its end.",
+      (c) => c.otherQuestion,
+    ),
+    cacheReuseRow(
+      "Cache: next turn, ms",
+      "Time to first token for the next turn of a conversation, whose history carries the answer the engine just generated.",
+      (c) => c.nextTurn,
+    ),
     {
       label: "Concurrency",
       help: "Whether four in-flight requests are batched together or queued behind one slot. Efficiency near 1 is real batching, near 1/N is a queue.",

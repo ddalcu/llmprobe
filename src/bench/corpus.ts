@@ -201,3 +201,115 @@ export function echoedPassage(text: string): boolean {
     .replace(/^["'“”*_]+/, "")
     .startsWith(opening);
 }
+
+/**
+ * Everyday words for `buildUnseenText`. Real words, so the tokens are the ones
+ * ordinary prompts are made of; drawn at random, so their order is new.
+ */
+const WORDS = `
+time year people way day man thing woman life child world school state family
+student group country problem hand part place case week company system program
+question work government number night point home water room mother area money
+story fact month lot right study book eye job word business issue side kind
+head house service friend father power hour game line end member law car city
+community name president team minute idea kid body information back parent
+face others level office door health person art war history party result
+change morning reason research girl guy moment air teacher force education
+foot boy age policy music market sense nation plan college interest death
+experience effect class control field development role effort rate heart drug
+show leader light voice wife police mind price report decision son view
+relationship town road arm difference value building action season society tax
+director position player record paper space ground form event official matter
+center couple site project activity star table need court oil situation cost
+industry figure street image phone data picture practice piece land product
+doctor wall patient worker news test movie north love step window film
+republic tree source organization hair look century evidence culture billion
+chance brother energy period course summer plant opportunity term letter
+condition choice rule daughter south husband floor campaign material
+population economy hospital church risk fire future defense security bank west
+sport board subject officer rest behavior performance top goal second bed
+order author blood agency nature color store sound movement page race concern
+series language response dog animal factor decade article east artist scene
+stock career treatment approach size truth sea fund thought list individual
+quality pressure answer resource meeting disease success cup amount ability
+staff character growth loss degree attack region television box training trade
+deal election feeling standard bill message analysis benefit sex forest bridge
+river mountain valley island garden kitchen engine signal copper silver marble
+velvet ribbon lantern harbor anchor compass ledger orchard meadow canyon
+glacier thunder shadow whisper candle feather pocket basket button cabin
+castle carpet ceiling chimney closet corner cottage curtain drawer fence gate
+hallway ladder mirror pillow shelf stair tunnel attic barn cellar porch roof
+tower village bakery library museum station theater temple be have do say get
+make go know take see come think want give use find tell ask seem feel try
+leave call keep let begin help talk turn start hear play run move like live
+believe hold bring happen write provide sit stand lose pay meet include
+continue set learn lead understand watch follow stop create speak read allow
+add spend grow open walk win offer remember consider appear buy wait serve die
+send expect build stay fall cut reach kill remain suggest raise pass sell
+require decide pull return explain hope develop carry break receive agree
+support hit produce eat cover catch draw choose cause listen realize close
+involve increase arrive borrow carve deliver gather measure polish repair
+scatter stretch travel wander weave whistle bounce climb drift fold glide
+hover juggle kneel launch mend nudge paddle quiver rinse shiver tumble unfold
+vanish wobble yawn good new first last long great little own other old big
+high different small large next early young important few public bad same able
+free sure real full special easy clear recent certain personal red difficult
+available likely short single medical current wrong private past foreign fine
+common poor natural significant similar hot dead central happy serious ready
+simple left physical general environmental financial blue democratic dark
+various entire legal religious cold final main green nice huge popular
+traditional cultural quiet bright gentle hollow narrow proud rough silent
+steady tender uneven vivid warm weary amber crimson golden ivory scarlet
+violet ancient brittle curious distant eager fragile humble jagged keen lively
+modest nimble opaque placid rapid sturdy timid urgent vast wooden yellow
+zealous brisk clumsy dusty earnest faint grim hasty idle up so out just now
+how then more also here well only very even there down still in as too when
+never really most why about over again always sometimes often together already
+almost enough perhaps quite rather soon today yesterday tomorrow slowly
+quickly quietly loudly gently barely nearly suddenly finally clearly simply
+exactly the of and a to is you that it he was for on are with his they at this
+from or one had by but not what all were we can your an each which she their
+if will many them these some her would him into has two could no than been its
+who my made did after words called where apple bread butter cheese coffee
+honey lemon noodle olive pepper potato salad sugar tomato walnut biscuit
+cabbage carrot cherry garlic ginger mango melon onion peach pumpkin raisin
+spinach turnip vanilla almond barley celery eagle falcon heron sparrow turtle
+beetle cricket dolphin ferret gopher hornet jaguar lizard magpie otter panda
+rabbit salmon spider walrus badger camel donkey gecko hamster iguana koala
+lobster mantis newt osprey parrot hammer chisel wrench pliers shovel bucket
+needle thread scissor ruler pencil crayon marker stapler folder binder violin
+trumpet guitar piano flute cello drum banjo harp organ clarinet oboe tuba
+cymbal fiddle chorus melody January Monday Tuesday April Friday August Sunday
+October Paris Cairo Lima Oslo Tokyo Delhi Lagos Quito Dublin Vienna seven
+twelve thirty ninety hundred thousand dozen double triple quarter half zero
+eleven fifteen forty sixty eighty
+`
+  .trim()
+  .split(/\s+/);
+
+/**
+ * Text no earlier request carried: `seed` names one word sequence, and two
+ * seeds share nothing longer than a stray pair of words. The other fillers are
+ * the same bytes every run, which is what an engine that looks rows up by
+ * content, pages weights in on demand or keys a cache on the prompt has warm.
+ */
+export function buildUnseenText(seed: string, bytes: number): string {
+  // FNV-1a of the seed, stepped by mulberry32.
+  let state = 2166136261;
+  for (let i = 0; i < seed.length; i += 1)
+    state = Math.imul(state ^ seed.charCodeAt(i), 16777619);
+  const next = (): number => {
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+
+  const out: string[] = [];
+  for (let len = 0; len <= bytes; ) {
+    const word = WORDS[Math.floor(next() * WORDS.length)]!;
+    out.push(word);
+    len += word.length + 1;
+  }
+  return out.join(" ").slice(0, bytes);
+}

@@ -378,6 +378,35 @@ export interface PrefixCacheResult {
   cachedTokens: number | null;
   promptTokens: number | null;
   verdict: "active" | "none" | "unknown";
+  /** Same document, another question: the prompt leaves the cached one near its end. */
+  otherQuestion?: CacheReuse | null;
+  /** That conversation continued past the model's own answer. */
+  nextTurn?: NextTurnReuse | null;
+}
+
+/** A later request of the prefix-cache chain, read against the cold one. */
+export interface CacheReuse {
+  ttftMs: number | null;
+  /** The cold request's time scaled to this prompt's size, over `ttftMs`. */
+  speedup: number | null;
+  cachedTokens: number | null;
+  promptTokens: number | null;
+  verdict: "active" | "none" | "unknown";
+}
+
+export interface NextTurnReuse extends CacheReuse {
+  /** Visible tokens of the answer the history now carries. */
+  answerTokens: number | null;
+  /**
+   * Usage reports more cached tokens than the answered prompt had, so the
+   * engine kept the state its own answer left. Null without cache counts.
+   */
+  pastAnswer: boolean | null;
+  /**
+   * The answer came with reasoning. Most templates drop that from history,
+   * and then no engine can resume past the prompt.
+   */
+  answerHadReasoning: boolean;
 }
 
 /**
@@ -431,6 +460,15 @@ export interface ContextSpeculative {
 export interface ConcurrentRung extends BatchingResult {
   /** Median decode rate one stream saw inside the burst. */
   perStreamTokPerSec: number | null;
+  /** Every stream's own decode rate, slowest first — the spread the median hides. */
+  perStream?: number[];
+  /**
+   * Sum of each stream's own decode rate (first token to last). The engine's
+   * decode capacity while the streams overlap; prefill and staggered starts
+   * are not in it, so it runs above aggregateTokPerSec. A queue would also
+   * inflate it, so it never feeds the verdict.
+   */
+  decodeSumTokPerSec?: number | null;
   /** Failed streams and the engine's first error, e.g. a full KV cache. */
   note: string | null;
 }
@@ -506,12 +544,21 @@ export interface BenchReport {
   /** Prompt ingestion rate, tokens/sec, from a deliberately long prompt. */
   prefillTokPerSec: BenchStat | null;
   prefillPromptTokens: number | null;
+  /**
+   * Prefill of text no earlier request carried, a new word sequence per run.
+   * The figure above repeats one sentence, which an engine that reads rows off
+   * disk by content, or pages experts in, has warm after the first request.
+   */
+  prefillUnseenTokPerSec?: BenchStat | null;
+  prefillUnseenPromptTokens?: number | null;
   /** MTP / speculative-decoding effectiveness, or null if not probed. */
   speculative: SpeculativeResult | null;
   /** Whether the prefix cache actually skips work, timed rather than reported. */
   prefixCache: PrefixCacheResult | null;
   /** Whether concurrent requests are batched or queued. */
   batching: BatchingResult | null;
+  /** Bursts of 2/4/6/8 streams, narrowest first; stops at the first failed burst. */
+  batchingSweep?: ConcurrentRung[];
   /** Whether the box held its speed for the whole run — qualifies everything above. */
   loadDrift: LoadDriftResult | null;
   machine: MachineInfo;

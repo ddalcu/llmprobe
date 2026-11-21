@@ -1,4 +1,10 @@
-import { describeConcurrent, STEP_SPECULATION_FLOOR } from "../../bench/stats";
+import {
+  describeCacheReuse,
+  describeConcurrent,
+  STEP_SPECULATION_FLOOR,
+  UNSEEN_PREFILL_SLOWER,
+  unseenPrefillRatio,
+} from "../../bench/stats";
 import { effortNote, type ReasoningReport } from "../../reasoning/types";
 import type {
   AgenticScore,
@@ -423,6 +429,22 @@ function renderBench(bench: BenchReport, c: Palette): string[] {
     : "";
   lines.push(`  ${"Prefill throughput".padEnd(22)}${prefill}${promptNote}`);
 
+  const unseen = bench.prefillUnseenTokPerSec;
+  if (unseen) {
+    const ratio = unseenPrefillRatio(
+      bench.prefillTokPerSec?.median,
+      unseen.median,
+    );
+    const slower = ratio !== null && ratio < UNSEEN_PREFILL_SLOWER;
+    const against =
+      ratio === null
+        ? ""
+        : `  ${ratio}× the repeated text${slower ? " — prefill depends on content" : ""}`;
+    lines.push(
+      `    ${c.gray("unseen text".padEnd(20))}${fmtStat(unseen, "tok/s")}${slower ? c.yellow(against) : c.gray(against)}`,
+    );
+  }
+
   if (bench.contextScaling && bench.contextScaling.length > 0) {
     lines.push(
       `  ${c.gray("Context scaling  decode · first-token latency · speculation vs prompt size")}`,
@@ -473,6 +495,16 @@ function renderBench(bench: BenchReport, c: Palette): string[] {
         `  ${c.gray(`  usage reports ${cache.cachedTokens} of ${cache.promptTokens ?? "?"} prompt tokens cached`)}`,
       );
     }
+    for (const [name, cell] of [
+      ["another question", cache.otherQuestion],
+      ["next turn", cache.nextTurn],
+    ] as const) {
+      if (!cell) continue;
+      const line = `${name.padEnd(20)}${describeCacheReuse(cell)}`;
+      lines.push(
+        `    ${cell.verdict === "none" ? c.yellow(line) : c.gray(line)}`,
+      );
+    }
   }
 
   const batch = bench.batching;
@@ -501,6 +533,10 @@ function renderBench(bench: BenchReport, c: Palette): string[] {
         `  ${c.gray(`  ${batch.aggregateTokPerSec} tok/s aggregate vs ${batch.singleTokPerSec} alone${worst}`)}`,
       );
     }
+  }
+
+  for (const rung of bench.batchingSweep ?? []) {
+    lines.push(`  ${c.gray(`  ${describeConcurrent(rung)}`)}`);
   }
 
   const spec = bench.speculative;

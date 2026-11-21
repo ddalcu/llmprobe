@@ -6,6 +6,7 @@ import {
   PREDICTABLE_PASSAGE,
   buildCodeContext,
   buildCodeContextWithConstant,
+  buildUnseenText,
   echoedPassage,
   usedPlantedConstant,
 } from "./corpus";
@@ -95,5 +96,36 @@ describe("echoedPassage", () => {
   test("accepts the passage, also quoted or with a leading newline", () => {
     expect(echoedPassage(PREDICTABLE_PASSAGE)).toBe(true);
     expect(echoedPassage(`\n"${PREDICTABLE_PASSAGE}"`)).toBe(true);
+  });
+});
+
+describe("buildUnseenText", () => {
+  const trigrams = (text: string): Set<string> => {
+    const words = text.split(" ");
+    return new Set(
+      words.slice(2).map((w, i) => `${words[i]} ${words[i + 1]} ${w}`),
+    );
+  };
+
+  test("hits the byte target, and a seed names one text", () => {
+    expect(buildUnseenText("a", 40_960)).toHaveLength(40_960);
+    expect(buildUnseenText("a", 4096)).toBe(buildUnseenText("a", 4096));
+    expect(buildUnseenText("a", 0)).toBe("");
+  });
+
+  test("two seeds share next to no word sequence", () => {
+    // A table keyed on token n-grams must find the second text as cold as the
+    // first: only stray three-word runs may repeat between them.
+    const a = trigrams(buildUnseenText("run-1", 40_960));
+    const b = trigrams(buildUnseenText("run-2", 40_960));
+    const shared = [...a].filter((t) => b.has(t)).length;
+    expect(a.size).toBeGreaterThan(4000);
+    expect(shared).toBeLessThan(5);
+  });
+
+  test("draws on a wide vocabulary and does not loop", () => {
+    const words = buildUnseenText("a", 40_960).split(" ");
+    expect(new Set(words).size).toBeGreaterThan(600);
+    expect(trigrams(words.join(" ")).size).toBeGreaterThan(words.length - 10);
   });
 });

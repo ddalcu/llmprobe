@@ -687,6 +687,23 @@ export const COMPARE_SCRIPT = `
       ) +
       "</div>";
 
+    const hinted = (unit, pick) => (v, r) =>
+      v == null ? "—" : v + " " + unit + ' <span class="hint">' + esc(pick(r)) + "</span>";
+    html +=
+      '<div class="overview-label"><h2>Prefill and cache</h2><p>New text, and what a second request reuses of the first</p></div>';
+    html +=
+      grid +
+      row(rows, "Prefill, unseen text", rows.map((r) => (r && r.prefillUnseen ? r.prefillUnseen.tokPerSec : null)), true,
+        hinted("tok/s", (r) => (r.prefillUnseen.ratio == null ? "" : r.prefillUnseen.ratio + "× the repeated text")),
+      ) +
+      row(rows, "Cache: another question", rows.map((r) => (r && r.cacheOther ? r.cacheOther.ms : null)), false,
+        hinted("ms", (r) => r.cacheOther.text),
+      ) +
+      row(rows, "Cache: next turn", rows.map((r) => (r && r.cacheNext ? r.cacheNext.ms : null)), false,
+        hinted("ms", (r) => r.cacheNext.text),
+      ) +
+      "</div>";
+
     html += chartsHtml(rows);
 
     html +=

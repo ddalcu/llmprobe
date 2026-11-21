@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import type { RunReport } from "../outcome";
+import type { BenchReport, RunReport } from "../outcome";
 import { renderReport } from "./terminal";
 
 /**
@@ -278,6 +278,85 @@ describe("renderReport", () => {
     // The target header and the footer still frame the run.
     expect(out).toContain("llmprobe");
     expect(out).toContain("gemma-3-12b-it");
+  });
+
+  const stat = (median: number) => ({
+    median,
+    min: median,
+    max: median,
+    samples: [median],
+  });
+  const benched = (over: Partial<BenchReport>): RunReport =>
+    fixture({
+      bench: {
+        decodeTokPerSec: stat(67),
+        streamCaveat: null,
+        ttftMs: stat(240),
+        prefillTokPerSec: stat(4130),
+        prefillPromptTokens: 9600,
+        speculative: null,
+        prefixCache: null,
+        batching: null,
+        loadDrift: null,
+        machine: {
+          platform: "darwin",
+          arch: "arm64",
+          cpu: "Apple M5 Ultra",
+          memGB: 256,
+        },
+        contextScaling: null,
+        ...over,
+      },
+    });
+
+  test("the cache chain and the unseen-text prefill each get their own line", () => {
+    const out = render(
+      benched({
+        prefillUnseenTokPerSec: stat(2243),
+        prefillUnseenPromptTokens: 8900,
+        prefixCache: {
+          coldTtftMs: 2050,
+          warmTtftMs: 250,
+          speedup: 8.2,
+          cachedTokens: 9580,
+          promptTokens: 9600,
+          verdict: "active",
+          otherQuestion: {
+            ttftMs: 2040,
+            speedup: 1,
+            cachedTokens: 0,
+            promptTokens: 9604,
+            verdict: "none",
+          },
+          nextTurn: {
+            ttftMs: 56,
+            speedup: 37.2,
+            cachedTokens: 9690,
+            promptTokens: 9712,
+            verdict: "active",
+            answerTokens: 88,
+            pastAnswer: true,
+            answerHadReasoning: false,
+          },
+        },
+      }),
+    );
+
+    expect(out).toMatch(
+      /unseen text\s+2243 tok\/s.*0\.54× the repeated text — prefill depends on content/,
+    );
+    expect(out).toMatch(/another question\s+no reuse seen · 2\.0s/);
+    expect(out).toMatch(
+      /next turn\s+resumes · 56 ms to first token \(37\.2×\) · 9690 of 9712 tokens cached · past its own answer/,
+    );
+  });
+
+  test("an unseen-text prefill as fast as the repeated one is not flagged", () => {
+    const out = render(benched({ prefillUnseenTokPerSec: stat(4050) }));
+    expect(out).toMatch(/unseen text\s+4050 tok\/s.*0\.98× the repeated text/);
+    expect(out).not.toContain("depends on content");
+    // No chain cells were measured, so none are printed.
+    expect(out).not.toContain("another question");
   });
 
   test("without the flag every card is still rendered", () => {

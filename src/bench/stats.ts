@@ -1,4 +1,8 @@
-import type { ConcurrentRung } from "../core/outcome";
+import type {
+  CacheReuse,
+  ConcurrentRung,
+  NextTurnReuse,
+} from "../core/outcome";
 
 /**
  * Pure statistics for the mini benchmark.
@@ -246,6 +250,66 @@ export function classifyPrefixCache(
   };
 }
 
+/**
+ * A later request of the cache chain against the cold one. Their prompts differ
+ * in size, so the cold time is scaled to this one's token count first.
+ */
+export function classifyCacheReuse(
+  cold: { ttftMs: number | null; promptTokens: number | null },
+  later: { ttftMs: number | null; promptTokens: number | null },
+): { speedup: number | null; verdict: PrefixCacheVerdict } {
+  const scale =
+    cold.promptTokens && later.promptTokens
+      ? later.promptTokens / cold.promptTokens
+      : 1;
+  return classifyPrefixCache(
+    cold.ttftMs !== null ? cold.ttftMs * scale : null,
+    later.ttftMs,
+  );
+}
+
+/** One line for a chain cell: "resumes · 310 ms to first token (6.5×) · ...". */
+export function describeCacheReuse(
+  r: CacheReuse & Partial<NextTurnReuse>,
+): string {
+  if (r.verdict === "unknown" || r.ttftMs === null) return "not measurable";
+  const ms = Math.round(r.ttftMs);
+  const answer =
+    r.pastAnswer == null
+      ? null
+      : r.pastAnswer
+        ? "past its own answer"
+        : `re-reads its own answer (${r.answerTokens ?? "?"} tokens)` +
+          (r.answerHadReasoning
+            ? "; it came with reasoning, which most templates drop from history"
+            : "");
+  return [
+    r.verdict === "active" ? "resumes" : "no reuse seen",
+    `${ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms} ms`} to first token (${r.speedup}×)`,
+    r.cachedTokens !== null
+      ? `${r.cachedTokens} of ${r.promptTokens ?? "?"} tokens cached`
+      : null,
+    answer,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/**
+ * Below this share of the repeated-text rate, how fast the engine reads a
+ * prompt depends on what the prompt says.
+ */
+export const UNSEEN_PREFILL_SLOWER = 0.8;
+
+/** Unseen-text prefill rate over the repeated-text one. */
+export function unseenPrefillRatio(
+  repeated: number | null | undefined,
+  unseen: number | null | undefined,
+): number | null {
+  if (!repeated || !unseen) return null;
+  return Math.round((unseen / repeated) * 100) / 100;
+}
+
 export type BatchingVerdict = "batched" | "partial" | "serialized" | "unknown";
 
 export const BATCHING_EFFICIENT = 0.7;
@@ -417,6 +481,12 @@ export function analyzeStepProfile(
   };
 }
 
+/** " (18.2–24.9)" when streams differ; empty for one stream or none. */
+function spread(rates: number[] | undefined): string {
+  if (!rates || rates.length < 2) return "";
+  return ` (${rates[0]}–${rates[rates.length - 1]})`;
+}
+
 /** One line for a --concurrency burst: "x4 · 85 tok/s total · 21 tok/s each ...". */
 export function describeConcurrent(c: ConcurrentRung): string {
   if (c.note) return `x${c.streams} ✗ ${c.note}`;
@@ -425,7 +495,12 @@ export function describeConcurrent(c: ConcurrentRung): string {
     c.aggregateTokPerSec !== null
       ? `${c.aggregateTokPerSec} tok/s total`
       : null,
-    c.perStreamTokPerSec !== null ? `${c.perStreamTokPerSec} tok/s each` : null,
+    c.decodeSumTokPerSec != null
+      ? `${c.decodeSumTokPerSec} tok/s decode total`
+      : null,
+    c.perStreamTokPerSec !== null
+      ? `${c.perStreamTokPerSec} tok/s each${spread(c.perStream)}`
+      : null,
     c.efficiency !== null ? `${c.efficiency} efficiency (${c.verdict})` : null,
     c.worstTtftMs !== null
       ? `${(c.worstTtftMs / 1000).toFixed(1)}s worst first token`

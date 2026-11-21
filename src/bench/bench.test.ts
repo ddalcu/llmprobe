@@ -155,6 +155,15 @@ describe("runBenchmark against the mock", () => {
     expect(report!.prefixCache!.verdict).not.toBe("active");
     expect(report!.batching).not.toBeNull();
     expect(report!.batching!.streams).toBe(4);
+    expect(report!.batchingSweep!.map((r) => r.streams)).toEqual([2, 4, 6, 8]);
+    for (const r of report!.batchingSweep!) {
+      expect(r.perStream!.length).toBeLessThanOrEqual(r.streams);
+      expect(r.decodeSumTokPerSec).toBeCloseTo(
+        r.perStream!.reduce((a, b) => a + b, 0),
+        0,
+      );
+      expect(r.perStream).toEqual([...r.perStream!].sort((a, b) => a - b));
+    }
     expect(["batched", "partial", "serialized", "unknown"]).toContain(
       report!.batching!.verdict,
     );
@@ -409,8 +418,16 @@ describe("runBenchmark against the mock", () => {
     // purpose — it exists to measure the cache rather than defeat it. Exactly
     // one identical pair, and it is busted so it stays cold across runs.
     const cacheProbe = texts.filter((t) => t.includes(PREFIX_CACHE_SEED));
-    expect(cacheProbe).toHaveLength(2);
+    expect(cacheProbe).toHaveLength(4);
     expect(cacheProbe[0]).toBe(cacheProbe[1]);
+    // The other two leave that prompt on purpose, each at a different place:
+    // another question under the same document, then that conversation's
+    // next turn.
+    const document = cacheProbe[0]!.slice(0, 40_000);
+    expect(cacheProbe[2]!.startsWith(document)).toBe(true);
+    expect(cacheProbe[2]).not.toBe(cacheProbe[0]);
+    expect(cacheProbe[3]!.startsWith(cacheProbe[2]!)).toBe(true);
+    expect(cacheProbe[3]!.length).toBeGreaterThan(cacheProbe[2]!.length);
 
     // Everything else is byte-unique, variants included.
     const rest = texts.filter((t) => !t.includes(PREFIX_CACHE_SEED));
@@ -602,4 +619,135 @@ describe("runBenchmark against the mock", () => {
 
     expect(await runBenchmark(ctx, false)).toBeNull();
   });
+});
+
+describe("the prefix-cache chain and the unseen-text prefill", () => {
+  /** A mock whose prefill costs time, 200 ms for the chain's document. */
+  async function chain(prefixCache?: "whole" | "cut" | "cut+answer") {
+    engine = await startMockEngine({
+      bytesPerToken: 4,
+      prefillMsPerKb: 5,
+      ...(prefixCache ? { prefixCache } : {}),
+    });
+    const config: RunConfig = {
+      baseUrl: `${normalizeRoot(engine.url)}/v1`,
+      apiKey: "",
+      model: "mock-model-12b",
+      timeoutMs: 15_000,
+      depth: "default",
+      reasoningHeadroom: 0,
+      benchSettleMs: 0,
+      benchRuns: 1,
+      benchRungs: [512],
+    };
+    const ctx = createContext({
+      config,
+      client: new EngineClient(config),
+      adapters: new Map<string, SurfaceAdapter>(ADAPTERS.map((a) => [a.id, a])),
+      present: new Set(["models", "chat"]),
+      evalSurface: primarySurface(new Set(["chat"])),
+    });
+    const report = await runBenchmark(ctx, false);
+    return { report: report!, cache: report!.prefixCache! };
+  }
+
+  test("an engine with no cache reuses nothing anywhere in the chain", async () => {
+    const { cache } = await chain();
+    expect(cache.verdict).toBe("none");
+    expect(cache.otherQuestion!.verdict).toBe("none");
+    expect(cache.nextTurn!.verdict).toBe("none");
+    expect(cache.nextTurn!.pastAnswer).toBeNull();
+  }, 60_000);
+
+  test("a cache that restores whole entries only starts over on another question", async () => {
+    // The exact repeat and the next turn both begin with a prompt the engine
+    // already holds; another question under the same document does not.
+    const { cache } = await chain("whole");
+    expect(cache.verdict).toBe("active");
+    expect(cache.otherQuestion!.verdict).toBe("none");
+    expect(cache.otherQuestion!.cachedTokens).toBe(0);
+    expect(cache.nextTurn!.verdict).toBe("active");
+    expect(cache.nextTurn!.pastAnswer).toBe(false);
+  }, 60_000);
+
+  test("a cache that cuts an entry resumes where the texts part", async () => {
+    const { cache } = await chain("cut");
+    expect(cache.verdict).toBe("active");
+    const other = cache.otherQuestion!;
+    expect(other.verdict).toBe("active");
+    expect(other.cachedTokens).toBeGreaterThan(9000);
+    expect(other.cachedTokens).toBeLessThan(other.promptTokens!);
+    // It holds prompts only, so the next turn reads the answer again.
+    expect(cache.nextTurn!.verdict).toBe("active");
+    expect(cache.nextTurn!.pastAnswer).toBe(false);
+    expect(cache.nextTurn!.answerTokens).toBeGreaterThan(0);
+  }, 60_000);
+
+  test("a cache that keeps its own answer resumes past it on the next turn", async () => {
+    const { cache } = await chain("cut+answer");
+    expect(cache.otherQuestion!.verdict).toBe("active");
+    expect(cache.nextTurn!.verdict).toBe("active");
+    expect(cache.nextTurn!.pastAnswer).toBe(true);
+    expect(cache.nextTurn!.answerHadReasoning).toBe(false);
+  }, 60_000);
+
+  test("the next turn sends back exactly what the model answered", async () => {
+    await chain("cut+answer");
+    const turns = engine!.chatBodies
+      .map((b) => b.messages as Array<{ role: string; content: string }>)
+      .filter((m) => m.length === 3);
+    expect(turns).toHaveLength(1);
+    expect(turns[0]!.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
+    expect(turns[0]![1]!.content.length).toBeGreaterThan(0);
+  }, 60_000);
+
+  test("unseen text is prefilled as its own cell, a new text every run", async () => {
+    engine = await startMockEngine({ bytesPerToken: 4 });
+    const config: RunConfig = {
+      baseUrl: `${normalizeRoot(engine.url)}/v1`,
+      apiKey: "",
+      model: "mock-model-12b",
+      timeoutMs: 15_000,
+      depth: "default",
+      reasoningHeadroom: 0,
+      benchSettleMs: 0,
+      benchRungs: [512],
+    };
+    const ctx = createContext({
+      config,
+      client: new EngineClient(config),
+      adapters: new Map<string, SurfaceAdapter>(ADAPTERS.map((a) => [a.id, a])),
+      present: new Set(["models", "chat"]),
+      evalSurface: primarySurface(new Set(["chat"])),
+    });
+    const samples: string[] = [];
+    const report = await runBenchmark(ctx, false, undefined, undefined, (s) =>
+      samples.push(s.label),
+    );
+
+    coherent(report!.prefillUnseenTokPerSec ?? null);
+    // Sized like the repeated-text prompt it is read against.
+    expect(report!.prefillUnseenPromptTokens).toBeGreaterThan(9000);
+    expect(report!.prefillUnseenPromptTokens).toBeLessThan(11_000);
+    expect(samples.filter((l) => l.startsWith("unseen prefill"))).toEqual([
+      "unseen prefill 1/3",
+      "unseen prefill 2/3",
+      "unseen prefill 3/3",
+    ]);
+
+    // No two of them share a sentence, let alone a prompt: strip the bust tag
+    // and the texts still differ from their first words.
+    const unseen = engine.chatBodies
+      .map((b) => (b.messages as Array<{ content: string }>)[0]!.content)
+      .filter(
+        (t) =>
+          t.length > 30_000 &&
+          !t.includes(PREFIX_CACHE_SEED) &&
+          !t.includes("The archive records") &&
+          !t.includes("export "),
+      )
+      .map((t) => t.replace(/^\[probe [^\]]+\] /, "").slice(0, 60));
+    expect(unseen).toHaveLength(3);
+    expect(new Set(unseen).size).toBe(3);
+  }, 60_000);
 });

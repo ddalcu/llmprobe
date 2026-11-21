@@ -141,6 +141,18 @@ export interface MockDefects {
    * the ladder calibrates itself against what the engine actually counted.
    */
   bytesPerToken?: number;
+  /**
+   * A prefill that costs time: this many ms per 1000 prompt bytes no cache
+   * served, slept before the reply.
+   */
+  prefillMsPerKb?: number;
+  /**
+   * What that prefill skips, reported as `cached_tokens` (with `bytesPerToken`).
+   * `whole`: an earlier prompt the new one starts with, restored at its end
+   * only. `cut`: the longest prefix shared with any earlier prompt.
+   * `cut+answer`: the same, with the engine's own reply kept behind its prompt.
+   */
+  prefixCache?: "whole" | "cut" | "cut+answer";
   /** Which surfaces exist. Defaults to models + chat. */
   surfaces?: string[];
   /**
@@ -626,6 +638,8 @@ export async function startMockEngine(
   let chatPeakInFlight = 0;
   /** System prompts already prefilled once — the simulated prefix cache. */
   const seenSystems = new Set<string>();
+  /** What `prefixCache` holds: every prompt read, and with `cut+answer` its reply. */
+  const prefilled: string[] = [];
 
   const json = (
     res: ServerResponse,
@@ -761,7 +775,35 @@ export async function startMockEngine(
         }
       }
 
+      const prompt: string = (
+        Array.isArray(body?.messages) ? body.messages : []
+      )
+        .map((m: any) => (typeof m?.content === "string" ? m.content : ""))
+        .join("");
+      let reused = 0;
+      if (defects.prefixCache) {
+        for (const entry of prefilled) {
+          let shared = 0;
+          while (shared < entry.length && entry[shared] === prompt[shared])
+            shared += 1;
+          if (defects.prefixCache === "whole" && shared < entry.length)
+            continue;
+          reused = Math.max(reused, shared);
+        }
+        cachedTokens = Math.round(reused / (defects.bytesPerToken ?? 1));
+      }
+      if (defects.prefillMsPerKb !== undefined) {
+        await sleep(((prompt.length - reused) / 1000) * defects.prefillMsPerKb);
+      }
+
       const plan = respondTo(body, defects);
+      if (defects.prefixCache) {
+        prefilled.push(
+          defects.prefixCache === "cut+answer"
+            ? prompt + (plan.content ?? "")
+            : prompt,
+        );
+      }
       if (defects.leakThinkingIntoContent && typeof plan.content === "string") {
         const scratchpad =
           "Here's a thinking process:\n\n1.  **Analyze User Input:** " +
