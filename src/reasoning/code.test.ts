@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { extractCode, gradeCode } from "./code";
+import { CODE_CASES } from "./code-cases";
 import type { ReasoningCase } from "./types";
 
 const tc: ReasoningCase = {
@@ -73,5 +74,53 @@ describe("gradeCode", () => {
     expect(
       gradeCode(tc, "```js\nfunction add(a, b) { process.exit(1); }\n```").got,
     ).toMatch(/process is not defined/);
+  });
+
+  test("handles MultiPL-E >MAX_SAFE_INTEGER integer literals for Number and BigInt", () => {
+    const bell = CODE_CASES.find((c) => c.id === "mbpp_67_bell_number")!;
+
+    // Bell triangle in standard JS Number drifts by -1 ULP on B(56).
+    const numberTriangle = `\`\`\`js
+function bell_number(n) {
+  let row = [1];
+  for (let i = 1; i <= n; i++) {
+    const next = [row[row.length - 1]];
+    for (let j = 0; j < row.length; j++) next.push(next[j] + row[j]);
+    row = next;
+  }
+  return row[0];
+}
+\`\`\``;
+    expect(gradeCode(bell, numberTriangle).passed).toBe(true);
+
+    // Exact BigInt implementation against Number expected literals (2, 115975, B(56)).
+    const bigIntTriangle = `\`\`\`js
+function bell_number(n) {
+  let row = [1n];
+  for (let i = 1; i <= n; i++) {
+    const next = [row[row.length - 1]];
+    for (let j = 0; j < row.length; j++) next.push(next[j] + row[j]);
+    row = next;
+  }
+  return row[0];
+}
+\`\`\``;
+    expect(gradeCode(bell, bigIntTriangle).passed).toBe(true);
+
+    // Wrong large values and safe-integer float drift still fail.
+    const wrongBell = `\`\`\`js
+function bell_number(n) {
+  if (n === 2) return 2;
+  if (n === 10) return 115975;
+  return 6.7756853206459e54;
+}
+\`\`\``;
+    expect(gradeCode(bell, wrongBell).passed).toBe(false);
+    expect(
+      gradeCode(
+        tc,
+        "```js\nfunction add(a, b) { return a + b + Number.EPSILON; }\n```",
+      ).passed,
+    ).toBe(false);
   });
 });
