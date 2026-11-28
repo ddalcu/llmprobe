@@ -5,6 +5,72 @@ import { visibleText } from "./grade";
 import type { ReasoningCase } from "./types";
 
 const TIMEOUT_MS = 3_000;
+/**
+ * MultiPL-E ports Python arbitrary-precision integer assertions directly into
+ * unquoted JS number literals (e.g. mbpp_67_bell_number's 55-digit B(56)),
+ * which V8 rounds to float64 at parse time while valid Number DP recurrences
+ * drift by 1–2 ULPs and valid BigInt solutions fail node:assert's typeof check.
+ */
+const UNSAFE_INT_REL_TOL = 8 * Number.EPSILON;
+
+function matchesUnsafeIntLiteral(actual: unknown, expected: unknown): boolean {
+  if (typeof expected !== "number" || !Number.isFinite(expected)) return false;
+  if (typeof actual === "bigint") {
+    if (Number.isSafeInteger(expected)) return actual === BigInt(expected);
+    return (
+      Math.abs(expected) > Number.MAX_SAFE_INTEGER &&
+      Number(actual) === expected
+    );
+  }
+  return (
+    typeof actual === "number" &&
+    Number.isFinite(actual) &&
+    Math.abs(expected) > Number.MAX_SAFE_INTEGER &&
+    Math.abs(actual - expected) <= UNSAFE_INT_REL_TOL * Math.abs(expected)
+  );
+}
+
+function normalizeUnsafeIntExpected(
+  actual: unknown,
+  expected: unknown,
+): unknown {
+  if (matchesUnsafeIntLiteral(actual, expected)) return expected;
+  if (
+    Array.isArray(actual) &&
+    Array.isArray(expected) &&
+    actual.length === expected.length
+  ) {
+    let changed = false;
+    const mapped = actual.map((item, i) => {
+      const next = normalizeUnsafeIntExpected(item, expected[i]);
+      if (next !== item) changed = true;
+      return next;
+    });
+    return changed ? mapped : actual;
+  }
+  return actual;
+}
+
+const sandboxAssert = Object.assign(
+  (...args: Parameters<typeof assert>) => assert(...args),
+  assert,
+  {
+    deepEqual(
+      actual: unknown,
+      expected: unknown,
+      ...rest: [string, ...unknown[]] | [Error] | []
+    ) {
+      const normalized = normalizeUnsafeIntExpected(actual, expected);
+      if (rest.length === 0) {
+        assert.deepEqual(normalized, expected);
+      } else if (typeof rest[0] === "string") {
+        assert.deepEqual(normalized, expected, rest[0], ...rest.slice(1));
+      } else {
+        assert.deepEqual(normalized, expected, rest[0]);
+      }
+    },
+  },
+);
 
 export interface ExtractedCode {
   code: string;
@@ -35,7 +101,7 @@ export interface CodeGrade {
 
 function run(source: string): string | null {
   const require = (id: string) => {
-    if (id === "assert" || id === "node:assert") return assert;
+    if (id === "assert" || id === "node:assert") return sandboxAssert;
     throw new Error(`require('${id}') is not available in the eval sandbox`);
   };
   const context = vm.createContext({
